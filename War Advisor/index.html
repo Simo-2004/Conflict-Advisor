@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>War Advisor - Conflict Strategy Recommender</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <style>
+        :root {
+            --primary: #1a1a2e;
+            --accent: #e94560;
+            --success: #16a34a;
+            --bg: #f5f5f5;
+            --card-bg: #ffffff;
+            --border: #ddd;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--bg);
+            color: #333;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            grid-column: 1 / -1;
+        }
+
+        .header h1 {
+            color: var(--primary);
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 1.5fr;
+            gap: 30px;
+        }
+
+        .panel {
+            background: var(--card-bg);
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            border: 1px solid var(--border);
+        }
+
+        .panel h2 {
+            color: var(--primary);
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            font-weight: 600;
+            color: var(--primary);
+            margin-bottom: 8px;
+            font-size: 0.95em;
+        }
+
+        select, input[type="text"], input[type="number"] {
+            width: 100%;
+            padding: 12px;
+            border: 1.5px solid var(--border);
+            border-radius: 8px;
+            font-size: 0.95em;
+            transition: border-color 0.3s;
+            font-family: inherit;
+        }
+
+        select:focus, input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(233, 69, 96, 0.1);
+        }
+
+        .units-selector {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 8px;
+            max-height: 250px;
+            overflow-y: auto;
+            border: 1.5px solid var(--border);
+        }
+
+        .unit-checkbox {
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+            padding: 8px;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+
+        .unit-checkbox:hover {
+            background: #f0f0f0;
+        }
+
+        .unit-checkbox input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            margin-right: 10px;
+            cursor: pointer;
+            accent-color: var(--accent);
+        }
+
+        .unit-info {
+            flex: 1;
+        }
+
+        .unit-name {
+            font-weight: 600;
+            color: var(--primary);
+        }
+
+        .unit-desc {
+            font-size: 0.85em;
+            color: #666;
+            margin-top: 2px;
+        }
+
+        .selected-units {
+            margin-top: 15px;
+            padding: 10px;
+            background: #e8f5e9;
+            border-radius: 8px;
+            border-left: 4px solid var(--success);
+            display: none;
+        }
+
+        .selected-units.active {
+            display: block;
+        }
+
+        .selected-units p {
+            margin: 0;
+            color: #2e7d32;
+            font-weight: 600;
+        }
+
+        button {
+            width: 100%;
+            padding: 14px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 20px;
+        }
+
+        button:hover {
+            background: #d93a52;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(233, 69, 96, 0.3);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 15px;
+            display: none;
+            border-left: 4px solid #c62828;
+        }
+
+        .error.show {
+            display: block;
+        }
+
+        /* Pannello Risultati */
+        .results-area {
+            opacity: 0.4;
+            pointer-events: none;
+            transition: all 0.3s;
+        }
+
+        .results-area.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .top-strategy {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .top-strategy h3 {
+            font-size: 1.5em;
+            margin-bottom: 8px;
+        }
+
+        .compatibility {
+            font-size: 2em;
+            font-weight: 700;
+            margin: 10px 0;
+        }
+
+        .distance-score {
+            font-size: 0.9em;
+            opacity: 0.9;
+            margin-top: 8px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin-bottom: 30px;
+        }
+
+        .ranking-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .ranking-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px;
+            border-bottom: 1px solid var(--border);
+            transition: all 0.2s;
+        }
+
+        .ranking-item:hover {
+            background: #f9f9f9;
+            transform: translateX(4px);
+        }
+
+        .ranking-item:first-child {
+            background: #fff3e0;
+            border-radius: 8px;
+            border-bottom: none;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .rank-number {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            background: var(--accent);
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 24px;
+            margin-right: 10px;
+            font-size: 0.8em;
+            font-weight: 700;
+        }
+
+        .rank-name {
+            flex: 1;
+            font-weight: 500;
+        }
+
+        .rank-score {
+            color: #666;
+            font-size: 0.9em;
+            font-weight: 600;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 1024px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .header h1 {
+                font-size: 1.8em;
+            }
+
+            .panel {
+                padding: 15px;
+            }
+
+            .top-strategy {
+                padding: 15px;
+            }
+
+            .top-strategy h3 {
+                font-size: 1.2em;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>⚔️ War Advisor</h1>
+        <p>Sistema di Raccomandazione Strategica per Wargame</p>
+    </div>
+
+    <div class="container">
+        <!-- PANEL SINISTRO: INPUT -->
+        <div class="panel">
+            <h2>Componi il Tuo Esercito</h2>
+
+            <!-- Selezione Unità -->
+            <div class="form-group">
+                <label>Seleziona le Tue Unità:</label>
+                <div class="units-selector" id="unitsContainer">
+                    <!-- Generato dinamicamente -->
+                </div>
+                <div class="selected-units" id="selectedUnitsBox">
+                    <p id="selectedCount">Unità selezionate: 0</p>
+                </div>
+            </div>
+
+            <!-- Selezione Terreno -->
+            <div class="form-group">
+                <label for="terrainSelect">Scegli il Terreno:</label>
+                <select id="terrainSelect">
+                    <option value="">-- Seleziona un terreno --</option>
+                </select>
+            </div>
+
+            <!-- Selezione Meteo -->
+            <div class="form-group">
+                <label for="weatherSelect">Condizione Meteo (Opzionale):</label>
+                <select id="weatherSelect">
+                    <option value="">-- Nessuna --</option>
+                </select>
+            </div>
+
+            <!-- Selezione Stato Truppe -->
+            <div class="form-group">
+                <label for="statusSelect">Stato Truppe (Opzionale):</label>
+                <select id="statusSelect">
+                    <option value="">-- Nessuno --</option>
+                </select>
+            </div>
+
+            <!-- Pulsante Calcola -->
+            <button id="calculateBtn" onclick="calculateStrategy()" disabled>
+                🎯 CALCOLA STRATEGIA
+            </button>
+
+            <!-- Box Errore -->
+            <div id="errorBox" class="error"></div>
+        </div>
+
+        <!-- PANEL DESTRO: RISULTATI -->
+        <div class="panel">
+            <h2>Analisi Strategica</h2>
+
+            <!-- Loading -->
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                <p>Elaborazione in corso...</p>
+            </div>
+
+            <!-- Risultati -->
+            <div id="resultsArea" class="results-area">
+                <!-- Top Strategy -->
+                <div class="top-strategy">
+                    <h3 id="topStrategyName">---</h3>
+                    <div class="compatibility" id="topCompatibility">---</div>
+                    <div class="distance-score" id="topDistance">Distanza Semantica: ---</div>
+                </div>
+
+                <!-- Radar Chart -->
+                <div class="chart-container">
+                    <canvas id="radarChart"></canvas>
+                </div>
+
+                <!-- Ranking Strategie -->
+                <h3 style="margin-top: 30px; color: var(--primary); margin-bottom: 15px;">Ranking Completo</h3>
+                <ul class="ranking-list" id="rankingList">
+                    <!-- Generato dinamicamente -->
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Mapping dei nomi degli attributi
+        const ATTRIBUTE_NAMES = {
+            'U1_attack': 'Attacco',
+            'U2_defense': 'Difesa',
+            'U3_mobility': 'Mobilità',
+            'U4_stealth': 'Furtività',
+            'U5_discipline': 'Disciplina',
+            'U6_terrain_adapt': 'Adatt. Terreno',
+            'U7_range_power': 'Potenza a Distanza',
+            'U8_support': 'Supporto'
+        };
+
+        let radarChart = null;
+        let selectedUnits = [];
+        let allUnits = [];
+        let allTerrains = [];
+        let allWeather = [];
+        let allTroopStatus = [];
+
+        // Carica i dati al load della pagina
+        window.addEventListener('DOMContentLoaded', loadData);
+
+        async function loadData() {
+            try {
+                const response = await fetch('http://127.0.0.1:8000/config');
+                if (!response.ok) throw new Error('Errore nel caricamento dei dati');
+
+                const data = await response.json();
+                allUnits = data.units;
+                allTerrains = data.terrains;
+                allWeather = data.weather;
+                allTroopStatus = data.troop_status;
+
+                populateUnitsSelector();
+                populateTerrains();
+                populateWeather();
+                populateTroopStatus();
+            } catch (error) {
+                showError('Errore nel caricamento dei dati: ' + error.message);
+            }
+        }
+
+        function populateUnitsSelector() {
+            const container = document.getElementById('unitsContainer');
+            container.innerHTML = '';
+
+            allUnits.forEach(unit => {
+                const div = document.createElement('div');
+                div.className = 'unit-checkbox';
+                div.innerHTML = `
+                    <input type="checkbox" id="unit_${unit.id}" value="${unit.id}" 
+                           onchange="updateSelectedUnits()">
+                    <div class="unit-info">
+                        <div class="unit-name">${unit.name}</div>
+                        <div class="unit-desc">${unit.description}</div>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function populateTerrains() {
+            const select = document.getElementById('terrainSelect');
+            select.innerHTML = '<option value="">-- Seleziona un terreno --</option>';
+
+            allTerrains.forEach(terrain => {
+                const option = document.createElement('option');
+                option.value = terrain.name;
+                option.textContent = terrain.name;
+                select.appendChild(option);
+            });
+        }
+
+        function populateWeather() {
+            const select = document.getElementById('weatherSelect');
+            select.innerHTML = '<option value="">-- Nessuna --</option>';
+
+            allWeather.forEach(weather => {
+                const option = document.createElement('option');
+                option.value = weather.name;
+                option.textContent = weather.name;
+                select.appendChild(option);
+            });
+        }
+
+        function populateTroopStatus() {
+            const select = document.getElementById('statusSelect');
+            select.innerHTML = '<option value="">-- Nessuno --</option>';
+
+            allTroopStatus.forEach(status => {
+                const option = document.createElement('option');
+                option.value = status.name;
+                option.textContent = status.name;
+                select.appendChild(option);
+            });
+        }
+
+        function updateSelectedUnits() {
+            selectedUnits = [];
+            document.querySelectorAll('.unit-checkbox input[type="checkbox"]:checked').forEach(checkbox => {
+                selectedUnits.push(checkbox.value);
+            });
+
+            // Aggiorna il contatore
+            const box = document.getElementById('selectedUnitsBox');
+            const count = document.getElementById('selectedCount');
+            count.textContent = `Unità selezionate: ${selectedUnits.length}`;
+
+            if (selectedUnits.length > 0) {
+                box.classList.add('active');
+            } else {
+                box.classList.remove('active');
+            }
+
+            // Abilita/disabilita il bottone
+            updateButtonState();
+        }
+
+        function updateButtonState() {
+            const btn = document.getElementById('calculateBtn');
+            const terrain = document.getElementById('terrainSelect').value;
+            btn.disabled = !(selectedUnits.length > 0 && terrain !== '');
+        }
+
+        document.getElementById('terrainSelect').addEventListener('change', updateButtonState);
+        document.getElementById('weatherSelect').addEventListener('change', updateButtonState);
+        document.getElementById('statusSelect').addEventListener('change', updateButtonState);
+
+        async function calculateStrategy() {
+            const errorBox = document.getElementById('errorBox');
+            errorBox.classList.remove('show');
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('resultsArea').classList.remove('active');
+
+            const terrain = document.getElementById('terrainSelect').value;
+            const weather = document.getElementById('weatherSelect').value;
+            const troop_status = document.getElementById('statusSelect').value;
+
+            try {
+                const response = await fetch('http://127.0.0.1:8000/calculate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        units: selectedUnits,
+                        terrain: terrain,
+                        weather: weather || null,
+                        troop_status: troop_status || null
+                    })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Errore nella richiesta');
+                }
+
+                const data = await response.json();
+                renderResults(data);
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        function renderResults(data) {
+            // Top Strategy
+            const top = data.top_strategy;
+            document.getElementById('topStrategyName').textContent = top.name;
+            document.getElementById('topCompatibility').textContent = `${top.compatibility.toFixed(1)}%`;
+            document.getElementById('topDistance').textContent = `Distanza Semantica: ${top.distance.toFixed(4)}`;
+
+            // Ranking List
+            const rankingList = document.getElementById('rankingList');
+            rankingList.innerHTML = '';
+            data.ranking.forEach((strat, index) => {
+                const li = document.createElement('li');
+                li.className = 'ranking-item';
+                li.innerHTML = `
+                    <div>
+                        <span class="rank-number">${index + 1}</span>
+                        <span class="rank-name">${strat.name}</span>
+                    </div>
+                    <span class="rank-score">${strat.compatibility.toFixed(1)}%</span>
+                `;
+                rankingList.appendChild(li);
+            });
+
+            // Mostra avvisi CRITICAL se presenti
+            if (data.critical_warnings && data.critical_warnings.length > 0) {
+                const warningsDiv = document.getElementById('warningsArea') || createWarningsArea();
+                warningsDiv.innerHTML = '<strong>⚠️ Avvisi CRITICAL:</strong><br>' + data.critical_warnings.join('<br>');
+            }
+
+            // Radar Chart
+            updateChart(data.army_profile, data.modified_profile, data.top_strategy.ideal_attributes);
+
+            // Mostra i risultati
+            document.getElementById('resultsArea').classList.add('active');
+        }
+
+        function createWarningsArea() {
+            const resultsArea = document.getElementById('resultsArea');
+            const warningsDiv = document.createElement('div');
+            warningsDiv.id = 'warningsArea';
+            warningsDiv.style.cssText = 'background: #fff3cd; color: #856404; padding: 12px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #ffc107;';
+            resultsArea.insertBefore(warningsDiv, resultsArea.firstChild);
+            return warningsDiv;
+        }
+
+        function updateChart(originalArmy, modifiedArmy, topStrategy) {
+            const ctx = document.getElementById('radarChart').getContext('2d');
+
+            const keys = Object.keys(originalArmy);
+            const labels = keys.map(k => ATTRIBUTE_NAMES[k] || k);
+
+            const originalValues = keys.map(k => originalArmy[k]);
+            const modifiedValues = keys.map(k => modifiedArmy[k]);
+            const strategyValues = keys.map(k => topStrategy[k]);
+
+            if (radarChart) {
+                radarChart.destroy();
+            }
+
+            radarChart = new Chart(ctx, {
+                type: 'radar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Il Tuo Esercito',
+                            data: originalValues,
+                            backgroundColor: 'rgba(233, 69, 96, 0.15)',
+                            borderColor: '#e94560',
+                            pointBackgroundColor: '#e94560',
+                            borderWidth: 2,
+                            pointRadius: 4,
+                            pointHoverRadius: 6
+                        },
+                        {
+                            label: 'Con Modificatori Terreno',
+                            data: modifiedValues,
+                            backgroundColor: 'rgba(102, 126, 234, 0.15)',
+                            borderColor: '#667eea',
+                            pointBackgroundColor: '#667eea',
+                            borderWidth: 2,
+                            pointRadius: 4,
+                            pointHoverRadius: 6
+                        },
+                        {
+                            label: 'Strategia Ideale',
+                            data: strategyValues,
+                            backgroundColor: 'rgba(22, 163, 74, 0.15)',
+                            borderColor: '#16a34a',
+                            pointBackgroundColor: '#16a34a',
+                            borderDash: [5, 5],
+                            borderWidth: 2,
+                            pointRadius: 4,
+                            pointHoverRadius: 6
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                font: { size: 11, weight: '600' },
+                                padding: 15
+                            }
+                        }
+                    },
+                    scales: {
+                        r: {
+                            min: 0,
+                            max: 1,
+                            ticks: {
+                                stepSize: 0.2,
+                                font: { size: 10 }
+                            },
+                            pointLabels: {
+                                font: { size: 11, weight: '500' }
+                            },
+                            angleLines: { color: 'rgba(0,0,0,0.1)' },
+                            grid: { color: 'rgba(0,0,0,0.05)' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function showError(msg) {
+            const box = document.getElementById('errorBox');
+            box.textContent = '❌ Errore: ' + msg;
+            box.classList.add('show');
+            document.getElementById('loading').style.display = 'none';
+        }
+    </script>
+</body>
+</html>

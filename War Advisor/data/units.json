@@ -1,0 +1,124 @@
+{
+  "units": [
+    {
+      "id": "heavy_infantry",
+      "name": "Fanteria Pesante",
+      "description": "Soldati blindati con grande potenza offensiva, ottima difesa ma bassa mobilità",
+      "attributes": {
+        "U1_attack": 0.9,
+        "U2_defense": 0.85,
+        "U3_mobility": 0.3,
+        "U4_stealth": 0.1,
+        "U5_discipline": 0.8,
+        "U6_terrain_adapt": 0.5,
+        "U7_range_power": 0.3,
+        "U8_support": 0.6
+      }
+    },
+    {
+      "id": "light_cavalry",
+      "name": "Cavalleria Leggera",
+      "description": "Unità veloce e ad alta manovra, altissima mobilità ma bassa difesa",
+      "attributes": {
+        "U1_attack": 0.75,
+        "U2_defense": 0.35,
+        "U3_mobility": 0.95,
+        "U4_stealth": 0.2,
+        "U5_discipline": 0.6,
+        "U6_terrain_adapt": 0.6,
+        "U7_range_power": 0.3,
+        "U8_support": 0.4
+      }
+    },
+    {
+      "id": "archers",
+      "name": "Arcieri",
+      "description": "Specialisti in attacchi a distanza con media furtività",
+      "attributes": {
+        "U1_attack": 0.55,
+        "U2_defense": 0.3,
+        "U3_mobility": 0.65,
+        "U4_stealth": 0.55,
+        "U5_discipline": 0.7,
+        "U6_terrain_adapt": 0.7,
+        "U7_range_power": 0.95,
+        "U8_support": 0.5
+      }
+    },
+    {
+      "id": "scouts",
+      "name": "Esploratori",
+      "description": "Unità furtiva e veloce, eccellente per ricognizioni e attacchi sorpresa",
+      "attributes": {
+        "U1_attack": 0.4,
+        "U2_defense": 0.2,
+        "U3_mobility": 0.9,
+        "U4_stealth": 0.95,
+        "U5_discipline": 0.5,
+        "U6_terrain_adapt": 0.85,
+        "U7_range_power": 0.4,
+        "U8_support": 0.3
+      }
+    },
+    {
+      "id": "pikemen",
+      "name": "Picchieri",
+      "description": "Formazione difensiva con buona difesa, specializzati contro cavalleria",
+      "attributes": {
+        "U1_attack": 0.7,
+        "U2_defense": 0.75,
+        "U3_mobility": 0.4,
+        "U4_stealth": 0.1,
+        "U5_discipline": 0.85,
+        "U6_terrain_adapt": 0.55,
+        "U7_range_power": 0.25,
+        "U8_support": 0.5
+      }
+    },
+    {
+      "id": "artillery",
+      "name": "Artiglieria",
+      "description": "Potenza di fuoco massima a distanza, bassissima mobilità e furtività",
+      "attributes": {
+        "U1_attack": 0.3,
+        "U2_defense": 0.2,
+        "U3_mobility": 0.1,
+        "U4_stealth": 0.15,
+        "U5_discipline": 0.75,
+        "U6_terrain_adapt": 0.3,
+        "U7_range_power": 0.98,
+        "U8_support": 0.6
+      }
+    },
+    {
+      "id": "healers",
+      "name": "Guaritori",
+      "description": "Supporto e cura per le truppe, basso attacco",
+      "attributes": {
+        "U1_attack": 0.15,
+        "U2_defense": 0.4,
+        "U3_mobility": 0.6,
+        "U4_stealth": 0.3,
+        "U5_discipline": 0.9,
+        "U6_terrain_adapt": 0.5,
+        "U7_range_power": 0.25,
+        "U8_support": 0.95
+      }
+    },
+    {
+      "id": "assassins",
+      "name": "Assassini",
+      "description": "Attacco fulminante e altissima furtività, bassa disciplina",
+      "attributes": {
+        "U1_attack": 0.7,
+        "U2_defense": 0.2,
+        "U3_mobility": 0.7,
+        "U4_stealth": 0.95,
+        "U5_discipline": 0.5,
+        "U6_terrain_adapt": 0.6,
+        "U7_range_power": 0.4,
+        "U8_support": 0.1
+      }
+    }
+  ]
+}

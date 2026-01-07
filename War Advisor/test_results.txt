@@ -1,0 +1,969 @@
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Picchieri (pikemen)
+   • Cavalleria Leggera (light_cavalry)
+
+🌍 MODIFICATORI:
+   Terreno: Foresta
+   Clima:   Sereno
+   Morale:  Veterane
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: ███████░░░ 0.72
+   U2_defense: █████░░░░░ 0.55
+   U3_mobility: █████░░░░░ 0.54
+   U4_stealth: █░░░░░░░░░ 0.20
+   U5_discipline: ████████░░ 0.83
+   U6_terrain_adapt: ██████░░░░ 0.63
+   U7_range_power: ██░░░░░░░░ 0.28
+   U8_support: ████░░░░░░ 0.45
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Sfondamento Centrale
+   ID:            breakthrough
+   Compatibilità: 89.3%
+   Distanza:      0.3035
+   Descrizione:   Concentrazione massima di potenza offensiva nel punto critico
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Artiglieria (artillery)
+   • Picchieri (pikemen)
+
+🌍 MODIFICATORI:
+   Terreno: Fiume
+   Clima:   Sereno
+   Morale:  Demoralizzate
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: ███░░░░░░░ 0.36
+   U2_defense: ████░░░░░░ 0.47
+   U3_mobility: █░░░░░░░░░ 0.17
+   U4_stealth: █░░░░░░░░░ 0.12
+   U5_discipline: █████░░░░░ 0.56
+   U6_terrain_adapt: ████░░░░░░ 0.43
+   U7_range_power: ██████░░░░ 0.61
+   U8_support: █████░░░░░ 0.55
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Schermo e Fuoco
+   ID:            screen_and_fire
+   Compatibilità: 83.8%
+   Distanza:      0.4577
+   Descrizione:   Difesa con potenza di fuoco a distanza
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Fanteria Pesante (heavy_infantry)
+   • Guaritori (healers)
+
+🌍 MODIFICATORI:
+   Terreno: Fiume
+   Clima:   Pioggia
+   Morale:  Veterane
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: ████░░░░░░ 0.47
+   U2_defense: ██████░░░░ 0.62
+   U3_mobility: ██░░░░░░░░ 0.28
+   U4_stealth: ██░░░░░░░░ 0.20
+   U5_discipline: █████████░ 0.98
+   U6_terrain_adapt: █████░░░░░ 0.55
+   U7_range_power: █░░░░░░░░░ 0.19
+   U8_support: ███████░░░ 0.77
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Assalto Frontale
+   ID:            frontal_assault
+   Compatibilità: 80.1%
+   Distanza:      0.5636
+   Descrizione:   Attacco diretto e massiccia potenza offensiva e difesa
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Picchieri (pikemen)
+   • Artiglieria (artillery)
+
+🌍 MODIFICATORI:
+   Terreno: Montagna
+   Clima:   Pioggia
+   Morale:  Veterane
+
+⚠️  AVVISI CRITICI:
+   ! CRITICAL: U6_terrain_adapt in Montagna (valore < 0.5) - penalità applicata
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: █████░░░░░ 0.50
+   U2_defense: █████░░░░░ 0.57
+   U3_mobility: █░░░░░░░░░ 0.14
+   U4_stealth: █░░░░░░░░░ 0.12
+   U5_discipline: █████████░ 0.92
+   U6_terrain_adapt: ██░░░░░░░░ 0.23
+   U7_range_power: ████░░░░░░ 0.43
+   U8_support: █████░░░░░ 0.55
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Assalto Frontale
+   ID:            frontal_assault
+   Compatibilità: 79.7%
+   Distanza:      0.5755
+   Descrizione:   Attacco diretto e massiccia potenza offensiva e difesa
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Fanteria Pesante (heavy_infantry)
+   • Artiglieria (artillery)
+
+🌍 MODIFICATORI:
+   Terreno: Montagna
+   Clima:   Sereno
+   Morale:  Fresche
+
+⚠️  AVVISI CRITICI:
+   ! CRITICAL: U6_terrain_adapt in Montagna (valore < 0.5) - penalità applicata
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: ██████░░░░ 0.66
+   U2_defense: ██████░░░░ 0.69
+   U3_mobility: █░░░░░░░░░ 0.13
+   U4_stealth: █░░░░░░░░░ 0.14
+   U5_discipline: ████████░░ 0.85
+   U6_terrain_adapt: ██░░░░░░░░ 0.22
+   U7_range_power: ███████░░░ 0.70
+   U8_support: ██████░░░░ 0.66
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Schermo e Fuoco
+   ID:            screen_and_fire
+   Compatibilità: 86.2%
+   Distanza:      0.3906
+   Descrizione:   Difesa con potenza di fuoco a distanza
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Guaritori (healers)
+   • Fanteria Pesante (heavy_infantry)
+
+🌍 MODIFICATORI:
+   Terreno: Foresta
+   Clima:   Notte
+   Morale:  Veterane
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: █████░░░░░ 0.53
+   U2_defense: ██████░░░░ 0.62
+   U3_mobility: ███░░░░░░░ 0.36
+   U4_stealth: ███░░░░░░░ 0.39
+   U5_discipline: █████████░ 0.98
+   U6_terrain_adapt: █████░░░░░ 0.55
+   U7_range_power: ██░░░░░░░░ 0.28
+   U8_support: ███████░░░ 0.77
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Assalto Frontale
+   ID:            frontal_assault
+   Compatibilità: 79.6%
+   Distanza:      0.5766
+   Descrizione:   Attacco diretto e massiccia potenza offensiva e difesa
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Artiglieria (artillery)
+   • Cavalleria Leggera (light_cavalry)
+
+🌍 MODIFICATORI:
+   Terreno: Foresta
+   Clima:   Pioggia
+   Morale:  Veterane
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: █████░░░░░ 0.53
+   U2_defense: ██░░░░░░░░ 0.28
+   U3_mobility: ███░░░░░░░ 0.38
+   U4_stealth: ██░░░░░░░░ 0.23
+   U5_discipline: ███████░░░ 0.78
+   U6_terrain_adapt: ████░░░░░░ 0.49
+   U7_range_power: ████░░░░░░ 0.45
+   U8_support: █████░░░░░ 0.50
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Sfondamento Centrale
+   ID:            breakthrough
+   Compatibilità: 80.3%
+   Distanza:      0.5561
+   Descrizione:   Concentrazione massima di potenza offensiva nel punto critico
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Assassini (assassins)
+   • Esploratori (scouts)
+
+🌍 MODIFICATORI:
+   Terreno: Foresta
+   Clima:   Sereno
+   Morale:  Demoralizzate
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: ████░░░░░░ 0.44
+   U2_defense: ██░░░░░░░░ 0.20
+   U3_mobility: ██████░░░░ 0.64
+   U4_stealth: ██████████ 1.00
+   U5_discipline: ███░░░░░░░ 0.35
+   U6_terrain_adapt: ███████░░░ 0.72
+   U7_range_power: ████░░░░░░ 0.40
+   U8_support: ██░░░░░░░░ 0.20
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Imboscata
+   ID:            ambush
+   Compatibilità: 85.9%
+   Distanza:      0.3989
+   Descrizione:   Attacco a sorpresa da posizioni nascoste
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Fanteria Pesante (heavy_infantry)
+   • Picchieri (pikemen)
+
+🌍 MODIFICATORI:
+   Terreno: Palude
+   Clima:   Nebbia
+   Morale:  Veterane
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: ████████░░ 0.80
+   U2_defense: ████████░░ 0.80
+   U3_mobility: █░░░░░░░░░ 0.17
+   U4_stealth: █░░░░░░░░░ 0.17
+   U5_discipline: █████████░ 0.95
+   U6_terrain_adapt: █████░░░░░ 0.58
+   U7_range_power: █░░░░░░░░░ 0.14
+   U8_support: █████░░░░░ 0.55
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Assalto Frontale
+   ID:            frontal_assault
+   Compatibilità: 85.9%
+   Distanza:      0.3986
+   Descrizione:   Attacco diretto e massiccia potenza offensiva e difesa
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Picchieri (pikemen)
+   • Arcieri (archers)
+
+🌍 MODIFICATORI:
+   Terreno: Pianura
+   Clima:   Pioggia
+   Morale:  Fresche
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: ██████░░░░ 0.69
+   U2_defense: █████░░░░░ 0.58
+   U3_mobility: █████░░░░░ 0.52
+   U4_stealth: ███░░░░░░░ 0.36
+   U5_discipline: ████████░░ 0.85
+   U6_terrain_adapt: ██████░░░░ 0.69
+   U7_range_power: ████░░░░░░ 0.46
+   U8_support: █████░░░░░ 0.55
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Accerchiamento
+   ID:            encirclement
+   Compatibilità: 88.3%
+   Distanza:      0.3309
+   Descrizione:   Movimento coordinato per circondare il nemico
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Assassini (assassins)
+   • Fanteria Pesante (heavy_infantry)
+
+🌍 MODIFICATORI:
+   Terreno: Fiume
+   Clima:   Sereno
+   Morale:  Fresche
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: ███████░░░ 0.79
+   U2_defense: █████░░░░░ 0.58
+   U3_mobility: ███░░░░░░░ 0.39
+   U4_stealth: █████░░░░░ 0.58
+   U5_discipline: ███████░░░ 0.72
+   U6_terrain_adapt: ██████░░░░ 0.61
+   U7_range_power: ███░░░░░░░ 0.39
+   U8_support: ███░░░░░░░ 0.39
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Sfondamento Centrale
+   ID:            breakthrough
+   Compatibilità: 82.0%
+   Distanza:      0.5081
+   Descrizione:   Concentrazione massima di potenza offensiva nel punto critico
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Picchieri (pikemen)
+   • Cavalleria Leggera (light_cavalry)
+
+🌍 MODIFICATORI:
+   Terreno: Pianura
+   Clima:   Sereno
+   Morale:  Fresche
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: ███████░░░ 0.80
+   U2_defense: ██████░░░░ 0.61
+   U3_mobility: ███████░░░ 0.74
+   U4_stealth: █░░░░░░░░░ 0.17
+   U5_discipline: ███████░░░ 0.80
+   U6_terrain_adapt: ██████░░░░ 0.63
+   U7_range_power: ███░░░░░░░ 0.30
+   U8_support: ████░░░░░░ 0.50
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Accerchiamento
+   ID:            encirclement
+   Compatibilità: 90.3%
+   Distanza:      0.2742
+   Descrizione:   Movimento coordinato per circondare il nemico
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Esploratori (scouts)
+   • Picchieri (pikemen)
+
+🌍 MODIFICATORI:
+   Terreno: Fiume
+   Clima:   Sereno
+   Morale:  Demoralizzate
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: ███░░░░░░░ 0.40
+   U2_defense: ████░░░░░░ 0.47
+   U3_mobility: ████░░░░░░ 0.45
+   U4_stealth: █████░░░░░ 0.53
+   U5_discipline: ████░░░░░░ 0.47
+   U6_terrain_adapt: ███████░░░ 0.70
+   U7_range_power: ███░░░░░░░ 0.33
+   U8_support: ████░░░░░░ 0.40
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Ritirata Tattica
+   ID:            tactical_retreat
+   Compatibilità: 79.8%
+   Distanza:      0.5707
+   Descrizione:   Riposizionamento ordinato con disciplina e mobilità
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Cavalleria Leggera (light_cavalry)
+   • Guaritori (healers)
+
+🌍 MODIFICATORI:
+   Terreno: Foresta
+   Clima:   Notte
+   Morale:  Demoralizzate
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: ███░░░░░░░ 0.36
+   U2_defense: ███░░░░░░░ 0.38
+   U3_mobility: ██████░░░░ 0.62
+   U4_stealth: ████░░░░░░ 0.49
+   U5_discipline: █████░░░░░ 0.52
+   U6_terrain_adapt: █████░░░░░ 0.55
+   U7_range_power: ██░░░░░░░░ 0.28
+   U8_support: ██████░░░░ 0.68
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Ritirata Tattica
+   ID:            tactical_retreat
+   Compatibilità: 82.8%
+   Distanza:      0.4877
+   Descrizione:   Riposizionamento ordinato con disciplina e mobilità
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Picchieri (pikemen)
+   • Arcieri (archers)
+
+🌍 MODIFICATORI:
+   Terreno: Fiume
+   Clima:   Sereno
+   Morale:  Veterane
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: █████░░░░░ 0.56
+   U2_defense: █████░░░░░ 0.53
+   U3_mobility: ███░░░░░░░ 0.37
+   U4_stealth: ███░░░░░░░ 0.33
+   U5_discipline: ████████░░ 0.89
+   U6_terrain_adapt: ██████░░░░ 0.69
+   U7_range_power: ██████░░░░ 0.60
+   U8_support: █████░░░░░ 0.50
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Schermo e Fuoco
+   ID:            screen_and_fire
+   Compatibilità: 86.6%
+   Distanza:      0.3802
+   Descrizione:   Difesa con potenza di fuoco a distanza
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Fanteria Pesante (heavy_infantry)
+   • Assassini (assassins)
+
+🌍 MODIFICATORI:
+   Terreno: Foresta
+   Clima:   Nebbia
+   Morale:  Veterane
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: ████████░░ 0.80
+   U2_defense: █████░░░░░ 0.53
+   U3_mobility: ████░░░░░░ 0.40
+   U4_stealth: █████████░ 0.96
+   U5_discipline: ███████░░░ 0.75
+   U6_terrain_adapt: ██████░░░░ 0.61
+   U7_range_power: █░░░░░░░░░ 0.17
+   U8_support: ███░░░░░░░ 0.35
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Imboscata
+   ID:            ambush
+   Compatibilità: 82.5%
+   Distanza:      0.4942
+   Descrizione:   Attacco a sorpresa da posizioni nascoste
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Cavalleria Leggera (light_cavalry)
+   • Assassini (assassins)
+
+🌍 MODIFICATORI:
+   Terreno: Fiume
+   Clima:   Notte
+   Morale:  Stanche
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: ██████░░░░ 0.65
+   U2_defense: ██░░░░░░░░ 0.28
+   U3_mobility: ████░░░░░░ 0.46
+   U4_stealth: ████████░░ 0.86
+   U5_discipline: ████░░░░░░ 0.50
+   U6_terrain_adapt: ██████░░░░ 0.60
+   U7_range_power: ███░░░░░░░ 0.35
+   U8_support: ██░░░░░░░░ 0.25
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Imboscata
+   ID:            ambush
+   Compatibilità: 92.0%
+   Distanza:      0.2258
+   Descrizione:   Attacco a sorpresa da posizioni nascoste
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Assassini (assassins)
+   • Cavalleria Leggera (light_cavalry)
+
+🌍 MODIFICATORI:
+   Terreno: Montagna
+   Clima:   Notte
+   Morale:  Fresche
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: ███████░░░ 0.80
+   U2_defense: ███░░░░░░░ 0.36
+   U3_mobility: █████░░░░░ 0.54
+   U4_stealth: █████████░ 0.95
+   U5_discipline: ██████░░░░ 0.61
+   U6_terrain_adapt: ██████░░░░ 0.66
+   U7_range_power: ███░░░░░░░ 0.39
+   U8_support: ██░░░░░░░░ 0.28
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Imboscata
+   ID:            ambush
+   Compatibilità: 92.2%
+   Distanza:      0.2198
+   Descrizione:   Attacco a sorpresa da posizioni nascoste
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Picchieri (pikemen)
+   • Artiglieria (artillery)
+
+🌍 MODIFICATORI:
+   Terreno: Montagna
+   Clima:   Sereno
+   Morale:  Veterane
+
+⚠️  AVVISI CRITICI:
+   ! CRITICAL: U6_terrain_adapt in Montagna (valore < 0.5) - penalità applicata
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: █████░░░░░ 0.50
+   U2_defense: █████░░░░░ 0.57
+   U3_mobility: █░░░░░░░░░ 0.15
+   U4_stealth: █░░░░░░░░░ 0.12
+   U5_discipline: █████████░ 0.92
+   U6_terrain_adapt: ██░░░░░░░░ 0.23
+   U7_range_power: ██████░░░░ 0.61
+   U8_support: █████░░░░░ 0.55
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Schermo e Fuoco
+   ID:            screen_and_fire
+   Compatibilità: 85.4%
+   Distanza:      0.4142
+   Descrizione:   Difesa con potenza di fuoco a distanza
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Fanteria Pesante (heavy_infantry)
+   • Cavalleria Leggera (light_cavalry)
+
+🌍 MODIFICATORI:
+   Terreno: Palude
+   Clima:   Pioggia
+   Morale:  Demoralizzate
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: ██████░░░░ 0.66
+   U2_defense: ██████░░░░ 0.60
+   U3_mobility: ██░░░░░░░░ 0.28
+   U4_stealth: █░░░░░░░░░ 0.18
+   U5_discipline: ████░░░░░░ 0.49
+   U6_terrain_adapt: █████░░░░░ 0.55
+   U7_range_power: ██░░░░░░░░ 0.21
+   U8_support: █████░░░░░ 0.50
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Assalto Frontale
+   ID:            frontal_assault
+   Compatibilità: 83.4%
+   Distanza:      0.4701
+   Descrizione:   Attacco diretto e massiccia potenza offensiva e difesa
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Arcieri (archers)
+   • Fanteria Pesante (heavy_infantry)
+
+🌍 MODIFICATORI:
+   Terreno: Pianura
+   Clima:   Nebbia
+   Morale:  Demoralizzate
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: █████░░░░░ 0.58
+   U2_defense: █████░░░░░ 0.57
+   U3_mobility: ████░░░░░░ 0.47
+   U4_stealth: ████░░░░░░ 0.45
+   U5_discipline: █████░░░░░ 0.52
+   U6_terrain_adapt: ██████░░░░ 0.60
+   U7_range_power: ███░░░░░░░ 0.31
+   U8_support: █████░░░░░ 0.55
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Accerchiamento
+   ID:            encirclement
+   Compatibilità: 82.3%
+   Distanza:      0.5005
+   Descrizione:   Movimento coordinato per circondare il nemico
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Cavalleria Leggera (light_cavalry)
+   • Picchieri (pikemen)
+
+🌍 MODIFICATORI:
+   Terreno: Palude
+   Clima:   Nebbia
+   Morale:  Veterane
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: ███████░░░ 0.72
+   U2_defense: █████░░░░░ 0.55
+   U3_mobility: ███░░░░░░░ 0.34
+   U4_stealth: ██░░░░░░░░ 0.25
+   U5_discipline: ████████░░ 0.83
+   U6_terrain_adapt: ██████░░░░ 0.63
+   U7_range_power: █░░░░░░░░░ 0.14
+   U8_support: ████░░░░░░ 0.45
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Assalto Frontale
+   ID:            frontal_assault
+   Compatibilità: 85.1%
+   Distanza:      0.4208
+   Descrizione:   Attacco diretto e massiccia potenza offensiva e difesa
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Guaritori (healers)
+   • Cavalleria Leggera (light_cavalry)
+
+🌍 MODIFICATORI:
+   Terreno: Fiume
+   Clima:   Nebbia
+   Morale:  Veterane
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: ████░░░░░░ 0.41
+   U2_defense: ███░░░░░░░ 0.38
+   U3_mobility: █████░░░░░ 0.54
+   U4_stealth: ███░░░░░░░ 0.35
+   U5_discipline: ████████░░ 0.86
+   U6_terrain_adapt: ██████░░░░ 0.61
+   U7_range_power: █░░░░░░░░░ 0.14
+   U8_support: ██████░░░░ 0.68
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Ritirata Tattica
+   ID:            tactical_retreat
+   Compatibilità: 82.7%
+   Distanza:      0.4898
+   Descrizione:   Riposizionamento ordinato con disciplina e mobilità
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Picchieri (pikemen)
+   • Assassini (assassins)
+
+🌍 MODIFICATORI:
+   Terreno: Pianura
+   Clima:   Pioggia
+   Morale:  Stanche
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: ███████░░░ 0.70
+   U2_defense: ████░░░░░░ 0.47
+   U3_mobility: ███░░░░░░░ 0.40
+   U4_stealth: █████░░░░░ 0.53
+   U5_discipline: ██████░░░░ 0.61
+   U6_terrain_adapt: █████░░░░░ 0.57
+   U7_range_power: ██░░░░░░░░ 0.23
+   U8_support: ███░░░░░░░ 0.30
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Sfondamento Centrale
+   ID:            breakthrough
+   Compatibilità: 80.7%
+   Distanza:      0.5452
+   Descrizione:   Concentrazione massima di potenza offensiva nel punto critico
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Picchieri (pikemen)
+   • Esploratori (scouts)
+
+🌍 MODIFICATORI:
+   Terreno: Fiume
+   Clima:   Pioggia
+   Morale:  Fresche
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: █████░░░░░ 0.54
+   U2_defense: █████░░░░░ 0.52
+   U3_mobility: ████░░░░░░ 0.45
+   U4_stealth: █████░░░░░ 0.58
+   U5_discipline: ███████░░░ 0.74
+   U6_terrain_adapt: ███████░░░ 0.77
+   U7_range_power: ██░░░░░░░░ 0.25
+   U8_support: ████░░░░░░ 0.44
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Ritirata Tattica
+   ID:            tactical_retreat
+   Compatibilità: 84.4%
+   Distanza:      0.4408
+   Descrizione:   Riposizionamento ordinato con disciplina e mobilità
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Fanteria Pesante (heavy_infantry)
+   • Assassini (assassins)
+
+🌍 MODIFICATORI:
+   Terreno: Pianura
+   Clima:   Pioggia
+   Morale:  Fresche
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: ████████░░ 0.88
+   U2_defense: █████░░░░░ 0.58
+   U3_mobility: ████░░░░░░ 0.50
+   U4_stealth: █████░░░░░ 0.58
+   U5_discipline: ███████░░░ 0.72
+   U6_terrain_adapt: ██████░░░░ 0.61
+   U7_range_power: ██░░░░░░░░ 0.27
+   U8_support: ███░░░░░░░ 0.39
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Sfondamento Centrale
+   ID:            breakthrough
+   Compatibilità: 84.4%
+   Distanza:      0.4416
+   Descrizione:   Concentrazione massima di potenza offensiva nel punto critico
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Esploratori (scouts)
+   • Cavalleria Leggera (light_cavalry)
+
+🌍 MODIFICATORI:
+   Terreno: Palude
+   Clima:   Sereno
+   Morale:  Veterane
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: █████░░░░░ 0.57
+   U2_defense: ██░░░░░░░░ 0.28
+   U3_mobility: ████░░░░░░ 0.46
+   U4_stealth: ██████░░░░ 0.69
+   U5_discipline: ██████░░░░ 0.63
+   U6_terrain_adapt: ███████░░░ 0.80
+   U7_range_power: ███░░░░░░░ 0.35
+   U8_support: ███░░░░░░░ 0.35
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Guerriglia
+   ID:            guerrilla
+   Compatibilità: 83.6%
+   Distanza:      0.4648
+   Descrizione:   Tattica mobile e dispersa con adattamento terreno
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Fanteria Pesante (heavy_infantry)
+   • Picchieri (pikemen)
+
+🌍 MODIFICATORI:
+   Terreno: Montagna
+   Clima:   Nebbia
+   Morale:  Demoralizzate
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: ██████░░░░ 0.64
+   U2_defense: █████████░ 0.96
+   U3_mobility: ██░░░░░░░░ 0.21
+   U4_stealth: █░░░░░░░░░ 0.14
+   U5_discipline: █████░░░░░ 0.58
+   U6_terrain_adapt: █████░░░░░ 0.53
+   U7_range_power: █░░░░░░░░░ 0.14
+   U8_support: █████░░░░░ 0.55
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Assalto Frontale
+   ID:            frontal_assault
+   Compatibilità: 85.2%
+   Distanza:      0.4183
+   Descrizione:   Attacco diretto e massiccia potenza offensiva e difesa
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Guaritori (healers)
+   • Fanteria Pesante (heavy_infantry)
+
+🌍 MODIFICATORI:
+   Terreno: Foresta
+   Clima:   Nebbia
+   Morale:  Fresche
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: █████░░░░░ 0.58
+   U2_defense: ██████░░░░ 0.69
+   U3_mobility: ███░░░░░░░ 0.40
+   U4_stealth: ████░░░░░░ 0.40
+   U5_discipline: █████████░ 0.94
+   U6_terrain_adapt: █████░░░░░ 0.55
+   U7_range_power: █░░░░░░░░░ 0.15
+   U8_support: ████████░░ 0.85
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Assalto Frontale
+   ID:            frontal_assault
+   Compatibilità: 79.1%
+   Distanza:      0.5905
+   Descrizione:   Attacco diretto e massiccia potenza offensiva e difesa
+
+----------------------------------------------------------------------
+
+======================================================================
+TEST RAPIDO - 2026-01-07 12:10:06
+======================================================================
+
+📋 TRUPPE SCELTE:
+   • Arcieri (archers)
+   • Picchieri (pikemen)
+
+🌍 MODIFICATORI:
+   Terreno: Foresta
+   Clima:   Sereno
+   Morale:  Veterane
+
+📊 PROFILO ESERCITO (dopo modificatori):
+   U1_attack: ██████░░░░ 0.62
+   U2_defense: █████░░░░░ 0.53
+   U3_mobility: ████░░░░░░ 0.42
+   U4_stealth: ████░░░░░░ 0.42
+   U5_discipline: ████████░░ 0.89
+   U6_terrain_adapt: ██████░░░░ 0.69
+   U7_range_power: ██████░░░░ 0.60
+   U8_support: █████░░░░░ 0.50
+
+🏆 STRATEGIA SUGGERITA:
+   Nome:          Accerchiamento
+   ID:            encirclement
+   Compatibilità: 84.1%
+   Distanza:      0.4494
+   Descrizione:   Movimento coordinato per circondare il nemico
+
+----------------------------------------------------------------------
+

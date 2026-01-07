@@ -1,0 +1,21 @@
+{
+  "terrain": {
+    "Pianura": {},
+    "Foresta": {"U3_mobility": 0.8, "U4_stealth": 1.3},
+    "Montagna": {"U3_mobility": 0.6, "U2_defense": 1.2, "U6_terrain_adapt": "CRITICAL"},
+    "Fiume": {"U3_mobility": 0.7, "U1_attack": 0.9},
+    "Palude": {"U3_mobility": 0.5, "U4_stealth": 1.2}
+  },
+  "weather": {
+    "Sereno": {},
+    "Pioggia": {"U7_range_power": 0.7, "U3_mobility": 0.9},
+    "Nebbia": {"U4_stealth": 1.4, "U7_range_power": 0.5},
+    "Notte": {"U4_stealth": 1.5, "U5_discipline": "CRITICAL"}
+  },
+  "troop_status": {
+    "Fresche": {"ALL": 1.1},
+    "Stanche": {"U3_mobility": 0.8, "U5_discipline": 0.9},
+    "Demoralizzate": {"U5_discipline": 0.7, "U1_attack": 0.8},
+    "Veterane": {"U5_discipline": 1.15, "U6_terrain_adapt": 1.1}
+  }
+}

@@ -1,0 +1,154 @@
+{
+  "strategies": [
+    {
+      "id": "frontal_assault",
+      "name": "Assalto Frontale",
+      "description": "Attacco diretto e massiccia potenza offensiva e difesa",
+      "ideal_attributes": {
+        "U1_attack": 0.85,
+        "U2_defense": 0.8,
+        "U3_mobility": 0.4,
+        "U4_stealth": 0.1,
+        "U5_discipline": 0.8,
+        "U6_terrain_adapt": 0.5,
+        "U7_range_power": 0.3,
+        "U8_support": 0.5
+      }
+    },
+    {
+      "id": "ambush",
+      "name": "Imboscata",
+      "description": "Attacco a sorpresa da posizioni nascoste",
+      "ideal_attributes": {
+        "U1_attack": 0.8,
+        "U2_defense": 0.2,
+        "U3_mobility": 0.7,
+        "U4_stealth": 0.9,
+        "U5_discipline": 0.4,
+        "U6_terrain_adapt": 0.7,
+        "U7_range_power": 0.4,
+        "U8_support": 0.2
+      }
+    },
+    {
+      "id": "defense_depth",
+      "name": "Difesa in Profondità",
+      "description": "Posizione difensiva resistente con disciplina elevata",
+      "ideal_attributes": {
+        "U1_attack": 0.4,
+        "U2_defense": 0.88,
+        "U3_mobility": 0.25,
+        "U4_stealth": 0.15,
+        "U5_discipline": 0.85,
+        "U6_terrain_adapt": 0.65,
+        "U7_range_power": 0.75,
+        "U8_support": 0.65
+      }
+    },
+    {
+      "id": "flank_maneuver",
+      "name": "Manovra sui Fianchi",
+      "description": "Aggiramento del nemico sfruttando mobilità",
+      "ideal_attributes": {
+        "U1_attack": 0.7,
+        "U2_defense": 0.4,
+        "U3_mobility": 0.88,
+        "U4_stealth": 0.3,
+        "U5_discipline": 0.7,
+        "U6_terrain_adapt": 0.6,
+        "U7_range_power": 0.4,
+        "U8_support": 0.4
+      }
+    },
+    {
+      "id": "guerrilla",
+      "name": "Guerriglia",
+      "description": "Tattica mobile e dispersa con adattamento terreno",
+      "ideal_attributes": {
+        "U1_attack": 0.65,
+        "U2_defense": 0.35,
+        "U3_mobility": 0.85,
+        "U4_stealth": 0.75,
+        "U5_discipline": 0.55,
+        "U6_terrain_adapt": 0.85,
+        "U7_range_power": 0.55,
+        "U8_support": 0.4
+      }
+    },
+    {
+      "id": "breakthrough",
+      "name": "Sfondamento Centrale",
+      "description": "Concentrazione massima di potenza offensiva nel punto critico",
+      "ideal_attributes": {
+        "U1_attack": 0.92,
+        "U2_defense": 0.55,
+        "U3_mobility": 0.6,
+        "U4_stealth": 0.15,
+        "U5_discipline": 0.75,
+        "U6_terrain_adapt": 0.45,
+        "U7_range_power": 0.35,
+        "U8_support": 0.4
+      }
+    },
+    {
+      "id": "encirclement",
+      "name": "Accerchiamento",
+      "description": "Movimento coordinato per circondare il nemico",
+      "ideal_attributes": {
+        "U1_attack": 0.7,
+        "U2_defense": 0.5,
+        "U3_mobility": 0.82,
+        "U4_stealth": 0.4,
+        "U5_discipline": 0.82,
+        "U6_terrain_adapt": 0.6,
+        "U7_range_power": 0.45,
+        "U8_support": 0.5
+      }
+    },
+    {
+      "id": "screen_and_fire",
+      "name": "Schermo e Fuoco",
+      "description": "Difesa con potenza di fuoco a distanza",
+      "ideal_attributes": {
+        "U1_attack": 0.5,
+        "U2_defense": 0.8,
+        "U3_mobility": 0.3,
+        "U4_stealth": 0.2,
+        "U5_discipline": 0.8,
+        "U6_terrain_adapt": 0.55,
+        "U7_range_power": 0.85,
+        "U8_support": 0.6
+      }
+    },
+    {
+      "id": "tactical_retreat",
+      "name": "Ritirata Tattica",
+      "description": "Riposizionamento ordinato con disciplina e mobilità",
+      "ideal_attributes": {
+        "U1_attack": 0.4,
+        "U2_defense": 0.45,
+        "U3_mobility": 0.8,
+        "U4_stealth": 0.6,
+        "U5_discipline": 0.88,
+        "U6_terrain_adapt": 0.7,
+        "U7_range_power": 0.4,
+        "U8_support": 0.55
+      }
+    },
+    {
+      "id": "blitz",
+      "name": "Blitz",
+      "description": "Attacco fulmineo ad alta velocità con forza offensiva",
+      "ideal_attributes": {
+        "U1_attack": 0.85,
+        "U2_defense": 0.35,
+        "U3_mobility": 0.92,
+        "U4_stealth": 0.2,
+        "U5_discipline": 0.65,
+        "U6_terrain_adapt": 0.55,
+        "U7_range_power": 0.3,
+        "U8_support": 0.3
+      }
+    }
+  ]
+}

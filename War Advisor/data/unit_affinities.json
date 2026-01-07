@@ -1,0 +1,181 @@
+{
+  "description": "Affinità unità-ambiente bidirezionale. Valori: 1.0=bonus forte, 0.5=neutro, 0.0=malus forte",
+  
+  "environment_weights": {
+    "_comment": "Pesi terreno/meteo personalizzati per unità. Devono sommare a 1.0",
+    "heavy_infantry": { "terrain": 0.65, "weather": 0.35 },
+    "light_cavalry": { "terrain": 0.75, "weather": 0.25 },
+    "archers": { "terrain": 0.40, "weather": 0.60 },
+    "scouts": { "terrain": 0.40, "weather": 0.60 },
+    "pikemen": { "terrain": 0.80, "weather": 0.20 },
+    "artillery": { "terrain": 0.50, "weather": 0.50 },
+    "healers": { "terrain": 0.50, "weather": 0.50 },
+    "assassins": { "terrain": 0.30, "weather": 0.70 }
+  },
+  
+  "default_weights": { "terrain": 0.50, "weather": 0.50 },
+  
+  "unit_strategy_affinity": {
+    "_comment": "Strategie naturali per unità. Il bonus/malus si applica SOLO a queste strategie.",
+    
+    "assassins": {
+      "natural_strategies": ["ambush", "guerrilla"],
+      "max_adjustment": 0.30
+    },
+    "heavy_infantry": {
+      "natural_strategies": ["frontal_assault", "breakthrough", "defense_depth"],
+      "max_adjustment": 0.10
+    },
+    "light_cavalry": {
+      "natural_strategies": ["blitz", "flank_maneuver", "encirclement"],
+      "max_adjustment": 0.10
+    },
+    "artillery": {
+      "natural_strategies": ["screen_and_fire", "defense_depth"],
+      "max_adjustment": 0.14
+    },
+    "archers": {
+      "natural_strategies": ["screen_and_fire", "defense_depth", "ambush"],
+      "max_adjustment": 0.12
+    },
+    "scouts": {
+      "natural_strategies": ["guerrilla", "ambush", "tactical_retreat"],
+      "max_adjustment": 0.11
+    },
+    "pikemen": {
+      "natural_strategies": ["defense_depth", "frontal_assault", "screen_and_fire"],
+      "max_adjustment": 0.10
+    },
+    "healers": {
+      "natural_strategies": ["defense_depth", "tactical_retreat"],
+      "max_adjustment": 0.08
+    }
+  },
+  
+  "environment_affinity": {
+    "_comment": "Valori: 1.0=molto favorevole, 0.5=neutro, 0.0=molto sfavorevole",
+    
+    "assassins": {
+      "terrain": {
+        "Pianura": 0.1,
+        "Foresta": 1.0,
+        "Montagna": 0.45,
+        "Fiume": 0.5,
+        "Palude": 0.95
+      },
+      "weather": {
+        "Sereno": 0.15,
+        "Pioggia": 0.65,
+        "Nebbia": 0.95,
+        "Notte": 1.0
+      }
+    },
+    "heavy_infantry": {
+      "terrain": {
+        "Pianura": 1.0,
+        "Foresta": 0.55,
+        "Montagna": 0.6,
+        "Fiume": 0.45,
+        "Palude": 0.15
+      },
+      "weather": {
+        "Sereno": 1.0,
+        "Pioggia": 0.6,
+        "Nebbia": 0.3,
+        "Notte": 0.4
+      }
+    },
+    "light_cavalry": {
+      "terrain": {
+        "Pianura": 1.0,
+        "Foresta": 0.2,
+        "Montagna": 0.4,
+        "Fiume": 0.5,
+        "Palude": 0.15
+      },
+      "weather": {
+        "Sereno": 1.0,
+        "Pioggia": 0.55,
+        "Nebbia": 0.4,
+        "Notte": 0.45
+      }
+    },
+    "artillery": {
+      "terrain": {
+        "Pianura": 1.0,
+        "Foresta": 0.2,
+        "Montagna": 0.9,
+        "Fiume": 0.5,
+        "Palude": 0.3
+      },
+      "weather": {
+        "Sereno": 1.0,
+        "Pioggia": 0.4,
+        "Nebbia": 0.05,
+        "Notte": 0.1
+      }
+    },
+    "archers": {
+      "terrain": {
+        "Pianura": 0.95,
+        "Foresta": 1.0,
+        "Montagna": 0.85,
+        "Fiume": 0.5,
+        "Palude": 0.35
+      },
+      "weather": {
+        "Sereno": 0.95,
+        "Pioggia": 0.4,
+        "Nebbia": 0.15,
+        "Notte": 0.25
+      }
+    },
+    "scouts": {
+      "terrain": {
+        "Pianura": 0.4,
+        "Foresta": 1.0,
+        "Montagna": 0.85,
+        "Fiume": 0.6,
+        "Palude": 0.75
+      },
+      "weather": {
+        "Sereno": 0.35,
+        "Pioggia": 0.65,
+        "Nebbia": 0.9,
+        "Notte": 1.0
+      }
+    },
+    "pikemen": {
+      "terrain": {
+        "Pianura": 1.0,
+        "Foresta": 0.25,
+        "Montagna": 0.7,
+        "Fiume": 0.8,
+        "Palude": 0.15
+      },
+      "weather": {
+        "Sereno": 1.0,
+        "Pioggia": 0.55,
+        "Nebbia": 0.4,
+        "Notte": 0.35
+      }
+    },
+    "healers": {
+      "terrain": {
+        "Pianura": 0.5,
+        "Foresta": 0.6,
+        "Montagna": 0.35,
+        "Fiume": 0.3,
+        "Palude": 0.2
+      },
+      "weather": {
+        "Sereno": 0.6,
+        "Pioggia": 0.35,
+        "Nebbia": 0.4,
+        "Notte": 0.25
+      }
+    }
+  },
+  
+  "default_affinity": 0.5
+}
