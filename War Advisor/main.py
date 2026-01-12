@@ -6,7 +6,10 @@ API per il sistema di raccomandazione strategica per wargame
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel, Field
+import os
+import sys
 from typing import List, Dict, Any, Optional
 
 from engine import (
@@ -189,11 +192,20 @@ async def calculate(request: CalculateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 async def root():
-    """Radice: serve il file index.html"""
-    with open("index.html", "r", encoding="utf-8") as f:
-        return {"message": "War Advisor API - Apri index.html nel browser"}
+    """Radice: serve il file index.html direttamente"""
+    # Determina il percorso corretto per PyInstaller o script normale
+    if getattr(sys, 'frozen', False):
+        base_dir = sys._MEIPASS
+    else:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    index_path = os.path.join(base_dir, "index.html")
+    
+    with open(index_path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+    return HTMLResponse(content=html_content)
 
 
 if __name__ == "__main__":
