@@ -242,6 +242,60 @@
             margin-top: 8px;
         }
 
+        .second-strategy {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 18px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            text-align: center;
+            box-shadow: 0 4px 12px rgba(79, 172, 254, 0.3);
+        }
+
+        .second-strategy h3 {
+            font-size: 1.3em;
+            margin-bottom: 6px;
+        }
+
+        .second-strategy .compatibility {
+            font-size: 1.6em;
+            font-weight: 700;
+            margin: 8px 0;
+        }
+
+        .second-strategy .distance-score {
+            font-size: 0.85em;
+            opacity: 0.9;
+            margin-top: 6px;
+        }
+
+        .worst-strategy {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+            color: white;
+            padding: 18px;
+            border-radius: 12px;
+            margin-top: 25px;
+            text-align: center;
+            box-shadow: 0 4px 12px rgba(238, 90, 111, 0.3);
+        }
+
+        .worst-strategy h3 {
+            font-size: 1.3em;
+            margin-bottom: 6px;
+        }
+
+        .worst-strategy .compatibility {
+            font-size: 1.6em;
+            font-weight: 700;
+            margin: 8px 0;
+        }
+
+        .worst-strategy .distance-score {
+            font-size: 0.85em;
+            opacity: 0.9;
+            margin-top: 6px;
+        }
+
         .chart-container {
             position: relative;
             height: 400px;
@@ -414,11 +468,25 @@
 
             <!-- Risultati -->
             <div id="resultsArea" class="results-area">
+                <!-- Sezione Strategie Consigliate -->
+                <h3 style="color: var(--primary); margin-bottom: 15px; border-bottom: 2px solid var(--success); padding-bottom: 8px;">✅ Strategie Consigliate</h3>
+                
                 <!-- Top Strategy -->
                 <div class="top-strategy">
+                    <div style="font-size: 0.9em; opacity: 0.9; margin-bottom: 5px;">🥇 STRATEGIA PRINCIPALE</div>
                     <h3 id="topStrategyName">---</h3>
                     <div class="compatibility" id="topCompatibility">---</div>
                     <div class="distance-score" id="topDistance">Distanza Semantica: ---</div>
+                    <div style="font-size: 0.85em; margin-top: 10px; opacity: 0.85;" id="topDescription">---</div>
+                </div>
+
+                <!-- Second Strategy -->
+                <div class="second-strategy">
+                    <div style="font-size: 0.85em; opacity: 0.9; margin-bottom: 5px;">🥈 STRATEGIA ALTERNATIVA</div>
+                    <h3 id="secondStrategyName">---</h3>
+                    <div class="compatibility" id="secondCompatibility">---</div>
+                    <div class="distance-score" id="secondDistance">Distanza Semantica: ---</div>
+                    <div style="font-size: 0.85em; margin-top: 10px; opacity: 0.85;" id="secondDescription">---</div>
                 </div>
 
                 <!-- Radar Chart -->
@@ -426,11 +494,15 @@
                     <canvas id="radarChart"></canvas>
                 </div>
 
-                <!-- Ranking Strategie -->
-                <h3 style="margin-top: 30px; color: var(--primary); margin-bottom: 15px;">Ranking Completo</h3>
-                <ul class="ranking-list" id="rankingList">
-                    <!-- Generato dinamicamente -->
-                </ul>
+                <!-- Strategia Sconsigliata -->
+                <h3 style="color: var(--accent); margin-top: 30px; margin-bottom: 15px; border-bottom: 2px solid var(--accent); padding-bottom: 8px;">❌ Strategia Sconsigliata</h3>
+                <div class="worst-strategy">
+                    <div style="font-size: 0.85em; opacity: 0.9; margin-bottom: 5px;">⛔ DA EVITARE</div>
+                    <h3 id="worstStrategyName">---</h3>
+                    <div class="compatibility" id="worstCompatibility">---</div>
+                    <div class="distance-score" id="worstDistance">Distanza Semantica: ---</div>
+                    <div style="font-size: 0.85em; margin-top: 10px; opacity: 0.85;" id="worstDescription">---</div>
+                </div>
             </div>
         </div>
     </div>
@@ -601,27 +673,30 @@
         }
 
         function renderResults(data) {
-            // Top Strategy
+            // Top Strategy (migliore)
             const top = data.top_strategy;
             document.getElementById('topStrategyName').textContent = top.name;
             document.getElementById('topCompatibility').textContent = `${top.compatibility.toFixed(1)}%`;
             document.getElementById('topDistance').textContent = `Distanza Semantica: ${top.distance.toFixed(4)}`;
+            document.getElementById('topDescription').textContent = top.description || '';
 
-            // Ranking List
-            const rankingList = document.getElementById('rankingList');
-            rankingList.innerHTML = '';
-            data.ranking.forEach((strat, index) => {
-                const li = document.createElement('li');
-                li.className = 'ranking-item';
-                li.innerHTML = `
-                    <div>
-                        <span class="rank-number">${index + 1}</span>
-                        <span class="rank-name">${strat.name}</span>
-                    </div>
-                    <span class="rank-score">${strat.compatibility.toFixed(1)}%</span>
-                `;
-                rankingList.appendChild(li);
-            });
+            // Second Strategy (seconda migliore)
+            if (data.ranking && data.ranking.length >= 2) {
+                const second = data.ranking[1];
+                document.getElementById('secondStrategyName').textContent = second.name;
+                document.getElementById('secondCompatibility').textContent = `${second.compatibility.toFixed(1)}%`;
+                document.getElementById('secondDistance').textContent = `Distanza Semantica: ${second.distance.toFixed(4)}`;
+                document.getElementById('secondDescription').textContent = second.description || '';
+            }
+
+            // Worst Strategy (peggiore)
+            if (data.ranking && data.ranking.length > 0) {
+                const worst = data.ranking[data.ranking.length - 1];
+                document.getElementById('worstStrategyName').textContent = worst.name;
+                document.getElementById('worstCompatibility').textContent = `${worst.compatibility.toFixed(1)}%`;
+                document.getElementById('worstDistance').textContent = `Distanza Semantica: ${worst.distance.toFixed(4)}`;
+                document.getElementById('worstDescription').textContent = worst.description || '';
+            }
 
             // Mostra avvisi CRITICAL se presenti
             if (data.critical_warnings && data.critical_warnings.length > 0) {
