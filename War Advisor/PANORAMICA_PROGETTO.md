@@ -1,9 +1,9 @@
-# 📊 WAR ADVISOR - Conflict Strategy Recommender System
+# WAR ADVISOR - Conflict Strategy Recommender System
 **Sistema di Raccomandazione Strategica per Wargame Tattici**
 
 ---
 
-## 🎯 Obiettivo del Progetto
+## Obiettivo del Progetto
 
 **War Advisor** è un sistema intelligente di raccomandazione strategica che analizza la composizione di un esercito e le condizioni ambientali per suggerire la strategia militare ottimale da adottare in battaglia.
 
@@ -11,14 +11,14 @@ Il sistema utilizza **algoritmi di Machine Learning** (distanza euclidea in spaz
 
 ---
 
-## 🏗️ Architettura del Sistema
+## Architettura del Sistema
 
 ### **Stack Tecnologico**
-- **Backend**: Python 3.x con FastAPI (API REST)
-- **Frontend**: HTML5, CSS3, JavaScript (Vanilla) + Chart.js
+- **Backend**: Python 3 con FastAPI (API REST)
+- **Frontend**: HTML5, CSS3, JavaScript + Chart.js
 - **Engine**: Algoritmo proprietario di distanza semantica euclidea
 - **Packaging**: PyInstaller per distribuzione standalone (.exe)
-- **Server**: Uvicorn (ASGI server)
+- **Server**: Uvicorn (Server)
 
 ### **Struttura del Progetto**
 ```
@@ -38,7 +38,7 @@ War Advisor/
 
 ---
 
-## 🧠 Algoritmo di Raccomandazione
+## Algoritmo di Raccomandazione
 
 ### **Fase 1: Aggregazione Esercito**
 - Input: Lista di unità militari selezionate dall'utente
@@ -100,7 +100,7 @@ Foresta + Notte:
 Pianura + Sereno:
   - terrain_affinity: 0.1 (malus forte)
   - weather_affinity: 0.15 (malus forte)
-  → Strategia "Imboscata" fortemente penalizzata
+  → Strategia "Imboscata" penalizzata
 ```
 
 Formula di adjustment:
@@ -141,7 +141,7 @@ Output finale include:
 
 ---
 
-## 📊 Database Strutturato (JSON)
+## Database Strutturato (JSON)
 
 ### **units.json** - 9 Unità Militari
 Esempi:
@@ -169,7 +169,7 @@ Sistema esperto che codifica relazioni naturali (es. Assassini + Foresta = forte
 
 ---
 
-## 🌐 API REST (FastAPI)
+## API REST (FastAPI)
 
 ### **Endpoint 1: GET /config**
 Ritorna configurazione completa per popolare il frontend:
@@ -211,7 +211,7 @@ Serve il frontend HTML (index.html) automaticamente.
 
 ---
 
-## 🎨 Frontend Web Interattivo
+## Frontend Web Interattivo
 
 ### **Funzionalità**
 1. **Selezione multi-scelta** delle unità (dropdown)
@@ -227,17 +227,9 @@ Serve il frontend HTML (index.html) automaticamente.
    - Sconsiglia la strategia con distanza semantica più alta (la peggiore)
    - Warning CRITICAL evidenziati
 
-### **Design**
-- **Responsive**: Adattamento a schermi desktop/mobile
-- **Modern UI**: Gradients, shadows, smooth animations
-- **Color-coding**: 
-  - Verde: Compatibilità alta (>70%)
-  - Giallo: Media (40-70%)
-  - Rosso: Bassa (<40%)
-
 ---
 
-## 🚀 Distribuzione (.exe Standalone)
+## Distribuzione (.exe Standalone)
 
 ### **PyInstaller Configuration**
 Il file `WarAdvisor.spec` configura:
@@ -262,12 +254,12 @@ Sistema intelligente di avvio:
 
 ---
 
-## 📈 Caso d'Uso Esempio (potrebbe contenere imprecisioni)
+## Caso d'Uso Esempio (potrebbe contenere imprecisioni)
 
 **Scenario**: Attacco notturno in foresta con truppe fresche
 
 **Input Utente**:
-- **Unità**: Assassini (×3), Arcieri (×2)
+- **Unità**: Assassini, Arcieri
 - **Terreno**: Foresta
 - **Meteo**: Notte
 - **Stato**: Fresche
@@ -292,14 +284,14 @@ Distanza Euclidea: 0.28
 
 ---
 
-## 🔬 Innovazioni Tecniche
+## Innovazioni Tecniche
 
 ### **1. Distanza Semantica Vettoriale**
 - Applicazione di algoritmi ML (distanza euclidea) a contesto non tradizionale (strategia militare)
 - Spazio vettoriale 8-dimensionale normalizzato
 
 ### **2. Sistema CRITICAL Ibrido**
-- Combina logica fuzzy con regole hard-coded
+- Combina logica dinamica con regole hard-coded
 - Penalità non lineari per violazione constraint critici
 
 ### **3. Affinità Bidirezionale**
@@ -317,31 +309,8 @@ Distanza Euclidea: 0.28
 
 ---
 
-## 🎓 Applicazioni Future
 
-1. **Estensione Database**:
-   - Aggiunta unità storiche (Romani, Napoleonici, WW2)
-   - Strategie avanzate (Blitzkrieg, Falangi, ecc.)
-
-2. **Machine Learning Evoluto**:
-   - Training su dataset battaglie storiche
-   - Algoritmi genetici per ottimizzazione composizione esercito
-
-3. **Multiplayer Support**:
-   - Analisi contrasto tra due eserciti
-   - Predizione outcome battaglie
-
-4. **Integrazione Videogiochi**:
-   - Plugin per Total War, Age of Empires
-   - Mod per wargame tabletop
-
-5. **UI Avanzate**:
-   - Animazioni 3D battaglie
-   - AR/VR per visualizzazione tattica
-
----
-
-## 📦 Requisiti Sistema
+## Requisiti Sistema
 
 ### **Per Sviluppo**:
 - Python 3.8+
@@ -351,12 +320,10 @@ Distanza Euclidea: 0.28
 ### **Per Esecuzione (.exe)**:
 - **Solo** Windows 10/11 (64-bit)
 - **Nessuna** dipendenza aggiuntiva
-- RAM: 100 MB
-- Disco: 80 MB
 
 ---
 
-## 🛠️ Comandi Principali
+## Comandi Principali
 
 ```powershell
 # Installazione dipendenze
@@ -370,22 +337,16 @@ pyinstaller WarAdvisor.spec --clean
 
 # Eseguibile produzione
 .\dist\WarAdvisor.exe
+
+# Mini-Framework per il testing veloce e automatico
+python rapidtest.py
 ```
 
 ---
 
-## 📝 Conclusioni
+## Conclusioni
 
 **War Advisor** rappresenta un esempio pratico di come algoritmi di Machine Learning e sistemi esperti possano essere combinati per creare un **decision support system** efficace in domini complessi come la strategia militare tattica.
-
-Il progetto dimostra competenze in:
-- **Algoritmi**: Distanza euclidea, spazi vettoriali
-- **Backend Development**: API REST con FastAPI
-- **Frontend Development**: UI/UX interattiva
-- **Software Engineering**: Packaging, distribuzione, architettura modulare
-- **Data Modeling**: Strutture JSON normalizzate
-
-Il sistema è **production-ready**, completamente standalone e facilmente estendibile per futuri sviluppi.
 
 ---
 
