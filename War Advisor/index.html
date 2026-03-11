@@ -360,6 +360,136 @@
             padding: 40px;
         }
 
+        .battle-area {
+            grid-column: 1 / -1;
+            display: none;
+        }
+
+        .battle-area.active {
+            display: block;
+        }
+
+        .battle-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 18px;
+            flex-wrap: wrap;
+        }
+
+        .battle-status {
+            flex: 1;
+            min-width: 260px;
+            padding: 12px 14px;
+            border-radius: 10px;
+            background: #f7f8fb;
+            border: 1px solid var(--border);
+            font-size: 0.95em;
+        }
+
+        .battle-layout {
+            display: grid;
+            grid-template-columns: 1.3fr 0.9fr;
+            gap: 20px;
+        }
+
+        .map-board {
+            display: grid;
+            gap: 4px;
+            background: #fafafa;
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            overflow-x: auto;
+        }
+
+        .map-cell {
+            min-width: 42px;
+            min-height: 42px;
+            border: 1px solid rgba(0,0,0,0.08);
+            border-radius: 8px;
+            font-size: 0.72em;
+            font-weight: 700;
+            color: #1a1a2e;
+            cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.15s;
+            padding: 2px;
+        }
+
+        .map-cell:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 3px 8px rgba(0,0,0,0.12);
+        }
+
+        .map-cell:disabled {
+            cursor: default;
+            opacity: 0.95;
+        }
+
+        .terrain-pianura { background: #e9dfc8; }
+        .terrain-foresta { background: #c9e4b5; }
+        .terrain-montagna { background: #d7d9dd; }
+        .terrain-fiume { background: #b8daf7; }
+        .terrain-palude { background: #bfd2a8; }
+
+        .cell-player {
+            outline: 3px solid #e94560;
+            outline-offset: -3px;
+        }
+
+        .cell-ai {
+            outline: 3px solid #1a1a2e;
+            outline-offset: -3px;
+        }
+
+        .cell-strategic::after {
+            content: '★';
+            display: block;
+            font-size: 0.9em;
+            line-height: 1;
+        }
+
+        .cell-adjacent {
+            box-shadow: inset 0 0 0 2px #16a34a;
+        }
+
+        .battle-sidebar {
+            display: grid;
+            gap: 14px;
+        }
+
+        .battle-card {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 14px;
+        }
+
+        .battle-card h3 {
+            color: var(--primary);
+            margin-bottom: 10px;
+            font-size: 1.05em;
+        }
+
+        .battle-card p {
+            margin-bottom: 8px;
+            font-size: 0.92em;
+            color: #444;
+        }
+
+        .battle-log {
+            max-height: 320px;
+            overflow-y: auto;
+            background: #0f172a;
+            color: #dbeafe;
+            font-family: Consolas, monospace;
+            font-size: 0.85em;
+            padding: 12px;
+            border-radius: 10px;
+            white-space: pre-wrap;
+        }
+
         .spinner {
             width: 40px;
             height: 40px;
@@ -377,6 +507,10 @@
 
         @media (max-width: 1024px) {
             .container {
+                grid-template-columns: 1fr;
+            }
+
+            .battle-layout {
                 grid-template-columns: 1fr;
             }
         }
@@ -507,6 +641,39 @@
         </div>
     </div>
 
+    <div class="panel battle-area" id="battleArea">
+        <h2>Campo di Battaglia</h2>
+        <div class="battle-toolbar">
+            <div class="battle-status" id="battleStatus">Calcola una strategia per iniziare la battaglia.</div>
+            <button id="resetBattleBtn" style="width:auto; margin-top:0;" onclick="resetBattleSession()">Reset Partita</button>
+        </div>
+
+        <div class="battle-layout">
+            <div>
+                <div id="mapBoard" class="map-board"></div>
+            </div>
+
+            <div class="battle-sidebar">
+                <div class="battle-card">
+                    <h3>Tu</h3>
+                    <p id="playerStrategyInfo">Strategia: ---</p>
+                    <p id="playerUnitsInfo">Unità: ---</p>
+                </div>
+
+                <div class="battle-card">
+                    <h3>IA</h3>
+                    <p id="aiStrategyInfo">Strategia: ---</p>
+                    <p id="aiUnitsInfo">Unità: ---</p>
+                </div>
+
+                <div class="battle-card">
+                    <h3>Registro</h3>
+                    <div id="battleLog" class="battle-log">Nessuna azione.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // Mapping dei nomi degli attributi
         const ATTRIBUTE_NAMES = {
@@ -526,6 +693,8 @@
         let allTerrains = [];
         let allWeather = [];
         let allTroopStatus = [];
+        let latestCalculation = null;
+        let currentBattleState = null;
 
         // Carica i dati al load della pagina
         window.addEventListener('DOMContentLoaded', loadData);
@@ -664,7 +833,9 @@
                 }
 
                 const data = await response.json();
+                latestCalculation = data;
                 renderResults(data);
+                await startBattleFromBestStrategy(data, terrain, weather || null, troop_status || null);
             } catch (error) {
                 showError(error.message);
             } finally {
@@ -709,6 +880,176 @@
 
             // Mostra i risultati
             document.getElementById('resultsArea').classList.add('active');
+        }
+
+        async function startBattleFromBestStrategy(calculation, terrain, weather, troopStatus) {
+            const response = await fetch('http://127.0.0.1:8000/game/confirm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    units: selectedUnits,
+                    terrain: terrain,
+                    weather: weather,
+                    troop_status: troopStatus,
+                    strategy_id: calculation.top_strategy.id,
+                    army_profile: calculation.army_profile,
+                    modified_profile: calculation.modified_profile,
+                    map_seed: 42
+                })
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.detail || 'Errore nell\'avvio della partita');
+            }
+
+            const sessionData = await response.json();
+            currentBattleState = sessionData;
+            renderBattleState(sessionData);
+        }
+
+        function renderBattleState(sessionData, extraLines = []) {
+            currentBattleState = sessionData;
+            const battleArea = document.getElementById('battleArea');
+            battleArea.classList.add('active');
+
+            const statusLines = [];
+            if (sessionData.message) statusLines.push(sessionData.message);
+            if (sessionData.state === 'game_over') {
+                statusLines.push(`Partita terminata. Vincitore: ${sessionData.winner}`);
+            } else {
+                statusLines.push(`Turno ${sessionData.map.turn} • Muove: ${sessionData.map.current_turn}`);
+                statusLines.push('Clicca una casella evidenziata in verde per muovere il tuo esercito.');
+            }
+            document.getElementById('battleStatus').textContent = statusLines.join(' | ');
+
+            document.getElementById('playerStrategyInfo').textContent = `Strategia: ${sessionData.player.strategy_id}`;
+            document.getElementById('playerUnitsInfo').textContent = `Unità: ${sessionData.player.units.join(', ')}`;
+            document.getElementById('aiStrategyInfo').textContent = `Strategia: ${sessionData.ai.strategy_name} (${sessionData.ai.strategy_id})`;
+            document.getElementById('aiUnitsInfo').textContent = `Unità: ${sessionData.ai.units.join(', ')}`;
+
+            renderMapBoard(sessionData.map);
+
+            const logLines = [...(extraLines || []), ...(sessionData.battle_log || [])];
+            document.getElementById('battleLog').textContent = logLines.length > 0 ? logLines.join('\n') : 'Nessuna azione.';
+        }
+
+        function renderMapBoard(mapData) {
+            const board = document.getElementById('mapBoard');
+            board.innerHTML = '';
+            board.style.gridTemplateColumns = `repeat(${mapData.cols}, minmax(42px, 1fr))`;
+
+            const playerPos = mapData.positions.player || null;
+            const adjacentMoves = getAdjacentMoves(playerPos, mapData.rows, mapData.cols);
+
+            mapData.grid.forEach((row, rowIndex) => {
+                row.forEach((cell, colIndex) => {
+                    const button = document.createElement('button');
+                    button.className = `map-cell ${terrainClass(cell.terrain)}`;
+                    button.type = 'button';
+                    button.title = `${cell.terrain} (${rowIndex}, ${colIndex})`;
+
+                    if (cell.is_strategic) {
+                        button.classList.add('cell-strategic');
+                    }
+                    if (cell.occupation === 'player') {
+                        button.classList.add('cell-player');
+                    }
+                    if (cell.occupation === 'ai') {
+                        button.classList.add('cell-ai');
+                    }
+
+                    const isAdjacent = adjacentMoves.some(move => move[0] === rowIndex && move[1] === colIndex);
+                    if (isAdjacent && currentBattleState && currentBattleState.state !== 'game_over') {
+                        button.classList.add('cell-adjacent');
+                        button.onclick = () => movePlayer(rowIndex, colIndex);
+                    } else {
+                        button.disabled = true;
+                    }
+
+                    button.innerHTML = cell.occupation === 'player'
+                        ? 'YOU'
+                        : cell.occupation === 'ai'
+                            ? 'IA'
+                            : terrainAbbrev(cell.terrain);
+
+                    board.appendChild(button);
+                });
+            });
+        }
+
+        function getAdjacentMoves(playerPos, rows, cols) {
+            if (!playerPos) return [];
+            const [row, col] = playerPos;
+            return [
+                [row - 1, col],
+                [row + 1, col],
+                [row, col - 1],
+                [row, col + 1]
+            ].filter(([r, c]) => r >= 0 && r < rows && c >= 0 && c < cols);
+        }
+
+        function terrainClass(terrain) {
+            return `terrain-${terrain.toLowerCase()}`
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/\s+/g, '-');
+        }
+
+        function terrainAbbrev(terrain) {
+            const mapping = {
+                'Pianura': 'PIA',
+                'Foresta': 'FOR',
+                'Montagna': 'MON',
+                'Fiume': 'FIU',
+                'Palude': 'PAL'
+            };
+            return mapping[terrain] || terrain.slice(0, 3).toUpperCase();
+        }
+
+        async function movePlayer(row, col) {
+            try {
+                const response = await fetch('http://127.0.0.1:8000/game/move', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ to_row: row, to_col: col })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Errore durante la mossa');
+                }
+
+                const result = await response.json();
+                const lines = [result.message];
+                if (result.battle_result && result.battle_result.log) {
+                    lines.push(result.battle_result.log);
+                }
+                if (result.ai_move_result && result.ai_move_result.message) {
+                    lines.push(result.ai_move_result.message);
+                }
+                if (result.ai_move_result && result.ai_move_result.battle_result && result.ai_move_result.battle_result.log) {
+                    lines.push(result.ai_move_result.battle_result.log);
+                }
+
+                const stateResponse = await fetch('http://127.0.0.1:8000/game/state');
+                const stateData = await stateResponse.json();
+                renderBattleState(stateData, lines);
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+
+        async function resetBattleSession() {
+            try {
+                await fetch('http://127.0.0.1:8000/game/reset', { method: 'DELETE' });
+                currentBattleState = null;
+                document.getElementById('battleArea').classList.remove('active');
+                document.getElementById('battleLog').textContent = 'Nessuna azione.';
+                document.getElementById('battleStatus').textContent = 'Calcola una strategia per iniziare la battaglia.';
+            } catch (error) {
+                showError(error.message);
+            }
         }
 
         function createWarningsArea() {

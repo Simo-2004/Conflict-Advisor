@@ -23,6 +23,9 @@ from engine import (
     get_available_troop_status
 )
 
+from gamecore.session import GameSession, SessionState
+from gamecore.gameflow import start_game_session
+
 # Inizializza FastAPI
 app = FastAPI(
     title="War Advisor API",
@@ -47,6 +50,9 @@ try:
     DATA = load_data()
 except Exception as e:
     raise RuntimeError(f"Errore nel caricamento dei dati: {e}")
+
+# Sessione di gioco attiva (una sola partita alla volta)
+_active_session: Optional[GameSession] = None
 
 
 # ==================== MODELLI PYDANTIC ====================
@@ -190,6 +196,115 @@ async def calculate(request: CalculateRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== MODELLI PYDANTIC — GIOCO ====================
+
+class ConfirmRequest(BaseModel):
+    """Richiesta POST /game/confirm — il giocatore ha scelto la sua strategia."""
+    units: List[str]             = Field(..., description="ID unità del giocatore", min_items=1)
+    terrain: str                 = Field(..., description="Terreno scelto")
+    weather: Optional[str]       = Field(None, description="Condizione meteo")
+    troop_status: Optional[str]  = Field(None, description="Stato truppe del giocatore")
+    strategy_id: str             = Field(..., description="ID strategia confermata dal giocatore")
+    army_profile: Dict[str, float]      = Field(..., description="Vettore esercito grezzo (da /calculate)")
+    modified_profile: Dict[str, float]  = Field(..., description="Vettore esercito modificato (da /calculate)")
+    map_seed: Optional[int]      = Field(None, description="Seed opzionale per la mappa (None = casuale)")
+
+
+class MoveRequest(BaseModel):
+    """Richiesta POST /game/move — il giocatore si sposta di una casella."""
+    to_row: int = Field(..., description="Riga di destinazione")
+    to_col: int = Field(..., description="Colonna di destinazione")
+
+
+# ==================== ENDPOINT GIOCO ====================
+
+@app.post("/game/confirm")
+async def game_confirm(request: ConfirmRequest):
+    """
+    POST /game/confirm
+
+    Chiamato quando il giocatore ha confermato la sua strategia nel frontend.
+
+    Azioni:
+      1. Valida il terreno.
+      2. Costruisce l'esercito dell'IA (ai_builder) in base alle condizioni di partenza.
+      3. Crea la GameSession con mappa procedurale.
+      4. Ritorna lo stato iniziale della partita (mappa + info eserciti).
+    """
+    global _active_session
+
+    try:
+        started = start_game_session(
+            data=DATA,
+            player_units=request.units,
+            terrain=request.terrain,
+            weather=request.weather,
+            troop_status=request.troop_status,
+            strategy_id=request.strategy_id,
+            army_profile=request.army_profile,
+            modified_profile=request.modified_profile,
+            map_seed=request.map_seed,
+        )
+
+        _active_session = started["session"]
+        session_dict = _active_session.to_dict()
+        session_dict["message"] = started["message"]
+        return session_dict
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/game/move")
+async def game_move(request: MoveRequest):
+    """
+    POST /game/move
+
+    Il giocatore si sposta nella cella adiacente (to_row, to_col).
+
+    Dopo la mossa del giocatore:
+      - Se c'è scontro, viene risolto immediatamente.
+      - L'IA esegue automaticamente la sua mossa.
+      - Ritorna il nuovo stato completo della partita.
+    """
+    if _active_session is None:
+        raise HTTPException(status_code=400, detail="Nessuna partita attiva. Prima chiama POST /game/confirm.")
+
+    try:
+        result = _active_session.player_move(request.to_row, request.to_col)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/game/state")
+async def game_state():
+    """
+    GET /game/state
+
+    Ritorna lo stato completo della sessione di gioco corrente
+    (mappa, eserciti, log battaglie, turno, ecc.).
+    """
+    if _active_session is None:
+        raise HTTPException(status_code=404, detail="Nessuna partita attiva.")
+    return _active_session.to_dict()
+
+
+@app.delete("/game/reset")
+async def game_reset():
+    """
+    DELETE /game/reset
+
+    Termina la sessione corrente e la azzera,
+    permettendo di iniziare una nuova partita.
+    """
+    global _active_session
+    _active_session = None
+    return {"message": "Sessione azzerata. Puoi iniziare una nuova partita."}
 
 
 @app.get("/", response_class=HTMLResponse)
