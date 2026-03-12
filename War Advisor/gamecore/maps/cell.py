@@ -3,7 +3,7 @@ War Advisor - Cell
 Definisce le strutture dati di base per ogni cella della mappa di gioco.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 
@@ -43,14 +43,20 @@ class Cell:
         row          -- riga nella griglia (0 = nord/alto)
         col          -- colonna nella griglia
         terrain      -- tipo di terreno (uno di TERRAIN_TYPES)
-        occupation   -- chi occupa la cella
-        is_strategic -- True se la cella è un obiettivo strategico
+        occupation        -- chi controlla la cella
+        is_strategic      -- True se la cella è un obiettivo strategico
+        is_castle         -- True se la cella contiene un castello
+        garrison_strength -- numero di distaccamenti lasciati a presidio
+        is_mine          -- True se la cella ospita una miniera di grux
     """
     row: int
     col: int
     terrain: str           = "Pianura"
     occupation: Occupation = Occupation.NEUTRAL
     is_strategic: bool     = False
+    is_castle: bool        = False
+    garrison_strength: int = 0
+    is_mine: bool          = False
 
     def __post_init__(self) -> None:
         if self.terrain not in TERRAIN_TYPES:
@@ -67,12 +73,24 @@ class Cell:
             "terrain":      self.terrain,
             "occupation":   self.occupation.value,
             "is_strategic": self.is_strategic,
+            "is_castle":    self.is_castle,
+            "garrison_strength": self.garrison_strength,
+            "is_mine":      self.is_mine,
         }
 
     def __repr__(self) -> str:
-        flag = "*" if self.is_strategic else " "
+        markers = []
+        if self.is_strategic:
+            markers.append("strategic")
+        if self.is_castle:
+            markers.append("castle")
+        if self.garrison_strength:
+            markers.append(f"garrison={self.garrison_strength}")
+        if self.is_mine:
+            markers.append("mine")
+        marker_str = f" [{' '.join(markers)}]" if markers else ""
         return (
             f"Cell({self.row},{self.col} "
             f"terrain={self.terrain} "
-            f"occ={self.occupation.value}{flag})"
+            f"occ={self.occupation.value}{marker_str})"
         )

@@ -12,6 +12,7 @@ import random
 from typing import Any, Dict, List, Optional, Tuple
 
 from engine import aggregate_army, apply_modifiers, compute_ranking
+from gamecore.economy import STARTING_GRUX, calculate_army_cost, get_unit_costs
 
 # Stato truppe fisso per l'IA all'inizio partita
 AI_TROOP_STATUS: str = "Fresche"
@@ -43,6 +44,7 @@ def build_ai_army(
     ai_terrain: str,
     weather: Optional[str],
     n_units: int = 3,
+    budget: int = STARTING_GRUX,
     seed: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
@@ -79,6 +81,7 @@ def build_ai_army(
     terrain_modifiers: Dict[str, dict] = data["terrain"]
     strategies_list: List[Dict] = data["strategies"]
     affinities_data: Dict = data.get("unit_affinities", {})
+    unit_costs = get_unit_costs(all_units)
 
     # 1. Scorifica ogni unità
     unit_scores: List[Tuple[float, Dict]] = []
@@ -88,7 +91,22 @@ def build_ai_army(
         unit_scores.append((score, unit))
 
     unit_scores.sort(key=lambda x: x[0], reverse=True)
-    selected_ids: List[str] = [u["id"] for _, u in unit_scores[:n_units]]
+    selected_ids: List[str] = []
+    running_cost = 0
+    for _, unit in unit_scores:
+        unit_cost = unit_costs[unit["id"]]
+        if running_cost + unit_cost > budget:
+            continue
+        selected_ids.append(unit["id"])
+        running_cost += unit_cost
+        if len(selected_ids) >= n_units:
+            break
+
+    if not selected_ids:
+        cheapest_unit = min(all_units, key=lambda unit: unit_costs[unit["id"]])
+        selected_ids = [cheapest_unit["id"]]
+
+    total_cost = calculate_army_cost(selected_ids, unit_costs)
 
     # 2. Aggregazione e modificatori
     army_vector = aggregate_army(selected_ids, all_units)
@@ -112,6 +130,9 @@ def build_ai_army(
 
     return {
         "units":             selected_ids,
+        "unit_costs":        {unit_id: unit_costs[unit_id] for unit_id in selected_ids},
+        "army_cost":         total_cost,
+        "remaining_grux":    budget - total_cost,
         "troop_status":      AI_TROOP_STATUS,
         "army_vector":       army_vector,
         "modified_vector":   modified_vector,

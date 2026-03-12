@@ -8,6 +8,7 @@ dell'IA e crea una GameSession pronta per il frontend.
 
 from typing import Any, Dict, Optional
 
+from gamecore.economy import STARTING_GRUX, calculate_army_cost, get_unit_costs
 from gamecore.maps import TERRAIN_TYPES
 from gamecore.session import GameSession, build_ai_army
 
@@ -28,11 +29,17 @@ def start_game_session(
     if terrain not in TERRAIN_TYPES:
         raise ValueError(f"Terreno non valido: '{terrain}'. Valori ammessi: {TERRAIN_TYPES}")
 
+    unit_costs = get_unit_costs(data["units"])
+    player_army_cost = calculate_army_cost(player_units, unit_costs)
+    if player_army_cost > STARTING_GRUX:
+        raise ValueError("L'esercito selezionato supera il budget iniziale disponibile.")
+
     ai_data = build_ai_army(
         data=data,
         ai_terrain="Montagna",
         weather=weather,
         n_units=3,
+        budget=STARTING_GRUX,
         seed=map_seed,
     )
 
@@ -42,9 +49,12 @@ def start_game_session(
         player_army=army_profile,
         player_modified=modified_profile,
         player_troop_status=troop_status,
+        player_budget=STARTING_GRUX - player_army_cost,
+        player_army_cost=player_army_cost,
         ai_data=ai_data,
         weather=weather,
         data=data,
+        player_home_terrain=terrain,
         map_seed=map_seed,
     )
 

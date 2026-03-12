@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>War Advisor - Battaglia</title>
+    <style>
+        :root {
+            --primary: #1a1a2e;
+            --accent: #e94560;
+            --success: #16a34a;
+            --bg: #f5f5f5;
+            --card-bg: #ffffff;
+            --border: #ddd;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--bg);
+            color: #333;
+            padding: 20px;
+        }
+
+        .page {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+
+        .header h1 {
+            color: var(--primary);
+            font-size: 2.2em;
+        }
+
+        .header p {
+            color: #666;
+            margin-top: 6px;
+        }
+
+        .ghost-link {
+            display: inline-block;
+            text-decoration: none;
+            color: var(--primary);
+            font-weight: 700;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px 14px;
+            background: #fff;
+        }
+
+        .panel {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            border: 1px solid var(--border);
+        }
+
+        .battle-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 18px;
+            flex-wrap: wrap;
+        }
+
+        .battle-status {
+            flex: 1;
+            min-width: 260px;
+            padding: 12px 14px;
+            border-radius: 10px;
+            background: #f7f8fb;
+            border: 1px solid var(--border);
+            font-size: 0.95em;
+        }
+
+        .battle-layout {
+            display: grid;
+            grid-template-columns: 1.3fr 0.9fr;
+            gap: 20px;
+        }
+
+        .map-board {
+            display: grid;
+            gap: 4px;
+            background: #fafafa;
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            overflow-x: auto;
+        }
+
+        .map-cell {
+            min-width: 42px;
+            min-height: 42px;
+            border: 1px solid rgba(0,0,0,0.08);
+            border-radius: 8px;
+            font-size: 0.72em;
+            font-weight: 700;
+            color: #1a1a2e;
+            cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.15s;
+            padding: 2px;
+            background: #fff;
+        }
+
+        .map-cell:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 3px 8px rgba(0,0,0,0.12);
+        }
+
+        .map-cell:disabled {
+            cursor: default;
+            opacity: 0.95;
+        }
+
+        .terrain-pianura { background: #e9dfc8; }
+        .terrain-foresta { background: #c9e4b5; }
+        .terrain-montagna { background: #d7d9dd; }
+        .terrain-fiume { background: #b8daf7; }
+        .terrain-palude { background: #bfd2a8; }
+
+        .cell-player {
+            outline: 3px solid #e94560;
+            outline-offset: -3px;
+        }
+
+        .cell-ai {
+            outline: 3px solid #1a1a2e;
+            outline-offset: -3px;
+        }
+
+        .cell-strategic::after {
+            content: '★';
+            display: block;
+            font-size: 0.9em;
+            line-height: 1;
+        }
+
+        .cell-adjacent {
+            box-shadow: inset 0 0 0 2px #16a34a;
+        }
+
+        .battle-sidebar {
+            display: grid;
+            gap: 14px;
+        }
+
+        .battle-card {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 14px;
+        }
+
+        .battle-card h3 {
+            color: var(--primary);
+            margin-bottom: 10px;
+            font-size: 1.05em;
+        }
+
+        .battle-card p {
+            margin-bottom: 8px;
+            font-size: 0.92em;
+            color: #444;
+        }
+
+        .economy-box {
+            background: #fff8e7;
+            border: 1px solid #f3d39a;
+            border-radius: 10px;
+            padding: 12px;
+            color: #7c2d12;
+            font-weight: 600;
+        }
+
+        .garrison-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: #fff7f0;
+            color: #4b5563;
+            font-weight: 600;
+        }
+
+        .mine-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: #eef8f0;
+            color: #166534;
+            font-weight: 600;
+        }
+
+        .recruit-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .recruit-row select {
+            flex: 1;
+            min-width: 180px;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .garrison-badge {
+            display: inline-block;
+            min-width: 22px;
+            padding: 2px 6px;
+            border-radius: 999px;
+            background: #1a1a2e;
+            color: #fff;
+            font-size: 0.78em;
+            margin-left: 6px;
+        }
+
+        .battle-log {
+            max-height: 320px;
+            overflow-y: auto;
+            background: #0f172a;
+            color: #dbeafe;
+            font-family: Consolas, monospace;
+            font-size: 0.85em;
+            padding: 12px;
+            border-radius: 10px;
+            white-space: pre-wrap;
+        }
+
+        .button-row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 12px 14px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 0.95em;
+            cursor: pointer;
+        }
+
+        button.secondary {
+            background: #1a1a2e;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #555;
+        }
+
+        .empty-state h2 {
+            color: var(--primary);
+            margin-bottom: 12px;
+        }
+
+        @media (max-width: 1024px) {
+            .battle-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <div class="header">
+            <div>
+                <h1>⚔️ Campo di Battaglia</h1>
+                <p>La simulazione è terminata. Qui inizi la partita vera contro l'IA.</p>
+            </div>
+            <a class="ghost-link" href="/">← Torna al simulatore</a>
+        </div>
+
+        <div class="panel" id="battlePanel" style="display:none;">
+            <div class="battle-toolbar">
+                <div class="battle-status" id="battleStatus">Preparazione della battaglia in corso...</div>
+                <div class="button-row">
+                    <label class="mine-toggle">
+                        <input type="checkbox" id="placeMineToggle">
+                        Modalità piazza miniera
+                    </label>
+                    <label class="garrison-toggle">
+                        <input type="checkbox" id="leaveGarrisonToggle">
+                        Lascia un presidio durante la prossima mossa
+                    </label>
+                    <button class="secondary" onclick="resetBattleSession()">Reset Partita</button>
+                    <button onclick="restartFromStoredSetup()">Ricomincia Scontro</button>
+                </div>
+            </div>
+
+            <div class="battle-layout">
+                <div>
+                    <div id="mapBoard" class="map-board"></div>
+                </div>
+
+                <div class="battle-sidebar">
+                    <div class="battle-card">
+                        <h3>Tu</h3>
+                        <p id="playerStrategyInfo">Strategia: ---</p>
+                        <p id="playerUnitsInfo">Unità: ---</p>
+                        <p id="playerReserveInfo">Guarnigioni disponibili: ---</p>
+                        <p id="playerMinesInfo">Miniere: ---</p>
+                        <div class="economy-box" id="playerGruxInfo">Tesoreria: ---</div>
+                    </div>
+
+                    <div class="battle-card">
+                        <h3>IA</h3>
+                        <p id="aiStrategyInfo">Strategia: ---</p>
+                        <p id="aiUnitsInfo">Unità: ---</p>
+                        <p id="aiReserveInfo">Guarnigioni disponibili: ---</p>
+                        <p id="aiMinesInfo">Miniere: ---</p>
+                        <div class="economy-box" id="aiGruxInfo">Tesoreria: ---</div>
+                    </div>
+
+                    <div class="battle-card">
+                        <h3>Reclutamento</h3>
+                        <div class="recruit-row">
+                            <select id="recruitSelect"></select>
+                            <button type="button" onclick="recruitSelectedUnit()">Compra Unità</button>
+                        </div>
+                    </div>
+
+                    <div class="battle-card">
+                        <h3>Registro</h3>
+                        <div id="battleLog" class="battle-log">Nessuna azione.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel empty-state" id="emptyState" style="display:none;">
+            <h2>Nessuna simulazione disponibile</h2>
+            <p>Prima esegui una simulazione nella pagina principale, poi torna qui per iniziare la battaglia.</p>
+        </div>
+    </div>
+
+    <script>
+        let currentBattleState = null;
+        let transientLogLines = [];
+        let recruitableUnits = [];
+
+        window.addEventListener('DOMContentLoaded', initBattlePage);
+
+        async function initBattlePage() {
+            document.getElementById('placeMineToggle').addEventListener('change', () => {
+                if (currentBattleState) {
+                    renderMapBoard(currentBattleState.map);
+                }
+            });
+
+            const setupRaw = sessionStorage.getItem('warAdvisorBattleSetup');
+            if (!setupRaw) {
+                showEmptyState();
+                return;
+            }
+
+            try {
+                await loadRecruitableUnits();
+                await startBattleFromStoredSetup(JSON.parse(setupRaw));
+            } catch (error) {
+                document.getElementById('battleStatus').textContent = `Errore: ${error.message}`;
+                document.getElementById('battlePanel').style.display = 'block';
+            }
+        }
+
+        async function loadRecruitableUnits() {
+            const response = await fetch('http://127.0.0.1:8000/config');
+            const data = await response.json();
+            recruitableUnits = data.units || [];
+            const select = document.getElementById('recruitSelect');
+            select.innerHTML = recruitableUnits
+                .map(unit => `<option value="${unit.id}">${unit.name} • ${unit.cost_grux} grux</option>`)
+                .join('');
+        }
+
+        async function startBattleFromStoredSetup(setup) {
+            await fetch('http://127.0.0.1:8000/game/reset', { method: 'DELETE' });
+
+            const response = await fetch('http://127.0.0.1:8000/game/confirm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(setup)
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.detail || 'Errore nell\'avvio della partita');
+            }
+
+            transientLogLines = [];
+            const sessionData = await response.json();
+            renderBattleState(sessionData);
+            document.getElementById('battlePanel').style.display = 'block';
+            document.getElementById('emptyState').style.display = 'none';
+        }
+
+        function renderBattleState(sessionData) {
+            currentBattleState = sessionData;
+
+            const statusLines = [];
+            if (sessionData.message) statusLines.push(sessionData.message);
+            if (sessionData.state === 'game_over') {
+                statusLines.push(`Partita terminata. Vincitore: ${sessionData.winner}`);
+            } else {
+                statusLines.push(`Turno ${sessionData.map.turn} • Muove: ${sessionData.map.current_turn}`);
+                statusLines.push('Clicca una casella verde per muovere il tuo esercito.');
+            }
+            document.getElementById('battleStatus').textContent = statusLines.join(' | ');
+
+            document.getElementById('playerStrategyInfo').textContent = `Strategia: ${sessionData.player.strategy_id}`;
+            document.getElementById('playerUnitsInfo').textContent = `Unità: ${sessionData.player.units.join(', ')}`;
+            document.getElementById('playerReserveInfo').textContent = `Guarnigioni disponibili: ${sessionData.player.available_garrisons}`;
+            document.getElementById('playerMinesInfo').textContent = `Miniere: ${sessionData.map.stats.player_mines} | Slot liberi: ${sessionData.player.available_mine_slots}`;
+            document.getElementById('playerGruxInfo').textContent = `Tesoreria: ${sessionData.player.grux_balance} grux | Esercito: ${sessionData.player.army_cost} grux`;
+            document.getElementById('aiStrategyInfo').textContent = `Strategia: ${sessionData.ai.strategy_name} (${sessionData.ai.strategy_id})`;
+            document.getElementById('aiUnitsInfo').textContent = `Unità: ${sessionData.ai.units.join(', ')}`;
+            document.getElementById('aiReserveInfo').textContent = `Guarnigioni disponibili: ${sessionData.ai.available_garrisons}`;
+            document.getElementById('aiMinesInfo').textContent = `Miniere: ${sessionData.map.stats.ai_mines} | Slot liberi: ${sessionData.ai.available_mine_slots}`;
+            document.getElementById('aiGruxInfo').textContent = `Tesoreria: ${sessionData.ai.grux_balance} grux | Esercito: ${sessionData.ai.army_cost} grux`;
+
+            renderMapBoard(sessionData.map);
+
+            const logLines = [...transientLogLines, ...(sessionData.battle_log || [])];
+            document.getElementById('battleLog').textContent = logLines.length > 0 ? logLines.join('\n') : 'Nessuna azione.';
+        }
+
+        function renderMapBoard(mapData) {
+            const board = document.getElementById('mapBoard');
+            board.innerHTML = '';
+            board.style.gridTemplateColumns = `repeat(${mapData.cols}, minmax(42px, 1fr))`;
+
+            const playerPos = mapData.positions.player || null;
+            const adjacentMoves = getAdjacentMoves(playerPos, mapData.rows, mapData.cols);
+
+            mapData.grid.forEach((row, rowIndex) => {
+                row.forEach((cell, colIndex) => {
+                    const button = document.createElement('button');
+                    button.className = `map-cell ${terrainClass(cell.terrain)}`;
+                    button.type = 'button';
+                    button.title = `${cell.terrain} (${rowIndex}, ${colIndex})`;
+
+                    if (cell.is_strategic) button.classList.add('cell-strategic');
+                    if (cell.occupation === 'player') button.classList.add('cell-player');
+                    if (cell.occupation === 'ai') button.classList.add('cell-ai');
+
+                    const isAdjacent = adjacentMoves.some(move => move[0] === rowIndex && move[1] === colIndex);
+                    const mineModeActive = document.getElementById('placeMineToggle').checked;
+                    const canPlaceMine = mineModeActive && canPlaceMineOnCell(cell);
+
+                    if (canPlaceMine && currentBattleState && currentBattleState.state !== 'game_over') {
+                        button.classList.add('cell-adjacent');
+                        button.onclick = () => placeMine(rowIndex, colIndex);
+                    } else if (isAdjacent && currentBattleState && currentBattleState.state !== 'game_over') {
+                        button.classList.add('cell-adjacent');
+                        button.onclick = () => movePlayer(rowIndex, colIndex);
+                    } else {
+                        button.disabled = true;
+                    }
+
+                    button.innerHTML = buildCellLabel(cell, rowIndex, colIndex, mapData);
+
+                    board.appendChild(button);
+                });
+            });
+        }
+
+        function buildCellLabel(cell, rowIndex, colIndex, mapData) {
+            const isPlayerArmy = mapData.positions.player && mapData.positions.player[0] === rowIndex && mapData.positions.player[1] === colIndex;
+            const isAiArmy = mapData.positions.ai && mapData.positions.ai[0] === rowIndex && mapData.positions.ai[1] === colIndex;
+
+            if (isPlayerArmy) return 'YOU';
+            if (isAiArmy) return 'IA';
+
+            let label = cell.is_castle ? '🏰' : terrainAbbrev(cell.terrain);
+            if (cell.is_mine) {
+                label = '⛏' + label;
+            }
+            if (cell.garrison_strength > 0) {
+                label += `<span class="garrison-badge">${cell.garrison_strength}</span>`;
+            }
+            return label;
+        }
+
+        function canPlaceMineOnCell(cell) {
+            return currentBattleState
+                && cell.occupation === 'player'
+                && !cell.is_castle
+                && !cell.is_mine
+                && cell.terrain !== 'Fiume'
+                && currentBattleState.player.available_mine_slots > 0;
+        }
+
+        function getAdjacentMoves(playerPos, rows, cols) {
+            if (!playerPos) return [];
+            const [row, col] = playerPos;
+            return [
+                [row - 1, col],
+                [row + 1, col],
+                [row, col - 1],
+                [row, col + 1]
+            ].filter(([r, c]) => r >= 0 && r < rows && c >= 0 && c < cols);
+        }
+
+        function terrainClass(terrain) {
+            return `terrain-${terrain.toLowerCase()}`
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/\s+/g, '-');
+        }
+
+        function terrainAbbrev(terrain) {
+            const mapping = {
+                'Pianura': 'PIA',
+                'Foresta': 'FOR',
+                'Montagna': 'MON',
+                'Fiume': 'FIU',
+                'Palude': 'PAL'
+            };
+            return mapping[terrain] || terrain.slice(0, 3).toUpperCase();
+        }
+
+        async function movePlayer(row, col) {
+            try {
+                const leaveGarrison = document.getElementById('leaveGarrisonToggle').checked;
+                const response = await fetch('http://127.0.0.1:8000/game/move', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        to_row: row,
+                        to_col: col,
+                        leave_garrison: leaveGarrison
+                    })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Errore durante la mossa');
+                }
+
+                const result = await response.json();
+                transientLogLines = [result.message];
+                if (result.battle_result && result.battle_result.log) {
+                    transientLogLines.push(result.battle_result.log);
+                }
+                if (result.ai_move_result && result.ai_move_result.message) {
+                    transientLogLines.push(result.ai_move_result.message);
+                }
+                if (result.ai_move_result && result.ai_move_result.battle_result && result.ai_move_result.battle_result.log) {
+                    transientLogLines.push(result.ai_move_result.battle_result.log);
+                }
+
+                const stateResponse = await fetch('http://127.0.0.1:8000/game/state');
+                const stateData = await stateResponse.json();
+                renderBattleState(stateData);
+                document.getElementById('leaveGarrisonToggle').checked = false;
+            } catch (error) {
+                document.getElementById('battleStatus').textContent = `Errore: ${error.message}`;
+            }
+        }
+
+        async function placeMine(row, col) {
+            try {
+                const response = await fetch('http://127.0.0.1:8000/game/place-mine', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ row: row, col: col })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Errore nel piazzare la miniera');
+                }
+
+                const result = await response.json();
+                transientLogLines = [result.message];
+                const stateResponse = await fetch('http://127.0.0.1:8000/game/state');
+                const stateData = await stateResponse.json();
+                renderBattleState(stateData);
+                document.getElementById('placeMineToggle').checked = false;
+            } catch (error) {
+                document.getElementById('battleStatus').textContent = `Errore: ${error.message}`;
+            }
+        }
+
+        async function recruitSelectedUnit() {
+            try {
+                const unitId = document.getElementById('recruitSelect').value;
+                const response = await fetch('http://127.0.0.1:8000/game/recruit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ unit_id: unitId })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Errore nel reclutamento');
+                }
+
+                const result = await response.json();
+                transientLogLines = [result.message];
+                renderBattleState(result.session);
+            } catch (error) {
+                document.getElementById('battleStatus').textContent = `Errore: ${error.message}`;
+            }
+        }
+
+        async function resetBattleSession() {
+            await fetch('http://127.0.0.1:8000/game/reset', { method: 'DELETE' });
+            transientLogLines = [];
+            currentBattleState = null;
+            showEmptyState('Partita resettata. Torna al simulatore o ricomincia dallo stesso setup.');
+        }
+
+        async function restartFromStoredSetup() {
+            const setupRaw = sessionStorage.getItem('warAdvisorBattleSetup');
+            if (!setupRaw) {
+                showEmptyState();
+                return;
+            }
+            await startBattleFromStoredSetup(JSON.parse(setupRaw));
+        }
+
+        function showEmptyState(message = null) {
+            document.getElementById('battlePanel').style.display = 'none';
+            document.getElementById('emptyState').style.display = 'block';
+            if (message) {
+                document.querySelector('#emptyState p').textContent = message;
+            }
+        }
+    </script>
+</body>
+</html>

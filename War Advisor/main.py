@@ -25,6 +25,7 @@ from engine import (
 
 from gamecore.session import GameSession, SessionState
 from gamecore.gameflow import start_game_session
+from gamecore.economy import STARTING_GRUX, calculate_army_cost, get_unit_costs
 
 # Inizializza FastAPI
 app = FastAPI(
@@ -50,6 +51,8 @@ try:
     DATA = load_data()
 except Exception as e:
     raise RuntimeError(f"Errore nel caricamento dei dati: {e}")
+
+UNIT_COSTS = get_unit_costs(DATA["units"])
 
 # Sessione di gioco attiva (una sola partita alla volta)
 _active_session: Optional[GameSession] = None
@@ -91,6 +94,9 @@ class CalculateResponse(BaseModel):
     terrain_name: str
     weather_name: Optional[str] = Field(None, description="Condizione meteo applicata")
     troop_status_name: Optional[str] = Field(None, description="Stato truppe applicato")
+    budget_grux: int = Field(..., description="Budget iniziale disponibile")
+    selected_units_cost: int = Field(..., description="Costo totale delle unità selezionate")
+    remaining_grux: int = Field(..., description="Bilancio residuo in grux")
     critical_warnings: List[str] = Field(default_factory=list, description="Warning per attributi CRITICAL non soddisfatti")
     ranking: List[StrategyResult] = Field(..., description="Ranking delle strategie (da migliore a peggiore)")
     top_strategy: StrategyResult = Field(..., description="Strategia consigliata (migliore)")
@@ -105,7 +111,13 @@ async def get_config():
     Ritorna le liste di unità, terreni, meteo e stati truppe disponibili per popolare i dropdown del frontend.
     """
     try:
-        units = get_available_units(DATA)
+        units = [
+            {
+                **unit,
+                "cost_grux": UNIT_COSTS[unit["id"]],
+            }
+            for unit in get_available_units(DATA)
+        ]
         terrains = get_available_terrains(DATA)
         weather = get_available_weather(DATA)
         troop_status = get_available_troop_status(DATA)
@@ -141,6 +153,12 @@ async def calculate(request: CalculateRequest):
         # Valida l'input
         if not request.units:
             raise ValueError("Deve essere selezionata almeno un'unità")
+
+        selected_units_cost = calculate_army_cost(request.units, UNIT_COSTS)
+        if selected_units_cost > STARTING_GRUX:
+            raise ValueError(
+                f"Esercito troppo costoso: {selected_units_cost} grux su {STARTING_GRUX} disponibili"
+            )
         
         # Calcola il vettore dell'esercito originale
         army_profile = aggregate_army(request.units, DATA["units"])
@@ -187,6 +205,9 @@ async def calculate(request: CalculateRequest):
             terrain_name=request.terrain,
             weather_name=request.weather,
             troop_status_name=request.troop_status,
+            budget_grux=STARTING_GRUX,
+            selected_units_cost=selected_units_cost,
+            remaining_grux=STARTING_GRUX - selected_units_cost,
             critical_warnings=critical_warnings,
             ranking=ranking,
             top_strategy=top_strategy
@@ -216,6 +237,18 @@ class MoveRequest(BaseModel):
     """Richiesta POST /game/move — il giocatore si sposta di una casella."""
     to_row: int = Field(..., description="Riga di destinazione")
     to_col: int = Field(..., description="Colonna di destinazione")
+    leave_garrison: bool = Field(False, description="Se True lascia un distaccamento sulla casella di partenza")
+
+
+class MineRequest(BaseModel):
+    """Richiesta per piazzare una miniera."""
+    row: int = Field(..., description="Riga della cella")
+    col: int = Field(..., description="Colonna della cella")
+
+
+class RecruitRequest(BaseModel):
+    """Richiesta per reclutare una unità."""
+    unit_id: str = Field(..., description="ID unità da comprare")
 
 
 # ==================== ENDPOINT GIOCO ====================
@@ -275,7 +308,11 @@ async def game_move(request: MoveRequest):
         raise HTTPException(status_code=400, detail="Nessuna partita attiva. Prima chiama POST /game/confirm.")
 
     try:
-        result = _active_session.player_move(request.to_row, request.to_col)
+        result = _active_session.player_move(
+            request.to_row,
+            request.to_col,
+            leave_garrison=request.leave_garrison,
+        )
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -292,6 +329,34 @@ async def game_state():
     if _active_session is None:
         raise HTTPException(status_code=404, detail="Nessuna partita attiva.")
     return _active_session.to_dict()
+
+
+@app.post("/game/place-mine")
+async def game_place_mine(request: MineRequest):
+    """Piazza una miniera di grux su una cella controllata dal giocatore."""
+    if _active_session is None:
+        raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
+
+    try:
+        return _active_session.place_mine(request.row, request.col)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/game/recruit")
+async def game_recruit(request: RecruitRequest):
+    """Compra una nuova unità spendendo grux dalla tesoreria globale."""
+    if _active_session is None:
+        raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
+
+    try:
+        return _active_session.recruit_player_unit(request.unit_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.delete("/game/reset")
@@ -319,6 +384,21 @@ async def root():
     index_path = os.path.join(base_dir, "index.html")
     
     with open(index_path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+    return HTMLResponse(content=html_content)
+
+
+@app.get("/battle", response_class=HTMLResponse)
+async def battle_page():
+    """Serve la pagina dedicata alla battaglia."""
+    if getattr(sys, 'frozen', False):
+        base_dir = sys._MEIPASS
+    else:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+
+    battle_path = os.path.join(base_dir, "battle.html")
+
+    with open(battle_path, "r", encoding="utf-8") as f:
         html_content = f.read()
     return HTMLResponse(content=html_content)
 

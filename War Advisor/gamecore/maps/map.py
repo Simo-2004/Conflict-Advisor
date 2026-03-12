@@ -107,6 +107,7 @@ class GameMap:
 
         self.grid: List[List[Cell]] = []
         self.positions: Dict[Occupation, Tuple[int, int]] = {}
+        self.castle_positions: Dict[Occupation, Tuple[int, int]] = {}
         self.turn: int = 1
         self.current_turn: Occupation = PLAYER   # il giocatore muove per primo
 
@@ -237,11 +238,11 @@ class GameMap:
 
     def _place_armies(self) -> None:
         """
-        Posiziona gli eserciti sulle celle di partenza:
-          - PLAYER: riga rows-1 (sud), colonna cols//2
-          - AI:     riga 0     (nord), colonna cols//2
-        Le celle di partenza vengono forzate a Pianura per garantire
-        che siano sempre raggiungibili.
+                Posiziona gli eserciti e i castelli sulle celle di partenza:
+                    - PLAYER: castello/armata su riga rows-1 (sud), colonna cols//2
+                    - AI:     castello/armata su riga 0     (nord), colonna cols//2
+
+                I castelli partono con una guarnigione iniziale di 2 distaccamenti.
         """
         player_pos: Tuple[int, int] = (self.rows - 1, self.cols // 2)
         ai_pos:     Tuple[int, int] = (0,             self.cols // 2)
@@ -250,11 +251,21 @@ class GameMap:
         self.grid[player_pos[0]][player_pos[1]].terrain = "Pianura"
         self.grid[ai_pos[0]][ai_pos[1]].terrain = "Pianura"
 
-        self.grid[player_pos[0]][player_pos[1]].occupation = PLAYER
-        self.grid[ai_pos[0]][ai_pos[1]].occupation = AI
+        player_cell = self.grid[player_pos[0]][player_pos[1]]
+        ai_cell = self.grid[ai_pos[0]][ai_pos[1]]
+
+        player_cell.occupation = PLAYER
+        player_cell.is_castle = True
+        player_cell.garrison_strength = 2
+
+        ai_cell.occupation = AI
+        ai_cell.is_castle = True
+        ai_cell.garrison_strength = 2
 
         self.positions[PLAYER] = player_pos
         self.positions[AI]     = ai_pos
+        self.castle_positions[PLAYER] = player_pos
+        self.castle_positions[AI] = ai_pos
 
     # ──────────────────────────────────────────────────────────
     # ACCESSO ALLA GRIGLIA
@@ -288,6 +299,18 @@ class GameMap:
         dc = abs(pos_a[1] - pos_b[1])
         return (dr == 1 and dc == 0) or (dr == 0 and dc == 1)
 
+    def get_castle_position(self, entity: Occupation) -> Optional[Tuple[int, int]]:
+        """Restituisce la posizione del castello dell'entità."""
+        return self.castle_positions.get(entity)
+
+    def is_castle_controlled_by(self, entity: Occupation) -> bool:
+        """True se il castello dell'entità è ancora sotto il suo controllo."""
+        castle_pos = self.castle_positions.get(entity)
+        if castle_pos is None:
+            return False
+        cell = self.grid[castle_pos[0]][castle_pos[1]]
+        return cell.occupation == entity and cell.is_castle
+
     # ──────────────────────────────────────────────────────────
     # TURNI E MOVIMENTO
     # ──────────────────────────────────────────────────────────
@@ -296,6 +319,7 @@ class GameMap:
         self,
         entity: Occupation,
         to_pos: Tuple[int, int],
+        leave_garrison: bool = False,
     ) -> dict:
         """
         Esegue il movimento di un'entità verso una cella adiacente.
@@ -303,11 +327,12 @@ class GameMap:
         Regole:
           - Il movimento è consentito solo al possessore del turno corrente.
           - La destinazione deve essere ortogonalmente adiacente.
-          - Entrare nella cella occupata dall'avversario innesca una battaglia
-            (segnalato nel campo 'battle' del risultato): è compito del
-            chiamante risolvere lo scontro tramite engine.py.
-          - Se la destinazione è libera o occupata dal neutrale, viene catturata.
-          - La cella di partenza torna NEUTRAL dopo la mossa.
+                    - Entrare nella cella dell'armata avversaria, in una guarnigione o nel
+                        castello nemico innesca una battaglia.
+                    - Se `leave_garrison=True`, il giocatore lascia un distaccamento sulla
+                        casella di partenza invece di abbandonarla del tutto.
+                    - Il controllo territoriale della cella di partenza resta comunque
+                        all'entità che si muove.
 
         Args:
             entity: chi si muove (PLAYER o AI)
@@ -341,13 +366,24 @@ class GameMap:
             return {"ok": False, "message": "Destinazione fuori dalla mappa."}
 
         dest_cell = self.grid[to_row][to_col]
+        from_cell = self.grid[from_pos[0]][from_pos[1]]
+        enemy_pos = self.positions.get(entity.opposite())
 
-        # Controlla se è uno scontro diretto
-        battle = (dest_cell.occupation == entity.opposite())
+        encounter_type = "none"
+        if enemy_pos == to_pos:
+            encounter_type = "field_army"
+        elif dest_cell.is_castle and dest_cell.occupation == entity.opposite():
+            encounter_type = "castle"
+        elif dest_cell.garrison_strength > 0 and dest_cell.occupation == entity.opposite():
+            encounter_type = "garrison"
 
-        # Libera la cella di partenza
-        old_cell = self.grid[from_pos[0]][from_pos[1]]
-        old_cell.occupation = NEUTRAL
+        battle = encounter_type != "none"
+
+        if leave_garrison and not from_cell.is_castle:
+            from_cell.garrison_strength += 1
+
+        # La cella di partenza resta sotto controllo dell'entità.
+        from_cell.occupation = entity
 
         # Occupa la destinazione
         captured           = dest_cell.occupation != entity
@@ -359,8 +395,14 @@ class GameMap:
             f"[Turno {self.turn}] {entity.value} → ({to_row},{to_col}) "
             f"[{dest_cell.terrain}]"
         )
-        if battle:
-            msg += " — ⚔ BATTAGLIA!"
+        if leave_garrison and not from_cell.is_castle:
+            msg += " — Guarnigione lasciata alle spalle"
+        if encounter_type == "field_army":
+            msg += " — ⚔ Scontro tra armate!"
+        elif encounter_type == "garrison":
+            msg += " — 🛡 Presidio nemico intercettato!"
+        elif encounter_type == "castle":
+            msg += " — 🏰 Assalto al castello!"
         elif strategic_captured:
             msg += " — ★ Punto strategico conquistato!"
 
@@ -370,7 +412,16 @@ class GameMap:
             "captured":          captured,
             "strategic_captured": strategic_captured,
             "battle":            battle,
+            "encounter_type":    encounter_type,
             "terrain":           dest_cell.terrain,
+            "from_pos":          from_pos,
+            "to_pos":            to_pos,
+            "leave_garrison":    leave_garrison,
+            "destination": {
+                "is_castle": dest_cell.is_castle,
+                "garrison_strength": dest_cell.garrison_strength,
+                "previous_controller": entity.opposite().value if captured else entity.value,
+            },
         }
 
     def end_turn(self) -> None:
@@ -488,6 +539,41 @@ class GameMap:
             if self.grid[r][c].is_strategic
         )
 
+    def count_garrisons(self, entity: Occupation) -> int:
+        """Numero totale di distaccamenti lasciati sul campo dall'entità."""
+        return sum(
+            self.grid[r][c].garrison_strength
+            for r in range(self.rows)
+            for c in range(self.cols)
+            if self.grid[r][c].occupation == entity
+        )
+
+    def count_mines(self, entity: Occupation) -> int:
+        """Numero di miniere controllate dall'entità."""
+        return sum(
+            1
+            for r in range(self.rows)
+            for c in range(self.cols)
+            if self.grid[r][c].occupation == entity and self.grid[r][c].is_mine
+        )
+
+    def place_mine(self, entity: Occupation, row: int, col: int) -> Cell:
+        """Piazza una miniera su una cella controllata e idonea."""
+        cell = self.get_cell(row, col)
+        if cell is None:
+            raise ValueError("Cella fuori dalla mappa.")
+        if cell.occupation != entity:
+            raise ValueError("Puoi piazzare miniere solo su celle che controlli.")
+        if cell.is_castle:
+            raise ValueError("Non puoi costruire una miniera sul castello.")
+        if cell.is_mine:
+            raise ValueError("Su questa cella esiste già una miniera.")
+        if cell.terrain == "Fiume":
+            raise ValueError("Non puoi piazzare una miniera sul fiume.")
+
+        cell.is_mine = True
+        return cell
+
     def check_battle_trigger(self) -> Optional[Occupation]:
         """
         Controlla se le due armate si trovano in celle adiacenti (condizione
@@ -505,17 +591,14 @@ class GameMap:
 
     def is_game_over(self) -> Optional[Occupation]:
         """
-        Controlla se la partita è terminata (un esercito è stato eliminato).
-
-        La battaglia viene risolta esternamente (via engine.py); quando un
-        esercito perde, la sua posizione viene rimossa da `self.positions`.
+        Controlla se la partita è terminata (un castello è stato conquistato).
 
         Returns:
             Il vincitore (PLAYER o AI) se la partita è finita, altrimenti None.
         """
-        if PLAYER not in self.positions:
+        if not self.is_castle_controlled_by(PLAYER):
             return AI
-        if AI not in self.positions:
+        if not self.is_castle_controlled_by(AI):
             return PLAYER
         return None
 
@@ -548,6 +631,9 @@ class GameMap:
             "positions": {
                 k.value: list(v) for k, v in self.positions.items()
             },
+            "castles": {
+                k.value: list(v) for k, v in self.castle_positions.items()
+            },
             "grid": [
                 [cell.to_dict() for cell in row]
                 for row in self.grid
@@ -557,6 +643,10 @@ class GameMap:
                 "ai_cells":         self.count_occupied(AI),
                 "player_strategic": self.count_strategic_occupied(PLAYER),
                 "ai_strategic":     self.count_strategic_occupied(AI),
+                "player_garrisons": self.count_garrisons(PLAYER),
+                "ai_garrisons":     self.count_garrisons(AI),
+                "player_mines":     self.count_mines(PLAYER),
+                "ai_mines":         self.count_mines(AI),
                 "total_strategic":  self.count_strategic_total(),
             },
         }
@@ -573,7 +663,8 @@ class GameMap:
           .  Pianura      F  Foresta     M  Montagna
           ~  Fiume        P  Palude
           [P] posizione giocatore        [A] posizione IA
-          *  cella strategica (cell.is_strategic)
+                    *  cella strategica (cell.is_strategic)
+                    C  castello
           p  cella occupata dal giocatore
           a  cella occupata dall'IA
         """
@@ -601,6 +692,8 @@ class GameMap:
                     row_str += "[P]"
                 elif pos == ai_pos:
                     row_str += "[A]"
+                elif cell.is_castle:
+                    row_str += " C "
                 elif cell.is_strategic:
                     row_str += f"*{t_icons[cell.terrain]}*"
                 else:
