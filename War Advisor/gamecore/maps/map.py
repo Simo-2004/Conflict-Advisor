@@ -347,13 +347,16 @@ class GameMap:
               battle           (bool)   — True se la mossa raggiunge l'esercito avversario
               terrain          (str)    — terreno della cella di destinazione
         """
+        side_label = "PLAYER" if entity == PLAYER else "IA"
+        turn_label = "PLAYER" if self.current_turn == PLAYER else "IA"
+
         if entity not in self.positions:
-            return {"ok": False, "message": f"Entità '{entity.value}' non trovata."}
+            return {"ok": False, "message": f"Entita '{side_label}' non trovata."}
 
         if entity != self.current_turn:
             return {
                 "ok": False,
-                "message": f"Non è il turno di '{entity.value}' (turno di '{self.current_turn.value}').",
+                "message": f"Non e il turno di '{side_label}' (turno di '{turn_label}').",
             }
 
         from_pos = self.positions[entity]
@@ -378,8 +381,9 @@ class GameMap:
             encounter_type = "garrison"
 
         battle = encounter_type != "none"
+        garrison_left = leave_garrison
 
-        if leave_garrison and not from_cell.is_castle:
+        if garrison_left:
             from_cell.garrison_strength += 1
 
         # La cella di partenza resta sotto controllo dell'entità.
@@ -392,10 +396,10 @@ class GameMap:
         self.positions[entity] = to_pos
 
         msg = (
-            f"[Turno {self.turn}] {entity.value} → ({to_row},{to_col}) "
+            f"[Turno {self.turn}] {side_label} -> ({to_row},{to_col}) "
             f"[{dest_cell.terrain}]"
         )
-        if leave_garrison and not from_cell.is_castle:
+        if garrison_left:
             msg += " — Guarnigione lasciata alle spalle"
         if encounter_type == "field_army":
             msg += " — ⚔ Scontro tra armate!"
@@ -416,7 +420,7 @@ class GameMap:
             "terrain":           dest_cell.terrain,
             "from_pos":          from_pos,
             "to_pos":            to_pos,
-            "leave_garrison":    leave_garrison,
+            "leave_garrison":    garrison_left,
             "destination": {
                 "is_castle": dest_cell.is_castle,
                 "garrison_strength": dest_cell.garrison_strength,

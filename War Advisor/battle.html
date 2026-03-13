@@ -89,6 +89,53 @@
             font-size: 0.95em;
         }
 
+        .status-line {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .status-pill {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: #1a1a2e;
+            color: #fff;
+            font-weight: 700;
+            font-size: 0.78em;
+        }
+
+        .status-muted {
+            color: #4b5563;
+            font-size: 0.86em;
+            margin-top: 6px;
+        }
+
+        .action-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .action-btn {
+            border: 1px solid var(--border);
+            background: #fff;
+            color: #1f2937;
+            padding: 8px 10px;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 0.82em;
+            cursor: pointer;
+        }
+
+        .action-btn.active {
+            background: #1a1a2e;
+            color: #fff;
+            border-color: #1a1a2e;
+        }
+
         .battle-layout {
             display: grid;
             grid-template-columns: 1.3fr 0.9fr;
@@ -136,13 +183,31 @@
         .terrain-palude { background: #bfd2a8; }
 
         .cell-player {
-            outline: 3px solid #e94560;
-            outline-offset: -3px;
+            background: #86efac;
+            border-color: #111827;
+            color: #14532d;
+            box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.28);
         }
 
         .cell-ai {
-            outline: 3px solid #1a1a2e;
+            background: #fca5a5;
+            border-color: #111827;
+            color: #7f1d1d;
+            box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.28);
+        }
+
+        .cell-player-army {
+            outline: 3px solid #15803d;
             outline-offset: -3px;
+            box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.35), inset 0 0 0 2px rgba(255,255,255,0.5);
+            font-weight: 800;
+        }
+
+        .cell-ai-army {
+            outline: 3px solid #b91c1c;
+            outline-offset: -3px;
+            box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.35), inset 0 0 0 2px rgba(255,255,255,0.45);
+            font-weight: 800;
         }
 
         .cell-strategic::after {
@@ -189,30 +254,6 @@
             font-weight: 600;
         }
 
-        .garrison-toggle {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 10px 12px;
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            background: #fff7f0;
-            color: #4b5563;
-            font-weight: 600;
-        }
-
-        .mine-toggle {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 10px 12px;
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            background: #eef8f0;
-            color: #166534;
-            font-weight: 600;
-        }
-
         .recruit-row {
             display: flex;
             gap: 8px;
@@ -248,13 +289,138 @@
             font-size: 0.85em;
             padding: 12px;
             border-radius: 10px;
-            white-space: pre-wrap;
+            white-space: normal;
+            line-height: 1.4;
+        }
+
+        .split-logs {
+            margin-top: 14px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .log-column {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 10px;
+        }
+
+        .log-title {
+            margin-bottom: 8px;
+            font-size: 0.92em;
+            font-weight: 800;
+        }
+
+        .log-title-player {
+            color: #16a34a;
+        }
+
+        .log-title-ai {
+            color: #dc2626;
+        }
+
+        .battle-log.battle-log-split {
+            max-height: 220px;
+            padding: 10px;
+        }
+
+        .log-entry {
+            margin-bottom: 6px;
+            word-break: break-word;
+        }
+
+        .log-player {
+            color: #22c55e;
+            font-weight: 700;
+        }
+
+        .log-ai {
+            color: #ef4444;
+            font-weight: 700;
+        }
+
+        .log-system {
+            color: #fbbf24;
+            font-weight: 700;
         }
 
         .button-row {
             display: flex;
             gap: 10px;
             flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .settings-menu {
+            position: relative;
+        }
+
+        .settings-trigger {
+            width: 44px;
+            height: 44px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+            padding: 0;
+        }
+
+        .settings-trigger svg {
+            width: 20px;
+            height: 20px;
+            pointer-events: none;
+        }
+
+        .settings-dropdown {
+            position: absolute;
+            right: 0;
+            top: calc(100% + 8px);
+            min-width: 220px;
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            box-shadow: 0 8px 22px rgba(15, 23, 42, 0.15);
+            padding: 6px;
+            display: none;
+            z-index: 20;
+        }
+
+        .settings-menu.open .settings-dropdown {
+            display: block;
+        }
+
+        .menu-item {
+            width: 100%;
+            border: none;
+            background: transparent;
+            text-align: left;
+            padding: 10px 12px;
+            border-radius: 8px;
+            color: #1f2937;
+            font-size: 0.9em;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .menu-item:hover {
+            background: #f3f4f6;
+        }
+
+        .shortcuts-panel {
+            margin-bottom: 14px;
+            padding: 10px 12px;
+            border: 1px dashed #cbd5e1;
+            border-radius: 10px;
+            background: #f8fafc;
+            color: #334155;
+            font-size: 0.85em;
+            display: none;
+        }
+
+        .shortcuts-panel.active {
+            display: block;
         }
 
         button {
@@ -287,6 +453,10 @@
             .battle-layout {
                 grid-template-columns: 1fr;
             }
+
+            .split-logs {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -302,43 +472,73 @@
 
         <div class="panel" id="battlePanel" style="display:none;">
             <div class="battle-toolbar">
-                <div class="battle-status" id="battleStatus">Preparazione della battaglia in corso...</div>
-                <div class="button-row">
-                    <label class="mine-toggle">
-                        <input type="checkbox" id="placeMineToggle">
-                        Modalità piazza miniera
-                    </label>
-                    <label class="garrison-toggle">
-                        <input type="checkbox" id="leaveGarrisonToggle">
-                        Lascia un presidio durante la prossima mossa
-                    </label>
-                    <button class="secondary" onclick="resetBattleSession()">Reset Partita</button>
-                    <button onclick="restartFromStoredSetup()">Ricomincia Scontro</button>
+                <div class="battle-status" id="battleStatus">
+                    <div class="status-line">
+                        <span class="status-pill" id="battleStatusMode">Azione: Mossa</span>
+                        <span class="status-pill" id="battleStatusRound">Partita attiva</span>
+                    </div>
+                    <div class="status-muted" id="battleStatusHint">Premi H per vedere i comandi rapidi.</div>
+                    <div class="action-row">
+                        <button class="action-btn" id="actionMoveBtn" type="button" onclick="setAction('move')">Mossa [1]</button>
+                        <button class="action-btn" id="actionGarrisonBtn" type="button" onclick="setAction('move_garrison')">Mossa+Presidio [2]</button>
+                        <button class="action-btn" id="actionMineBtn" type="button" onclick="setAction('place_mine')">Piazza Miniera [3]</button>
+                    </div>
                 </div>
+                <div class="button-row">
+                    <div class="settings-menu" id="settingsMenu">
+                        <button
+                            class="secondary settings-trigger"
+                            type="button"
+                            title="Apri menu impostazioni"
+                            aria-label="Apri menu impostazioni"
+                            onclick="toggleSettingsMenu()"
+                        >
+                            <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                                <path d="M9.605.667a.5.5 0 0 0-.21.56l.08.319a.5.5 0 0 1-.242.55l-.244.141a.5.5 0 0 1-.6-.08l-.24-.24a.5.5 0 0 0-.707 0l-.708.708a.5.5 0 0 0 0 .707l.24.24a.5.5 0 0 1 .08.6l-.141.244a.5.5 0 0 1-.55.242l-.319-.08a.5.5 0 0 0-.56.21l-.5.866a.5.5 0 0 0 .122.646l.262.205a.5.5 0 0 1 .192.52l-.06.275a.5.5 0 0 1-.404.383l-.3.057a.5.5 0 0 0-.4.49v1a.5.5 0 0 0 .4.49l.3.057a.5.5 0 0 1 .404.383l.06.275a.5.5 0 0 1-.192.52l-.262.205a.5.5 0 0 0-.122.646l.5.866a.5.5 0 0 0 .56.21l.319-.08a.5.5 0 0 1 .55.242l.141.244a.5.5 0 0 1-.08.6l-.24.24a.5.5 0 0 0 0 .707l.708.708a.5.5 0 0 0 .707 0l.24-.24a.5.5 0 0 1 .6-.08l.244.141a.5.5 0 0 1 .242.55l-.08.319a.5.5 0 0 0 .21.56l.866.5a.5.5 0 0 0 .646-.122l.205-.262a.5.5 0 0 1 .52-.192l.275.06a.5.5 0 0 1 .383.404l.057.3a.5.5 0 0 0 .49.4h1a.5.5 0 0 0 .49-.4l.057-.3a.5.5 0 0 1 .383-.404l.275-.06a.5.5 0 0 1 .52.192l.205.262a.5.5 0 0 0 .646.122l.866-.5a.5.5 0 0 0 .21-.56l-.08-.319a.5.5 0 0 1 .242-.55l.244-.141a.5.5 0 0 1 .6.08l.24.24a.5.5 0 0 0 .707 0l.708-.708a.5.5 0 0 0 0-.707l-.24-.24a.5.5 0 0 1-.08-.6l.141-.244a.5.5 0 0 1 .55-.242l.319.08a.5.5 0 0 0 .56-.21l.5-.866a.5.5 0 0 0-.122-.646l-.262-.205a.5.5 0 0 1-.192-.52l.06-.275a.5.5 0 0 1 .404-.383l.3-.057a.5.5 0 0 0 .4-.49v-1a.5.5 0 0 0-.4-.49l-.3-.057a.5.5 0 0 1-.404-.383l-.06-.275a.5.5 0 0 1 .192-.52l.262-.205a.5.5 0 0 0 .122-.646l-.5-.866a.5.5 0 0 0-.56-.21l-.319.08a.5.5 0 0 1-.55-.242l-.141-.244a.5.5 0 0 1 .08-.6l.24-.24a.5.5 0 0 0 0-.707l-.708-.708a.5.5 0 0 0-.707 0l-.24.24a.5.5 0 0 1-.6.08l-.244-.141a.5.5 0 0 1-.242-.55l.08-.319a.5.5 0 0 0-.21-.56l-.866-.5zM8 10.5A2.5 2.5 0 1 1 8 5.5a2.5 2.5 0 0 1 0 5z"/>
+                            </svg>
+                        </button>
+                        <div class="settings-dropdown" id="settingsDropdown">
+                            <button class="menu-item" type="button" onclick="handleSettingsAction('shortcuts')">Comandi rapidi [H]</button>
+                            <button class="menu-item" type="button" onclick="handleSettingsAction('reset')">Reset partita</button>
+                            <button class="menu-item" type="button" onclick="handleSettingsAction('restart')">Ricomincia scontro</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="shortcuts-panel" id="shortcutsPanel">
+                1: Modalita Mossa | 2: Presidio immediato | 3: Miniera immediata | Shift+Click: Presidio su mossa | Alt+Click: Miniera sulla cella | Frecce: Muovi | Shift+Frecce: Presidio su mossa | R: Recluta
             </div>
 
             <div class="battle-layout">
                 <div>
                     <div id="mapBoard" class="map-board"></div>
+
+                    <div class="split-logs">
+                        <div class="log-column">
+                            <div class="log-title log-title-player">Log PLAYER</div>
+                            <div id="battleLogPlayer" class="battle-log battle-log-split">
+                                <div class="log-entry">Nessuna azione.</div>
+                            </div>
+                        </div>
+                        <div class="log-column">
+                            <div class="log-title log-title-ai">Log IA</div>
+                            <div id="battleLogAi" class="battle-log battle-log-split">
+                                <div class="log-entry">Nessuna azione.</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="battle-sidebar">
                     <div class="battle-card">
-                        <h3>Tu</h3>
-                        <p id="playerStrategyInfo">Strategia: ---</p>
-                        <p id="playerUnitsInfo">Unità: ---</p>
-                        <p id="playerReserveInfo">Guarnigioni disponibili: ---</p>
-                        <p id="playerMinesInfo">Miniere: ---</p>
-                        <div class="economy-box" id="playerGruxInfo">Tesoreria: ---</div>
-                    </div>
-
-                    <div class="battle-card">
-                        <h3>IA</h3>
-                        <p id="aiStrategyInfo">Strategia: ---</p>
-                        <p id="aiUnitsInfo">Unità: ---</p>
-                        <p id="aiReserveInfo">Guarnigioni disponibili: ---</p>
-                        <p id="aiMinesInfo">Miniere: ---</p>
-                        <div class="economy-box" id="aiGruxInfo">Tesoreria: ---</div>
+                        <h3>Economia e Presidi</h3>
+                        <p id="playerMinesInfo">PLAYER miniere: ---</p>
+                        <p id="playerReserveInfo">PLAYER guarnigioni: ---</p>
+                        <div class="economy-box" id="playerGruxInfo">PLAYER grux: ---</div>
+                        <p id="aiMinesInfo" style="margin-top:10px;">IA miniere: ---</p>
+                        <p id="aiReserveInfo">IA guarnigioni: ---</p>
+                        <div class="economy-box" id="aiGruxInfo">IA grux: ---</div>
                     </div>
 
                     <div class="battle-card">
@@ -349,10 +549,6 @@
                         </div>
                     </div>
 
-                    <div class="battle-card">
-                        <h3>Registro</h3>
-                        <div id="battleLog" class="battle-log">Nessuna azione.</div>
-                    </div>
                 </div>
             </div>
         </div>
@@ -367,15 +563,14 @@
         let currentBattleState = null;
         let transientLogLines = [];
         let recruitableUnits = [];
+        let currentAction = 'move';
 
         window.addEventListener('DOMContentLoaded', initBattlePage);
 
         async function initBattlePage() {
-            document.getElementById('placeMineToggle').addEventListener('change', () => {
-                if (currentBattleState) {
-                    renderMapBoard(currentBattleState.map);
-                }
-            });
+            setAction('move');
+            document.addEventListener('keydown', handleKeyboardShortcuts);
+            document.addEventListener('click', handleOutsideMenuClick);
 
             const setupRaw = sessionStorage.getItem('warAdvisorBattleSetup');
             if (!setupRaw) {
@@ -387,7 +582,7 @@
                 await loadRecruitableUnits();
                 await startBattleFromStoredSetup(JSON.parse(setupRaw));
             } catch (error) {
-                document.getElementById('battleStatus').textContent = `Errore: ${error.message}`;
+                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
                 document.getElementById('battlePanel').style.display = 'block';
             }
         }
@@ -418,6 +613,9 @@
 
             transientLogLines = [];
             const sessionData = await response.json();
+            if (sessionData.message) {
+                transientLogLines.push(sessionData.message);
+            }
             renderBattleState(sessionData);
             document.getElementById('battlePanel').style.display = 'block';
             document.getElementById('emptyState').style.display = 'none';
@@ -426,31 +624,86 @@
         function renderBattleState(sessionData) {
             currentBattleState = sessionData;
 
-            const statusLines = [];
-            if (sessionData.message) statusLines.push(sessionData.message);
+            document.getElementById('battleStatusMode').textContent = `Azione: ${actionLabel(currentAction)}`;
             if (sessionData.state === 'game_over') {
-                statusLines.push(`Partita terminata. Vincitore: ${sessionData.winner}`);
+                document.getElementById('battleStatusRound').textContent = `Fine partita: ${sessionData.winner}`;
+                document.getElementById('battleStatusHint').textContent = 'Il registro mostra il riepilogo completo della battaglia.';
             } else {
-                statusLines.push(`Turno ${sessionData.map.turn} • Muove: ${sessionData.map.current_turn}`);
-                statusLines.push('Clicca una casella verde per muovere il tuo esercito.');
+                document.getElementById('battleStatusRound').textContent = `Turno ${sessionData.map.turn}`;
+                if (currentAction === 'move_garrison' && sessionData.player.available_garrisons <= 0) {
+                    document.getElementById('battleStatusHint').textContent = 'Nessun presidio disponibile: recluta unità o cambia azione.';
+                } else if (currentAction === 'place_mine' && sessionData.player.available_mine_slots <= 0) {
+                    document.getElementById('battleStatusHint').textContent = 'Nessuno slot miniera: conquista più territorio per costruirne altre.';
+                } else {
+                    document.getElementById('battleStatusHint').textContent = 'Usa i pulsanti azione o premi H per i comandi rapidi.';
+                }
             }
-            document.getElementById('battleStatus').textContent = statusLines.join(' | ');
 
-            document.getElementById('playerStrategyInfo').textContent = `Strategia: ${sessionData.player.strategy_id}`;
-            document.getElementById('playerUnitsInfo').textContent = `Unità: ${sessionData.player.units.join(', ')}`;
-            document.getElementById('playerReserveInfo').textContent = `Guarnigioni disponibili: ${sessionData.player.available_garrisons}`;
+            document.getElementById('playerReserveInfo').textContent = `PLAYER guarnigioni disponibili: ${sessionData.player.available_garrisons}`;
             document.getElementById('playerMinesInfo').textContent = `Miniere: ${sessionData.map.stats.player_mines} | Slot liberi: ${sessionData.player.available_mine_slots}`;
-            document.getElementById('playerGruxInfo').textContent = `Tesoreria: ${sessionData.player.grux_balance} grux | Esercito: ${sessionData.player.army_cost} grux`;
-            document.getElementById('aiStrategyInfo').textContent = `Strategia: ${sessionData.ai.strategy_name} (${sessionData.ai.strategy_id})`;
-            document.getElementById('aiUnitsInfo').textContent = `Unità: ${sessionData.ai.units.join(', ')}`;
-            document.getElementById('aiReserveInfo').textContent = `Guarnigioni disponibili: ${sessionData.ai.available_garrisons}`;
+            document.getElementById('playerGruxInfo').textContent = `PLAYER grux: ${sessionData.player.grux_balance} | Costo esercito: ${sessionData.player.army_cost}`;
+            document.getElementById('aiReserveInfo').textContent = `IA guarnigioni disponibili: ${sessionData.ai.available_garrisons}`;
             document.getElementById('aiMinesInfo').textContent = `Miniere: ${sessionData.map.stats.ai_mines} | Slot liberi: ${sessionData.ai.available_mine_slots}`;
-            document.getElementById('aiGruxInfo').textContent = `Tesoreria: ${sessionData.ai.grux_balance} grux | Esercito: ${sessionData.ai.army_cost} grux`;
+            document.getElementById('aiGruxInfo').textContent = `IA grux: ${sessionData.ai.grux_balance} | Costo esercito: ${sessionData.ai.army_cost}`;
 
             renderMapBoard(sessionData.map);
 
-            const logLines = [...transientLogLines, ...(sessionData.battle_log || [])];
-            document.getElementById('battleLog').textContent = logLines.length > 0 ? logLines.join('\n') : 'Nessuna azione.';
+            const logLines = [...(sessionData.battle_log || []), ...transientLogLines];
+            renderLog(logLines);
+        }
+
+        function escapeHtml(text) {
+            return text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function renderLog(lines) {
+            const playerContainer = document.getElementById('battleLogPlayer');
+            const aiContainer = document.getElementById('battleLogAi');
+            if (!lines || lines.length === 0) {
+                playerContainer.innerHTML = '<div class="log-entry">Nessuna azione.</div>';
+                aiContainer.innerHTML = '<div class="log-entry">Nessuna azione.</div>';
+                return;
+            }
+
+            const playerLines = [];
+            const aiLines = [];
+
+            for (const line of lines) {
+                const hasPlayer = /\bPLAYER\b|\bplayer\b/.test(line);
+                const hasAi = /\bIA\b|\bAI\b|\bai\b/.test(line);
+
+                if (hasPlayer) playerLines.push(line);
+                if (hasAi) aiLines.push(line);
+
+                if (!hasPlayer && !hasAi) {
+                    playerLines.push(line);
+                    aiLines.push(line);
+                }
+            }
+
+            const formatLine = (line) => {
+                let safe = escapeHtml(line);
+                safe = safe.replace(/\bPLAYER\b|\bplayer\b/g, '<span class="log-player">PLAYER</span>');
+                safe = safe.replace(/\bIA\b|\bAI\b|\bai\b/g, '<span class="log-ai">IA</span>');
+                safe = safe.replace(/\b(Turno|Assalto|Battaglia|Presidio|Scontro|Ritirata|conquista)\b/g, '<span class="log-system">$1</span>');
+                return `<div class="log-entry">${safe}</div>`;
+            };
+
+            playerContainer.innerHTML = playerLines.length > 0
+                ? playerLines.map(formatLine).join('')
+                : '<div class="log-entry">Nessuna azione PLAYER.</div>';
+
+            aiContainer.innerHTML = aiLines.length > 0
+                ? aiLines.map(formatLine).join('')
+                : '<div class="log-entry">Nessuna azione IA.</div>';
+
+            playerContainer.scrollTop = playerContainer.scrollHeight;
+            aiContainer.scrollTop = aiContainer.scrollHeight;
         }
 
         function renderMapBoard(mapData) {
@@ -472,16 +725,22 @@
                     if (cell.occupation === 'player') button.classList.add('cell-player');
                     if (cell.occupation === 'ai') button.classList.add('cell-ai');
 
-                    const isAdjacent = adjacentMoves.some(move => move[0] === rowIndex && move[1] === colIndex);
-                    const mineModeActive = document.getElementById('placeMineToggle').checked;
-                    const canPlaceMine = mineModeActive && canPlaceMineOnCell(cell);
+                    if (mapData.positions.player && mapData.positions.player[0] === rowIndex && mapData.positions.player[1] === colIndex) {
+                        button.classList.add('cell-player-army');
+                    }
+                    if (mapData.positions.ai && mapData.positions.ai[0] === rowIndex && mapData.positions.ai[1] === colIndex) {
+                        button.classList.add('cell-ai-army');
+                    }
 
-                    if (canPlaceMine && currentBattleState && currentBattleState.state !== 'game_over') {
-                        button.classList.add('cell-adjacent');
-                        button.onclick = () => placeMine(rowIndex, colIndex);
-                    } else if (isAdjacent && currentBattleState && currentBattleState.state !== 'game_over') {
-                        button.classList.add('cell-adjacent');
-                        button.onclick = () => movePlayer(rowIndex, colIndex);
+                    const isAdjacent = adjacentMoves.some(move => move[0] === rowIndex && move[1] === colIndex);
+                    const canMine = canPlaceMineOnCell(cell);
+                    const mineMode = currentAction === 'place_mine';
+
+                    if (currentBattleState && currentBattleState.state !== 'game_over') {
+                        if (isAdjacent || (mineMode && cell.occupation === 'player' && !cell.is_castle && !cell.is_mine && cell.terrain !== 'Fiume')) {
+                            button.classList.add('cell-adjacent');
+                        }
+                        button.onclick = (event) => handleCellAction(event, rowIndex, colIndex, isAdjacent, canMine);
                     } else {
                         button.disabled = true;
                     }
@@ -497,8 +756,8 @@
             const isPlayerArmy = mapData.positions.player && mapData.positions.player[0] === rowIndex && mapData.positions.player[1] === colIndex;
             const isAiArmy = mapData.positions.ai && mapData.positions.ai[0] === rowIndex && mapData.positions.ai[1] === colIndex;
 
-            if (isPlayerArmy) return 'YOU';
-            if (isAiArmy) return 'IA';
+            if (isPlayerArmy) return cell.is_mine ? 'YOU⛏' : 'YOU';
+            if (isAiArmy) return cell.is_mine ? 'IA⛏' : 'IA';
 
             let label = cell.is_castle ? '🏰' : terrainAbbrev(cell.terrain);
             if (cell.is_mine) {
@@ -517,6 +776,173 @@
                 && !cell.is_mine
                 && cell.terrain !== 'Fiume'
                 && currentBattleState.player.available_mine_slots > 0;
+        }
+
+        function setAction(action) {
+            currentAction = action;
+            document.getElementById('actionMoveBtn').classList.toggle('active', action === 'move');
+            document.getElementById('actionGarrisonBtn').classList.toggle('active', action === 'move_garrison');
+            document.getElementById('actionMineBtn').classList.toggle('active', action === 'place_mine');
+
+            if (currentBattleState) {
+                renderBattleState(currentBattleState);
+            }
+        }
+
+        function actionLabel(action) {
+            if (action === 'move_garrison') return 'Mossa + Presidio';
+            if (action === 'place_mine') return 'Piazza Miniera';
+            return 'Mossa';
+        }
+
+        function resetActionToDefault() {
+            if (currentAction !== 'move') {
+                setAction('move');
+            }
+        }
+
+        function toggleShortcuts(forceState = null) {
+            const panel = document.getElementById('shortcutsPanel');
+            const shouldOpen = forceState === null ? !panel.classList.contains('active') : forceState;
+            panel.classList.toggle('active', shouldOpen);
+        }
+
+        function toggleSettingsMenu(forceState = null) {
+            const menu = document.getElementById('settingsMenu');
+            const shouldOpen = forceState === null ? !menu.classList.contains('open') : forceState;
+            menu.classList.toggle('open', shouldOpen);
+        }
+
+        function handleOutsideMenuClick(event) {
+            const menu = document.getElementById('settingsMenu');
+            if (menu && !menu.contains(event.target)) {
+                toggleSettingsMenu(false);
+            }
+        }
+
+        async function handleSettingsAction(action) {
+            toggleSettingsMenu(false);
+            if (action === 'shortcuts') {
+                toggleShortcuts();
+                return;
+            }
+            if (action === 'reset') {
+                await resetBattleSession();
+                return;
+            }
+            if (action === 'restart') {
+                await restartFromStoredSetup();
+            }
+        }
+
+        function handleCellAction(event, row, col, isAdjacent, canMine) {
+            const targetCell = currentBattleState?.map?.grid?.[row]?.[col];
+
+            if (!currentBattleState || currentBattleState.state === 'game_over') {
+                document.getElementById('battleStatusHint').textContent = 'Partita terminata: nessuna azione disponibile.';
+                return;
+            }
+
+            if (event.altKey && canMine) {
+                placeMine(row, col);
+                return;
+            }
+
+            if (event.shiftKey && isAdjacent) {
+                movePlayer(row, col, true);
+                return;
+            }
+
+            if (currentAction === 'place_mine') {
+                if (targetCell && targetCell.occupation === 'player') {
+                    placeMine(row, col);
+                } else {
+                    if (!currentBattleState || !targetCell) {
+                        document.getElementById('battleStatusHint').textContent = 'Stato partita non disponibile: aggiorna la sessione.';
+                    } else if (targetCell.occupation !== 'player') {
+                        document.getElementById('battleStatusHint').textContent = 'Miniera non valida: puoi costruire solo su celle PLAYER.';
+                    } else {
+                        document.getElementById('battleStatusHint').textContent = 'Miniera non valida su questa cella.';
+                    }
+                }
+                return;
+            }
+
+            if (isAdjacent) {
+                movePlayer(row, col, currentAction === 'move_garrison');
+            } else if (currentAction === 'move_garrison') {
+                if (currentBattleState && currentBattleState.player.available_garrisons <= 0) {
+                    document.getElementById('battleStatusHint').textContent = 'Presidio non disponibile: nessuna guarnigione residua.';
+                } else {
+                    document.getElementById('battleStatusHint').textContent = 'Presidio valido solo su celle adiacenti alla tua armata.';
+                }
+            } else {
+                document.getElementById('battleStatusHint').textContent = 'Mossa valida solo su celle adiacenti alla tua armata.';
+            }
+        }
+
+        function handleKeyboardShortcuts(event) {
+            const activeTag = document.activeElement ? document.activeElement.tagName : '';
+            const typing = activeTag === 'INPUT' || activeTag === 'TEXTAREA';
+            if (typing) return;
+
+            if (event.key === '1') {
+                event.preventDefault();
+                setAction('move');
+                return;
+            }
+
+            if (event.key === 'Escape') {
+                toggleSettingsMenu(false);
+            }
+
+            if (event.key === '2') {
+                event.preventDefault();
+                placeGarrisonHere();
+                return;
+            }
+            if (event.key === '3') {
+                event.preventDefault();
+                autoPlaceMine();
+                return;
+            }
+            if (event.key.toLowerCase() === 'r') {
+                event.preventDefault();
+                recruitSelectedUnit();
+                return;
+            }
+
+            if (event.key.toLowerCase() === 'h') {
+                event.preventDefault();
+                toggleShortcuts();
+                return;
+            }
+
+            const moveByKey = {
+                ArrowUp: [-1, 0],
+                ArrowDown: [1, 0],
+                ArrowLeft: [0, -1],
+                ArrowRight: [0, 1],
+            };
+
+            if (moveByKey[event.key]) {
+                event.preventDefault();
+                const [dr, dc] = moveByKey[event.key];
+                moveByDelta(dr, dc, event.shiftKey);
+            }
+        }
+
+        function moveByDelta(dr, dc, leaveGarrison) {
+            if (!currentBattleState || !currentBattleState.map || !currentBattleState.map.positions.player) {
+                return;
+            }
+            const [row, col] = currentBattleState.map.positions.player;
+            const toRow = row + dr;
+            const toCol = col + dc;
+            if (toRow < 0 || toRow >= currentBattleState.map.rows || toCol < 0 || toCol >= currentBattleState.map.cols) {
+                return;
+            }
+            movePlayer(toRow, toCol, leaveGarrison);
         }
 
         function getAdjacentMoves(playerPos, rows, cols) {
@@ -548,9 +974,11 @@
             return mapping[terrain] || terrain.slice(0, 3).toUpperCase();
         }
 
-        async function movePlayer(row, col) {
+        async function movePlayer(row, col, leaveGarrisonOverride = null) {
             try {
-                const leaveGarrison = document.getElementById('leaveGarrisonToggle').checked;
+                const leaveGarrison = (leaveGarrisonOverride !== null)
+                    ? leaveGarrisonOverride
+                    : (currentAction === 'move_garrison');
                 const response = await fetch('http://127.0.0.1:8000/game/move', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -566,24 +994,17 @@
                     throw new Error(err.detail || 'Errore durante la mossa');
                 }
 
-                const result = await response.json();
-                transientLogLines = [result.message];
-                if (result.battle_result && result.battle_result.log) {
-                    transientLogLines.push(result.battle_result.log);
-                }
-                if (result.ai_move_result && result.ai_move_result.message) {
-                    transientLogLines.push(result.ai_move_result.message);
-                }
-                if (result.ai_move_result && result.ai_move_result.battle_result && result.ai_move_result.battle_result.log) {
-                    transientLogLines.push(result.ai_move_result.battle_result.log);
-                }
+                await response.json();
+                transientLogLines = [];
 
                 const stateResponse = await fetch('http://127.0.0.1:8000/game/state');
                 const stateData = await stateResponse.json();
                 renderBattleState(stateData);
-                document.getElementById('leaveGarrisonToggle').checked = false;
+                resetActionToDefault();
             } catch (error) {
-                document.getElementById('battleStatus').textContent = `Errore: ${error.message}`;
+                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
+                transientLogLines = [`Errore PLAYER mossa: ${error.message}`];
+                renderBattleState(currentBattleState);
             }
         }
 
@@ -600,15 +1021,94 @@
                     throw new Error(err.detail || 'Errore nel piazzare la miniera');
                 }
 
-                const result = await response.json();
-                transientLogLines = [result.message];
+                await response.json();
+                transientLogLines = [];
                 const stateResponse = await fetch('http://127.0.0.1:8000/game/state');
                 const stateData = await stateResponse.json();
                 renderBattleState(stateData);
-                document.getElementById('placeMineToggle').checked = false;
+                resetActionToDefault();
             } catch (error) {
-                document.getElementById('battleStatus').textContent = `Errore: ${error.message}`;
+                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
+                transientLogLines = [`Errore PLAYER miniera: ${error.message}`];
+                renderBattleState(currentBattleState);
             }
+        }
+
+        async function placeGarrisonHere() {
+            try {
+                const response = await fetch('http://127.0.0.1:8000/game/place-garrison-here', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Errore nel piazzare il presidio');
+                }
+
+                await response.json();
+                transientLogLines = [];
+                const stateResponse = await fetch('http://127.0.0.1:8000/game/state');
+                const stateData = await stateResponse.json();
+                renderBattleState(stateData);
+                setAction('move');
+            } catch (error) {
+                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
+                transientLogLines = [`Errore PLAYER presidio: ${error.message}`];
+                renderBattleState(currentBattleState);
+            }
+        }
+
+        function findAutoMineTarget() {
+            if (!currentBattleState || !currentBattleState.map || !currentBattleState.map.positions.player) {
+                return null;
+            }
+
+            const mapData = currentBattleState.map;
+            const [pr, pc] = mapData.positions.player;
+            const candidates = [];
+
+            candidates.push([pr, pc]);
+            for (const [r, c] of getAdjacentMoves([pr, pc], mapData.rows, mapData.cols)) {
+                candidates.push([r, c]);
+            }
+
+            for (let r = 0; r < mapData.rows; r += 1) {
+                for (let c = 0; c < mapData.cols; c += 1) {
+                    candidates.push([r, c]);
+                }
+            }
+
+            for (const [r, c] of candidates) {
+                const cell = mapData.grid[r][c];
+                if (
+                    cell.occupation === 'player'
+                    && !cell.is_castle
+                    && !cell.is_mine
+                    && cell.terrain !== 'Fiume'
+                ) {
+                    return [r, c];
+                }
+            }
+
+            return null;
+        }
+
+        function autoPlaceMine() {
+            if (!currentBattleState) {
+                document.getElementById('battleStatusHint').textContent = 'Partita non disponibile.';
+                return;
+            }
+
+            const target = findAutoMineTarget();
+            if (!target) {
+                document.getElementById('battleStatusHint').textContent = 'Nessuna cella valida per piazzare una miniera.';
+                transientLogLines = ['Errore PLAYER miniera: nessuna cella valida trovata'];
+                renderBattleState(currentBattleState);
+                return;
+            }
+
+            placeMine(target[0], target[1]);
         }
 
         async function recruitSelectedUnit() {
@@ -626,10 +1126,10 @@
                 }
 
                 const result = await response.json();
-                transientLogLines = [result.message];
+                transientLogLines = [];
                 renderBattleState(result.session);
             } catch (error) {
-                document.getElementById('battleStatus').textContent = `Errore: ${error.message}`;
+                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
             }
         }
 

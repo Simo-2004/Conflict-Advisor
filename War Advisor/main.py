@@ -313,7 +313,11 @@ async def game_move(request: MoveRequest):
             request.to_col,
             leave_garrison=request.leave_garrison,
         )
+        if not result.get("ok", True):
+            raise HTTPException(status_code=400, detail=result.get("message", "Mossa non valida."))
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -339,6 +343,20 @@ async def game_place_mine(request: MineRequest):
 
     try:
         return _active_session.place_mine(request.row, request.col)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/game/place-garrison-here")
+async def game_place_garrison_here():
+    """Piazza subito un presidio sulla casella corrente del player."""
+    if _active_session is None:
+        raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
+
+    try:
+        return _active_session.place_garrison_here()
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

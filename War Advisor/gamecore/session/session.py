@@ -156,6 +156,9 @@ class GameSession:
                 "map": self.game_map.to_dict(),
             }
 
+        # Log persistente della mossa player per debug cronologico completo.
+        self.battle_log.append(move_result["message"])
+
         if leave_garrison and move_result.get("leave_garrison"):
             self.available_garrisons[PLAYER] -= 1
 
@@ -240,6 +243,9 @@ class GameSession:
             ai_move = self.game_map.move(AI, next_move, leave_garrison=leave_garrison)
             if leave_garrison and ai_move.get("leave_garrison"):
                 self.available_garrisons[AI] -= 1
+
+            if ai_move.get("ok") and ai_move.get("message"):
+                self.battle_log.append(ai_move["message"])
 
             result["ok"]      = ai_move.get("ok", False)
             result["message"] = ai_move.get("message", "")
@@ -375,6 +381,35 @@ class GameSession:
             "state": self.state.value,
             "map": self.game_map.to_dict(),
             "player_grux": self.grux_balance[PLAYER],
+        }
+
+    def place_garrison_here(self) -> Dict[str, Any]:
+        """Piazza immediatamente un presidio sulla casella corrente dell'armata player."""
+        if self.state != SessionState.ACTIVE:
+            raise ValueError("La partita è terminata.")
+        if self.available_garrisons[PLAYER] <= 0:
+            raise ValueError("Non hai più guarnigioni disponibili.")
+
+        player_pos = self.game_map.positions.get(PLAYER)
+        if player_pos is None:
+            raise ValueError("Posizione PLAYER non disponibile.")
+
+        cell = self.game_map.get_cell(*player_pos)
+        if cell is None or cell.occupation != PLAYER:
+            raise ValueError("La cella corrente non è controllata dal PLAYER.")
+
+        cell.garrison_strength += 1
+        self.available_garrisons[PLAYER] -= 1
+
+        row, col = player_pos
+        log_entry = f"[Turno {self.game_map.turn}] 🛡 PLAYER piazza un presidio su ({row},{col})"
+        self.battle_log.append(log_entry)
+        return {
+            "ok": True,
+            "message": log_entry,
+            "cell": cell.to_dict(),
+            "state": self.state.value,
+            "map": self.game_map.to_dict(),
         }
 
     def _place_best_ai_mine(self) -> Optional[str]:
@@ -527,8 +562,12 @@ class GameSession:
             self.state = SessionState.GAME_OVER
             self.winner = attacker.value
 
+        battle_label = "⚔ Battaglia campale"
+        if enemy_castle == to_pos:
+            battle_label = "🏰 Assalto al castello centrale"
+
         log_entry = (
-            f"[Turno {self.game_map.turn}] ⚔ Campo aperto su {terrain}: "
+            f"[Turno {self.game_map.turn}] {battle_label} su {terrain}: "
             f"{attacker.value.upper()} {attacker_strength:.3f} vs {defender.value.upper()} {defender_strength:.3f} "
             f"→ Ritirata di {loser.value.upper()}"
         )
@@ -575,7 +614,15 @@ class GameSession:
             if dest_cell is not None:
                 dest_cell.occupation = defender
 
-        label = "🏰 Assedio" if encounter_type == "castle" else "🛡 Presidio"
+        if encounter_type == "castle":
+            label = "🏰 Assalto al castello centrale"
+        elif dest_cell is not None and dest_cell.is_mine:
+            label = "⛏ Battaglia per la conquista della miniera"
+        elif encounter_type == "garrison":
+            label = "🛡 Scontro contro presidio territoriale"
+        else:
+            label = "⚔ Scontro territoriale"
+
         log_entry = (
             f"[Turno {self.game_map.turn}] {label} su {terrain}: "
             f"{attacker.value.upper()} {attacker_strength:.3f} vs difesa {defender_score:.3f} "
