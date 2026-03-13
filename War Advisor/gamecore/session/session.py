@@ -274,6 +274,13 @@ class GameSession:
         """
         player_pos = self.game_map.positions.get(PLAYER)
         enemy_castle = self.game_map.get_castle_position(PLAYER)
+        own_castle = self.game_map.get_castle_position(AI)
+
+        # Priorita difensiva: se il player e vicino al castello IA, intercetta.
+        if player_pos and own_castle:
+            player_to_own_castle = abs(player_pos[0] - own_castle[0]) + abs(player_pos[1] - own_castle[1])
+            if player_to_own_castle <= 3:
+                return player_pos
 
         if enemy_castle:
             dist_castle = abs(ai_pos[0] - enemy_castle[0]) + abs(ai_pos[1] - enemy_castle[1])
@@ -306,7 +313,16 @@ class GameSession:
         cell = self.game_map.get_cell(*from_pos)
         if cell is None:
             return False
-        return cell.is_castle or cell.is_strategic
+        if self.available_garrisons[AI] <= 1:
+            return False
+
+        if cell.is_castle:
+            return cell.garrison_strength < 3
+
+        if cell.is_strategic:
+            return cell.garrison_strength < 1
+
+        return False
 
     def _advance_round_economy(self) -> List[str]:
         """Accredita i grux delle miniere e fa gestire all'IA la propria economia."""

@@ -483,10 +483,9 @@ class GameMap:
         target: Tuple[int, int],
     ) -> Optional[Tuple[int, int]]:
         """
-        Suggerisce la cella adiacente che avvicina maggiormente l'entità
-        al target (distanza di Manhattan), senza spostare verso celle
-        già controllate dalla stessa entità (salvo che non ci siano
-        alternative).
+        Suggerisce la cella adiacente che avvicina maggiormente l'entita
+        al target (distanza di Manhattan), preferendo celle non gia
+        controllate ma senza bloccarsi nel proprio territorio.
 
         Usato principalmente dall'IA per scegliere il prossimo passo.
 
@@ -502,7 +501,7 @@ class GameMap:
             return None
 
         current_dist = abs(from_pos[0] - target[0]) + abs(from_pos[1] - target[1])
-        candidates: List[Tuple[int, Tuple[int, int]]] = []
+        candidates: List[Tuple[float, Tuple[int, int]]] = []
 
         for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
             nr, nc = from_pos[0] + dr, from_pos[1] + dc
@@ -510,13 +509,28 @@ class GameMap:
                 continue
             cell = self.grid[nr][nc]
             dist = abs(nr - target[0]) + abs(nc - target[1])
-            if dist < current_dist and cell.occupation != entity:
-                candidates.append((dist, (nr, nc)))
+            own_penalty = 0.35 if cell.occupation == entity else 0.0
+            score = float(dist) + own_penalty
+            candidates.append((score, (nr, nc)))
 
         if not candidates:
             return None
+
         candidates.sort(key=lambda x: x[0])
-        return candidates[0][1]
+        best_score = candidates[0][0]
+        best_move = candidates[0][1]
+
+        # Se possibile, evita mosse che aumentano la distanza dal target.
+        best_dist = abs(best_move[0] - target[0]) + abs(best_move[1] - target[1])
+        if best_dist <= current_dist:
+            return best_move
+
+        for _, move in candidates:
+            dist = abs(move[0] - target[0]) + abs(move[1] - target[1])
+            if dist <= current_dist:
+                return move
+
+        return best_move
 
     # ──────────────────────────────────────────────────────────
     # STATO PARTITA
