@@ -58,11 +58,14 @@ def start_game_session(
         map_seed=map_seed,
     )
 
+    units_map = {unit["id"]: unit.get("name", unit["id"]) for unit in data["units"]}
+    ai_units_names = [units_map.get(unit_id, unit_id) for unit_id in ai_data["units"]]
+
     return {
         "session": session,
         "ai_data": ai_data,
         "message": (
             f"Partita avviata! L'IA ha scelto: {ai_data['strategy']['name']} "
-            f"con {', '.join(ai_data['units'])}."
+            f"con {', '.join(ai_units_names)}."
         ),
     }

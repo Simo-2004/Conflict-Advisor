@@ -7,11 +7,18 @@ quando perdono uno scontro, si ritirano al proprio castello invece di sparire.
 """
 
 from enum import Enum
+from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple
 
-from engine import aggregate_army, apply_modifiers
+from engine import aggregate_army, apply_modifiers, euclidean_distance
 from gamecore.economy import MINE_YIELD_PER_ROUND, STARTING_GRUX, available_mine_slots, get_unit_costs
 from gamecore.maps import GameMap, Occupation
+
+try:
+    from debug.strength_debug import log_strength_debug
+except Exception:
+    def log_strength_debug(event: str, payload: Dict[str, Any]) -> None:
+        return
 
 PLAYER = Occupation.PLAYER
 AI = Occupation.AI
@@ -68,6 +75,7 @@ class GameSession:
         map_seed: Optional[int] = None,
     ) -> None:
         self.data = data
+        self.units_map = {unit["id"]: unit for unit in self.data["units"]}
         self.unit_costs = get_unit_costs(self.data["units"])
         self.player_home_terrain = player_home_terrain
         self.ai_home_terrain = "Montagna"
@@ -373,6 +381,66 @@ class GameSession:
             + attrs["U7_range_power"]
         )
 
+    def _unit_battle_value(self, unit_id: str) -> float:
+        """Valore base di una singola legione/unità in combattimento."""
+        unit = self.units_map[unit_id]
+        attrs = unit["attributes"]
+        weighted = (
+            attrs["U1_attack"] * 24
+            + attrs["U2_defense"] * 20
+            + attrs["U3_mobility"] * 12
+            + attrs["U4_stealth"] * 10
+            + attrs["U5_discipline"] * 14
+            + attrs["U6_terrain_adapt"] * 10
+            + attrs["U7_range_power"] * 8
+            + attrs["U8_support"] * 6
+        )
+        return weighted
+
+    def _army_composition(self, entity: Occupation) -> Dict[str, int]:
+        """Composizione esercito per tipo unità (id -> conteggio)."""
+        unit_ids = self.player_units if entity == PLAYER else self.ai_units
+        return dict(Counter(unit_ids))
+
+    def _format_composition(self, entity: Occupation) -> str:
+        """Stringa leggibile della composizione in legioni."""
+        composition = self._army_composition(entity)
+        if not composition:
+            return "nessuna legione"
+
+        parts: List[str] = []
+        for unit_id, count in sorted(composition.items(), key=lambda item: (-item[1], item[0])):
+            unit_name = self.units_map.get(unit_id, {}).get("name", unit_id)
+            parts.append(f"{count} legioni {unit_name}")
+        return ", ".join(parts)
+
+    def _format_battle_location(self, terrain: str) -> str:
+        """Rende il tipo battaglia con preposizione naturale in base al terreno."""
+        prepositions = {
+            "foresta": "nella",
+            "palude": "nella",
+            "montagna": "sulla",
+            "pianura": "sulla",
+            "fiume": "sul",
+        }
+        terrain_lower = terrain.lower()
+        preposition = prepositions.get(terrain_lower, "su")
+        return f"⚔ Battaglia {preposition} {terrain_lower}"
+
+    def _strategy_factor(self, entity: Occupation, terrain: str, modified_vector: Dict[str, float]) -> float:
+        """Fattore tattico legato alla qualità della manovra scelta rispetto all'esercito corrente."""
+        strategy_id = self.player_strategy_id if entity == PLAYER else self.ai_strategy_id
+        strategy = next((s for s in self.data["strategies"] if s["id"] == strategy_id), None)
+        if strategy is None:
+            return 1.0
+
+        distance = euclidean_distance(modified_vector, strategy["ideal_attributes"])
+        compatibility = max(0.0, 1.0 - (distance / (8 ** 0.5)))
+
+        # Armata ben organizzata può ribaltare differenze moderate,
+        # ma non differenze schiaccianti di massa.
+        return 0.82 + (compatibility * 0.46)
+
     def _available_mine_slots(self, entity: Occupation) -> int:
         """Slot miniera disponibili in base alle celle controllate."""
         return available_mine_slots(
@@ -471,6 +539,9 @@ class GameSession:
                 return None
             raise ValueError(f"Grux insufficienti: servono {cost}, disponibili {self.grux_balance[entity]}")
 
+        home_terrain = self.player_home_terrain if entity == PLAYER else self.ai_home_terrain
+        before_breakdown = self._strength_breakdown(entity, home_terrain)
+
         self.grux_balance[entity] -= cost
 
         if entity == PLAYER:
@@ -499,8 +570,28 @@ class GameSession:
             self.ai_army_cost += cost
 
         side = entity.value.upper()
-        log_entry = f"[Turno {self.game_map.turn}] 💰 {side} recluta {unit_id} per {cost} grux"
+        unit_name = self.units_map.get(unit_id, {}).get("name", unit_id)
+        log_entry = f"[Turno {self.game_map.turn}] 💰 {side} recluta {unit_name} per {cost} grux"
         self.battle_log.append(log_entry)
+
+        after_breakdown = self._strength_breakdown(entity, home_terrain)
+        log_strength_debug(
+            "recruit_strength_delta",
+            {
+                "debug_notice": "DEBUG TEMPORANEO - rimuovere cartella debug in produzione",
+                "turn": self.game_map.turn,
+                "entity": entity.value,
+                "unit_id": unit_id,
+                "unit_cost": cost,
+                "grux_balance_after": self.grux_balance[entity],
+                "before": before_breakdown,
+                "after": after_breakdown,
+                "delta_effective_strength": round(
+                    after_breakdown["effective_strength"] - before_breakdown["effective_strength"],
+                    4,
+                ),
+            },
+        )
         return log_entry
 
     # ──────────────────────────────────────────────────────────
@@ -516,18 +607,71 @@ class GameSession:
 
     def _effective_army_strength(self, entity: Occupation, terrain: str) -> float:
         """Forza effettiva dell'armata sul terreno corrente, penalizzata se ha staccato troppi presidi."""
+        return self._strength_breakdown(entity, terrain)["effective_strength"]
+
+    def _strength_breakdown(self, entity: Occupation, terrain: str) -> Dict[str, Any]:
+        """Breakdown DEBUG della forza usata in combattimento."""
         army_vector = self.player_army if entity == PLAYER else self.ai_army
         troop_status = self.player_troop_status if entity == PLAYER else self.ai_troop_status
-        modified, _ = apply_modifiers(
+        modified, warnings = apply_modifiers(
             army_vector=army_vector,
             terrain_name=terrain,
             weather_name=self.weather,
             troop_status_name=troop_status,
             modifiers_data=self.data,
         )
+
+        composition = self._army_composition(entity)
+        unit_power_rows: List[Dict[str, Any]] = []
+        base_total = 0.0
+        stack_bonus_total = 0.0
+        total_legions = 0
+        for unit_id, count in composition.items():
+            value = self._unit_battle_value(unit_id)
+            base_part = value * count
+            # Bonus forte se accumuli lo stesso tipo (effetto massa/specializzazione)
+            stack_bonus = value * 0.34 * ((count - 1) ** 1.22) if count > 1 else 0.0
+            unit_power_rows.append(
+                {
+                    "unit_id": unit_id,
+                    "unit_name": self.units_map.get(unit_id, {}).get("name", unit_id),
+                    "count": count,
+                    "unit_value": round(value, 3),
+                    "base_part": round(base_part, 3),
+                    "stack_bonus": round(stack_bonus, 3),
+                }
+            )
+            base_total += base_part
+            stack_bonus_total += stack_bonus
+            total_legions += count
+
+        strategy_factor = self._strategy_factor(entity, terrain, modified)
         detached = self.game_map.count_garrisons(entity) - 2
         detach_penalty = max(0.7, 1.0 - (max(0, detached) * 0.06))
-        return sum(modified.values()) * detach_penalty
+
+        # Fattore contesto ricavato dai modificatori su attributi: centro su 1.0
+        context_factor = max(0.75, min(1.25, (sum(modified.values()) / 4.6)))
+
+        base_strength = base_total + stack_bonus_total
+        effective_strength = base_strength * strategy_factor * context_factor * detach_penalty
+        return {
+            "entity": entity.value,
+            "terrain": terrain,
+            "weather": self.weather,
+            "troop_status": troop_status,
+            "composition": composition,
+            "composition_text": self._format_composition(entity),
+            "legions_total": total_legions,
+            "unit_power_rows": unit_power_rows,
+            "detached_garrisons_over_base": max(0, detached),
+            "detach_penalty": round(detach_penalty, 4),
+            "strategy_factor": round(strategy_factor, 4),
+            "context_factor": round(context_factor, 4),
+            "base_strength": round(base_strength, 4),
+            "effective_strength": int(round(effective_strength)),
+            "modified_vector": {k: round(v, 4) for k, v in modified.items()},
+            "modifier_warnings": warnings,
+        }
 
     def _retreat_to_castle(self, entity: Occupation) -> None:
         """Ritira un'armata al proprio castello, se ancora controllato."""
@@ -552,8 +696,10 @@ class GameSession:
         terrain = move_result["terrain"]
         to_pos = tuple(move_result["to_pos"])
 
-        attacker_strength = self._effective_army_strength(attacker, terrain)
-        defender_strength = self._effective_army_strength(defender, terrain)
+        attacker_breakdown = self._strength_breakdown(attacker, terrain)
+        defender_breakdown = self._strength_breakdown(defender, terrain)
+        attacker_strength = attacker_breakdown["effective_strength"]
+        defender_strength = defender_breakdown["effective_strength"]
 
         if attacker_strength > defender_strength:
             winner = attacker
@@ -578,16 +724,35 @@ class GameSession:
             self.state = SessionState.GAME_OVER
             self.winner = attacker.value
 
-        battle_label = "⚔ Battaglia campale"
+        battle_label = self._format_battle_location(terrain)
         if enemy_castle == to_pos:
             battle_label = "🏰 Assalto al castello centrale"
 
+        attacker_comp = attacker_breakdown["composition_text"]
+        defender_comp = defender_breakdown["composition_text"]
+
         log_entry = (
-            f"[Turno {self.game_map.turn}] {battle_label} su {terrain}: "
-            f"{attacker.value.upper()} {attacker_strength:.3f} vs {defender.value.upper()} {defender_strength:.3f} "
+            f"[Turno {self.game_map.turn}] {battle_label}: "
+            f"{attacker.value.upper()} [{attacker_comp}] forza {attacker_strength} "
+            f"vs {defender.value.upper()} [{defender_comp}] forza {defender_strength} "
             f"→ Ritirata di {loser.value.upper()}"
         )
         self.battle_log.append(log_entry)
+        log_strength_debug(
+            "field_battle_strength",
+            {
+                "debug_notice": "DEBUG TEMPORANEO - rimuovere cartella debug in produzione",
+                "turn": self.game_map.turn,
+                "terrain": terrain,
+                "attacker": attacker.value,
+                "defender": defender.value,
+                "attacker_breakdown": attacker_breakdown,
+                "defender_breakdown": defender_breakdown,
+                "winner": winner.value,
+                "loser": loser.value,
+                "encounter_pos": list(to_pos),
+            },
+        )
 
         return {
             "type": "field_army",
@@ -607,11 +772,22 @@ class GameSession:
         dest_cell = self.game_map.get_cell(*to_pos)
         encounter_type = move_result["encounter_type"]
 
-        attacker_strength = self._effective_army_strength(attacker, terrain)
+        attacker_breakdown = self._strength_breakdown(attacker, terrain)
+        attacker_strength = attacker_breakdown["effective_strength"]
         garrison_strength = dest_cell.garrison_strength if dest_cell else 0
-        terrain_bonus = 0.25 if terrain in {"Foresta", "Montagna", "Palude"} else 0.0
-        castle_bonus = 1.35 if dest_cell and dest_cell.is_castle else 0.0
-        defender_score = (garrison_strength * 1.15) + terrain_bonus + castle_bonus
+
+        if dest_cell and dest_cell.is_castle:
+            # Difesa castello rinforzata per evitare cadute immediate
+            defender_units = len(self.player_units if defender == PLAYER else self.ai_units)
+            garrison_component = garrison_strength * 9.0
+            terrain_bonus = 8.0 if terrain in {"Foresta", "Montagna", "Palude"} else 5.0
+            castle_bonus = 38.0 + (defender_units * 3.2)
+        else:
+            garrison_component = garrison_strength * 6.0
+            terrain_bonus = 5.0 if terrain in {"Foresta", "Montagna", "Palude"} else 2.0
+            castle_bonus = 0.0
+
+        defender_score = garrison_component + terrain_bonus + castle_bonus
 
         if attacker_strength > defender_score:
             winner = attacker
@@ -639,12 +815,37 @@ class GameSession:
         else:
             label = "⚔ Scontro territoriale"
 
+        attacker_comp = attacker_breakdown["composition_text"]
+
         log_entry = (
             f"[Turno {self.game_map.turn}] {label} su {terrain}: "
-            f"{attacker.value.upper()} {attacker_strength:.3f} vs difesa {defender_score:.3f} "
+            f"{attacker.value.upper()} [{attacker_comp}] forza {attacker_strength} "
+            f"vs difesa statica {int(round(defender_score))} "
             f"→ Vince {winner.value.upper()}"
         )
         self.battle_log.append(log_entry)
+        log_strength_debug(
+            "static_defense_battle_strength",
+            {
+                "debug_notice": "DEBUG TEMPORANEO - rimuovere cartella debug in produzione",
+                "turn": self.game_map.turn,
+                "terrain": terrain,
+                "encounter_type": encounter_type,
+                "attacker": attacker.value,
+                "defender": defender.value,
+                "attacker_breakdown": attacker_breakdown,
+                "defense_breakdown": {
+                    "garrison_strength": garrison_strength,
+                    "garrison_component": round(garrison_component, 4),
+                    "terrain_bonus": terrain_bonus,
+                    "castle_bonus": castle_bonus,
+                    "defender_score": round(defender_score, 4),
+                },
+                "winner": winner.value,
+                "loser": loser.value,
+                "encounter_pos": list(to_pos),
+            },
+        )
 
         return {
             "type": encounter_type,
