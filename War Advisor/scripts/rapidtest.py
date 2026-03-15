@@ -6,9 +6,14 @@ Scrive i risultati dei test in un file TXT
 
 import json
 import random
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from engine import (
     load_data,
@@ -22,7 +27,9 @@ from engine import (
 )
 
 # File di output per i risultati
-OUTPUT_FILE = Path(__file__).parent / "test_results.txt"
+REPORTS_DIR = PROJECT_ROOT / "reports"
+REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_FILE = REPORTS_DIR / "test_results.txt"
 
 
 def run_test(

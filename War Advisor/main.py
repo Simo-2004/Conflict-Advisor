@@ -27,6 +27,13 @@ from gamecore.session import GameSession, SessionState
 from gamecore.gameflow import start_game_session
 from gamecore.economy import STARTING_GRUX, calculate_army_cost, get_unit_costs
 
+if getattr(sys, 'frozen', False):
+    APP_BASE_DIR = sys._MEIPASS
+else:
+    APP_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+FRONTEND_DIR = os.path.join(APP_BASE_DIR, "frontend")
+
 # Inizializza FastAPI
 app = FastAPI(
     title="War Advisor API",
@@ -44,7 +51,7 @@ app.add_middleware(
 )
 
 # Monta la cartella statica per il frontend
-app.mount("/static", StaticFiles(directory=".", html=True), name="static")
+app.mount("/static", StaticFiles(directory=FRONTEND_DIR, html=True), name="static")
 
 # Carica i dati all'avvio
 try:
@@ -393,13 +400,7 @@ async def game_reset():
 @app.get("/", response_class=HTMLResponse)
 async def root():
     """Radice: serve il file index.html direttamente"""
-    # Determina il percorso corretto per PyInstaller o script normale
-    if getattr(sys, 'frozen', False):
-        base_dir = sys._MEIPASS
-    else:
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    index_path = os.path.join(base_dir, "index.html")
+    index_path = os.path.join(FRONTEND_DIR, "index.html")
     
     with open(index_path, "r", encoding="utf-8") as f:
         html_content = f.read()
@@ -409,12 +410,7 @@ async def root():
 @app.get("/battle", response_class=HTMLResponse)
 async def battle_page():
     """Serve la pagina dedicata alla battaglia."""
-    if getattr(sys, 'frozen', False):
-        base_dir = sys._MEIPASS
-    else:
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-
-    battle_path = os.path.join(base_dir, "battle.html")
+    battle_path = os.path.join(FRONTEND_DIR, "battle.html")
 
     with open(battle_path, "r", encoding="utf-8") as f:
         html_content = f.read()

@@ -1,6 +1,11 @@
 # setup.ps1 - Crea e configura il venv per War Advisor
 
-$VenvDir = ".venv"
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ProjectDir = (Resolve-Path (Join-Path $ScriptDir "..")).Path
+Set-Location $ProjectDir
+
+$VenvDir = Join-Path $ProjectDir ".venv"
+$RequirementsFile = Join-Path $ProjectDir "requirements.txt"
 
 # Crea il venv se non esiste
 if (-not (Test-Path $VenvDir)) {
@@ -20,7 +25,7 @@ python -m pip install --upgrade pip
 
 # Installa le dipendenze
 Write-Host "Installazione dipendenze da requirements.txt..." -ForegroundColor Cyan
-pip install -r requirements.txt
+pip install -r $RequirementsFile
 
 Write-Host ""
 Write-Host "Setup completato! Il venv e' attivo." -ForegroundColor Green
