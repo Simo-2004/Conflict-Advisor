@@ -379,6 +379,8 @@ class GameMap:
             encounter_type = "castle"
         elif dest_cell.garrison_strength > 0 and dest_cell.occupation == entity.opposite():
             encounter_type = "garrison"
+        elif dest_cell.fortification_level > 0 and dest_cell.occupation == entity.opposite():
+            encounter_type = "fortified"
 
         battle = encounter_type != "none"
         garrison_left = leave_garrison
@@ -405,6 +407,8 @@ class GameMap:
             msg += " — ⚔ Scontro tra armate!"
         elif encounter_type == "garrison":
             msg += " — 🛡 Presidio nemico intercettato!"
+        elif encounter_type == "fortified":
+            msg += " — 🧱 Assalto a territorio fortificato!"
         elif encounter_type == "castle":
             msg += " — 🏰 Assalto al castello!"
         elif strategic_captured:
@@ -575,6 +579,24 @@ class GameMap:
             if self.grid[r][c].occupation == entity and self.grid[r][c].is_mine
         )
 
+    def count_fortification_levels(self, entity: Occupation) -> int:
+        """Somma dei livelli di fortificazione sulle celle controllate dall'entità."""
+        return sum(
+            self.grid[r][c].fortification_level
+            for r in range(self.rows)
+            for c in range(self.cols)
+            if self.grid[r][c].occupation == entity
+        )
+
+    def count_fortified_cells(self, entity: Occupation) -> int:
+        """Numero di celle controllate con almeno una fortificazione."""
+        return sum(
+            1
+            for r in range(self.rows)
+            for c in range(self.cols)
+            if self.grid[r][c].occupation == entity and self.grid[r][c].fortification_level > 0
+        )
+
     def place_mine(self, entity: Occupation, row: int, col: int) -> Cell:
         """Piazza una miniera su una cella controllata e idonea."""
         cell = self.get_cell(row, col)
@@ -590,6 +612,19 @@ class GameMap:
             raise ValueError("Non puoi piazzare una miniera sul fiume.")
 
         cell.is_mine = True
+        return cell
+
+    def place_fortification(self, entity: Occupation, row: int, col: int) -> Cell:
+        """Aumenta il livello di fortificazione su una cella controllata e idonea."""
+        cell = self.get_cell(row, col)
+        if cell is None:
+            raise ValueError("Cella fuori dalla mappa.")
+        if cell.occupation != entity:
+            raise ValueError("Puoi fortificare solo celle che controlli.")
+        if cell.is_castle:
+            raise ValueError("Non puoi fortificare il castello centrale.")
+
+        cell.fortification_level += 1
         return cell
 
     def check_battle_trigger(self) -> Optional[Occupation]:
@@ -665,6 +700,10 @@ class GameMap:
                 "ai_garrisons":     self.count_garrisons(AI),
                 "player_mines":     self.count_mines(PLAYER),
                 "ai_mines":         self.count_mines(AI),
+                "player_fortification_levels": self.count_fortification_levels(PLAYER),
+                "ai_fortification_levels": self.count_fortification_levels(AI),
+                "player_fortified_cells": self.count_fortified_cells(PLAYER),
+                "ai_fortified_cells": self.count_fortified_cells(AI),
                 "total_strategic":  self.count_strategic_total(),
             },
         }

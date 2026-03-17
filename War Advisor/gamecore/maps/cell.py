@@ -48,6 +48,7 @@ class Cell:
         is_castle         -- True se la cella contiene un castello
         garrison_strength -- numero di distaccamenti lasciati a presidio
         is_mine          -- True se la cella ospita una miniera di grux
+        fortification_level -- livello fortificazione (0 = nessuna)
     """
     row: int
     col: int
@@ -57,6 +58,7 @@ class Cell:
     is_castle: bool        = False
     garrison_strength: int = 0
     is_mine: bool          = False
+    fortification_level: int = 0
 
     def __post_init__(self) -> None:
         if self.terrain not in TERRAIN_TYPES:
@@ -76,6 +78,7 @@ class Cell:
             "is_castle":    self.is_castle,
             "garrison_strength": self.garrison_strength,
             "is_mine":      self.is_mine,
+            "fortification_level": self.fortification_level,
         }
 
     def __repr__(self) -> str:
@@ -88,6 +91,8 @@ class Cell:
             markers.append(f"garrison={self.garrison_strength}")
         if self.is_mine:
             markers.append("mine")
+        if self.fortification_level > 0:
+            markers.append(f"fort={self.fortification_level}")
         marker_str = f" [{' '.join(markers)}]" if markers else ""
         return (
             f"Cell({self.row},{self.col} "

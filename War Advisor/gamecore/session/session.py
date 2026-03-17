@@ -13,12 +13,19 @@ from typing import Any, Dict, List, Optional, Tuple
 from engine import aggregate_army, apply_modifiers, euclidean_distance
 from gamecore.economy import MINE_YIELD_PER_ROUND, STARTING_GRUX, available_mine_slots, get_unit_costs
 from gamecore.maps import GameMap, Occupation
+from gamecore.session.abilities import DOMAIN_ENGINEERING_ID, build_default_ability_states
 
 try:
     from debug.strength_debug import log_strength_debug
 except Exception:
     def log_strength_debug(event: str, payload: Dict[str, Any]) -> None:
         return
+
+try:
+    from debug.battle_log_capture import create_battle_log_capture
+except Exception:
+    def create_battle_log_capture() -> List[str]:
+        return []
 
 PLAYER = Occupation.PLAYER
 AI = Occupation.AI
@@ -106,7 +113,7 @@ class GameSession:
         # --- Stato ---
         self.state:      SessionState  = SessionState.ACTIVE
         self.winner:     Optional[str] = None
-        self.battle_log: List[str]     = []
+        self.battle_log: List[str]     = create_battle_log_capture()
         self.available_garrisons: Dict[Occupation, int] = {
             PLAYER: max(2, len(self.player_units)),
             AI: max(2, len(self.ai_units)),
@@ -114,6 +121,16 @@ class GameSession:
         self.grux_balance: Dict[Occupation, int] = {
             PLAYER: player_budget,
             AI: ai_data.get("remaining_grux", STARTING_GRUX - self.ai_army_cost),
+        }
+        self.base_fortification_cost: int = 45
+        self.ability_states: Dict[Occupation, Dict[str, Any]] = {
+            PLAYER: build_default_ability_states(),
+            AI: build_default_ability_states(),
+        }
+        self.recruit_cooldown_turns: int = 2
+        self.last_recruit_turn: Dict[Occupation, Optional[int]] = {
+            PLAYER: None,
+            AI: None,
         }
 
     # ──────────────────────────────────────────────────────────
@@ -350,6 +367,8 @@ class GameSession:
     def _auto_manage_ai_economy(self) -> List[str]:
         """L'IA piazza miniere disponibili e recluta automaticamente se può permetterselo."""
         logs: List[str] = []
+        self._start_ability_research(AI, DOMAIN_ENGINEERING_ID)
+
         ai_slots = self._available_mine_slots(AI)
         while ai_slots > 0:
             placed = self._place_best_ai_mine()
@@ -358,17 +377,24 @@ class GameSession:
             logs.append(placed)
             ai_slots -= 1
 
-        affordable_units = [unit for unit in self.data["units"] if self.unit_costs[unit["id"]] <= self.grux_balance[AI]]
-        if affordable_units:
-            best_unit = max(
-                affordable_units,
-                key=lambda unit: self._effective_unit_value_for_ai(unit),
-            )
-            recruit_log = self._recruit_unit(AI, best_unit["id"], auto=True)
-            if recruit_log:
-                logs.append(recruit_log)
+        can_recruit_now = self._can_recruit_now(AI)
+        if can_recruit_now:
+            affordable_units = [unit for unit in self.data["units"] if self.unit_costs[unit["id"]] <= self.grux_balance[AI]]
+            if affordable_units:
+                best_unit = max(
+                    affordable_units,
+                    key=lambda unit: self._effective_unit_value_for_ai(unit),
+                )
+                self._recruit_unit(AI, best_unit["id"], auto=True)
 
         return logs
+
+    def _can_recruit_now(self, entity: Occupation) -> bool:
+        """True se l'entità può reclutare in questo turno (cooldown anti-spam)."""
+        last_turn = self.last_recruit_turn.get(entity)
+        if last_turn is None:
+            return True
+        return (self.game_map.turn - last_turn) >= self.recruit_cooldown_turns
 
     def _effective_unit_value_for_ai(self, unit: Dict[str, Any]) -> float:
         """Heuristica semplice per decidere la recluta dell'IA."""
@@ -380,6 +406,108 @@ class GameSession:
             + attrs["U6_terrain_adapt"]
             + attrs["U7_range_power"]
         )
+
+    def _entity_units(self, entity: Occupation) -> List[str]:
+        return self.player_units if entity == PLAYER else self.ai_units
+
+    def _empty_army_vector(self) -> Dict[str, float]:
+        return {
+            "U1_attack": 0.0,
+            "U2_defense": 0.0,
+            "U3_mobility": 0.0,
+            "U4_stealth": 0.0,
+            "U5_discipline": 0.0,
+            "U6_terrain_adapt": 0.0,
+            "U7_range_power": 0.0,
+            "U8_support": 0.0,
+        }
+
+    def _recompute_entity_army_state(self, entity: Occupation) -> None:
+        units = self._entity_units(entity)
+        if units:
+            army_vector = aggregate_army(units, self.data["units"])
+        else:
+            army_vector = self._empty_army_vector()
+        home_terrain = self.player_home_terrain if entity == PLAYER else self.ai_home_terrain
+        troop_status = self.player_troop_status if entity == PLAYER else self.ai_troop_status
+        if units:
+            modified, _ = apply_modifiers(
+                army_vector=army_vector,
+                terrain_name=home_terrain,
+                weather_name=self.weather,
+                troop_status_name=troop_status,
+                modifiers_data=self.data,
+            )
+        else:
+            modified = army_vector.copy()
+
+        army_cost = sum(self.unit_costs.get(unit_id, 0) for unit_id in units)
+        if entity == PLAYER:
+            self.player_army = army_vector
+            self.player_modified = modified
+            self.player_army_cost = army_cost
+            self.available_garrisons[PLAYER] = min(self.available_garrisons[PLAYER], max(0, len(units) + 2))
+        else:
+            self.ai_army = army_vector
+            self.ai_modified = modified
+            self.ai_army_cost = army_cost
+            self.available_garrisons[AI] = min(self.available_garrisons[AI], max(0, len(units) + 2))
+
+    def _apply_attacker_losses(self, attacker: Occupation, losses: int) -> Dict[str, Any]:
+        units = self._entity_units(attacker)
+        if losses <= 0 or not units:
+            return {"losses": 0, "removed_units": [], "removed_text": ""}
+
+        losses = min(losses, len(units))
+        sorted_for_losses = sorted(units, key=lambda unit_id: self._unit_battle_value(unit_id))
+        removed = sorted_for_losses[:losses]
+        for unit_id in removed:
+            units.remove(unit_id)
+
+        # Le unità perse riducono anche la capacità residua di piazzare presidi.
+        self.available_garrisons[attacker] = max(0, self.available_garrisons[attacker] - losses)
+
+        self._recompute_entity_army_state(attacker)
+
+        removed_counts: Dict[str, int] = dict(Counter(removed))
+        removed_parts: List[str] = []
+        for unit_id, count in sorted(removed_counts.items(), key=lambda item: (-item[1], item[0])):
+            unit_name = self.units_map.get(unit_id, {}).get("name", unit_id)
+            removed_parts.append(f"{count} {unit_name}")
+
+        return {
+            "losses": losses,
+            "removed_units": removed,
+            "removed_text": ", ".join(removed_parts),
+        }
+
+    def _calculate_losses_for_battle(
+        self,
+        units_before: int,
+        own_strength: float,
+        enemy_strength: float,
+        *,
+        fortification_level: int = 0,
+        garrison_strength: int = 0,
+    ) -> int:
+        """Regola perdite condivisa: KO totale se in netto svantaggio, altrimenti perdite proporzionali."""
+        if units_before <= 0:
+            return 0
+
+        if own_strength <= enemy_strength:
+            return units_before
+
+        pressure_ratio = min(1.0, enemy_strength / max(1.0, own_strength))
+        loss_ratio = 0.08 + (0.42 * pressure_ratio) + (0.04 * fortification_level) + (0.03 * garrison_strength)
+        loss_ratio = min(0.72, max(0.06, loss_ratio))
+
+        losses = int(round(units_before * loss_ratio))
+        if units_before > 1 and enemy_strength > 0:
+            losses = max(1, losses)
+            losses = min(units_before - 1, losses)
+        else:
+            losses = min(units_before, losses)
+        return losses
 
     def _unit_battle_value(self, unit_id: str) -> float:
         """Valore base di una singola legione/unità in combattimento."""
@@ -448,12 +576,72 @@ class GameSession:
             existing_mines=self.game_map.count_mines(entity),
         )
 
+    def _ability_state(self, entity: Occupation, ability_id: str) -> Optional[Any]:
+        return self.ability_states.get(entity, {}).get(ability_id)
+
+    def _is_ability_unlocked(self, entity: Occupation, ability_id: str) -> bool:
+        ability = self._ability_state(entity, ability_id)
+        if ability is None:
+            return False
+        return ability.is_unlocked(self.game_map.turn)
+
+    def _start_ability_research(self, entity: Occupation, ability_id: str) -> Optional[str]:
+        ability = self._ability_state(entity, ability_id)
+        if ability is None:
+            return None
+        if ability.is_researching() or ability.is_unlocked(self.game_map.turn):
+            return None
+        ability.start(self.game_map.turn)
+        side = entity.value.upper()
+        log_entry = (
+            f"[Turno {self.game_map.turn}] ⭐ {side} avvia ricerca Abilità: {ability.name} "
+            f"({ability.turns_required} turni)"
+        )
+        self.battle_log.append(log_entry)
+        return log_entry
+
+    def research_player_ability(self, ability_id: str = DOMAIN_ENGINEERING_ID) -> Dict[str, Any]:
+        """Avvia la ricerca di una abilità lato player."""
+        if self.state != SessionState.ACTIVE:
+            raise ValueError("La partita è terminata.")
+
+        ability = self._ability_state(PLAYER, ability_id)
+        if ability is None:
+            raise ValueError("Abilità sconosciuta.")
+        if ability.is_unlocked(self.game_map.turn):
+            raise ValueError("Abilità già sbloccata.")
+        if ability.is_researching():
+            raise ValueError("Ricerca abilità già in corso.")
+
+        log_entry = self._start_ability_research(PLAYER, ability_id)
+        return {
+            "ok": True,
+            "message": log_entry,
+            "state": self.state.value,
+            "map": self.game_map.to_dict(),
+            "session": self.to_dict(),
+        }
+
+    def _can_build_on_cell(self, entity: Occupation, row: int, col: int) -> bool:
+        """Prima dello sblocco abilità, costruzione consentita solo sulla cella armata."""
+        cell = self.game_map.get_cell(row, col)
+        if cell is None or cell.occupation != entity:
+            return False
+
+        if self._is_ability_unlocked(entity, DOMAIN_ENGINEERING_ID):
+            return True
+
+        army_pos = self.game_map.positions.get(entity)
+        return army_pos == (row, col)
+
     def place_mine(self, row: int, col: int) -> Dict[str, Any]:
         """Piazza una miniera del giocatore su una casella controllata."""
         if self.state != SessionState.ACTIVE:
             raise ValueError("La partita è terminata.")
         if self._available_mine_slots(PLAYER) <= 0:
             raise ValueError("Non hai slot miniera disponibili. Serve più territorio controllato.")
+        if not self._can_build_on_cell(PLAYER, row, col):
+            raise ValueError("Costruzione non consentita su questa cella: senza Abilità puoi costruire solo sulla tua armata.")
 
         cell = self.game_map.place_mine(PLAYER, row, col)
         log_entry = f"[Turno {self.game_map.turn}] ⛏ PLAYER costruisce una miniera su ({row},{col})"
@@ -496,13 +684,61 @@ class GameSession:
             "map": self.game_map.to_dict(),
         }
 
+    def _fortification_cost(self, current_level: int) -> int:
+        """Costo fortificazione con crescita forte sullo stack della stessa cella."""
+        return int(round(self.base_fortification_cost * (1 + (current_level * 1.7))))
+
+    def place_fortification(self, row: int, col: int) -> Dict[str, Any]:
+        """Piazza una fortificazione PLAYER su una cella controllata, con costo crescente."""
+        if self.state != SessionState.ACTIVE:
+            raise ValueError("La partita è terminata.")
+
+        cell = self.game_map.get_cell(row, col)
+        if cell is None:
+            raise ValueError("Cella fuori dalla mappa.")
+        if cell.occupation != PLAYER:
+            raise ValueError("Puoi fortificare solo celle controllate dal PLAYER.")
+        if not self._can_build_on_cell(PLAYER, row, col):
+            raise ValueError("Costruzione non consentita su questa cella: senza Abilità puoi costruire solo sulla tua armata.")
+        if cell.is_castle:
+            raise ValueError("Il castello centrale non è fortificabile.")
+
+        current_level = cell.fortification_level
+        cost = self._fortification_cost(current_level)
+        if self.grux_balance[PLAYER] < cost:
+            raise ValueError(f"Grux insufficienti per fortificare: servono {cost}, disponibili {self.grux_balance[PLAYER]}")
+
+        self.grux_balance[PLAYER] -= cost
+        cell = self.game_map.place_fortification(PLAYER, row, col)
+        next_cost = self._fortification_cost(cell.fortification_level)
+
+        log_entry = (
+            f"[Turno {self.game_map.turn}] 🧱 PLAYER fortifica ({row},{col}) "
+            f"→ livello {cell.fortification_level} (costo {cost} grux)"
+        )
+        self.battle_log.append(log_entry)
+        return {
+            "ok": True,
+            "message": log_entry,
+            "cell": cell.to_dict(),
+            "state": self.state.value,
+            "map": self.game_map.to_dict(),
+            "player_grux": self.grux_balance[PLAYER],
+            "next_fortification_cost": next_cost,
+        }
+
     def _place_best_ai_mine(self) -> Optional[str]:
         """L'IA piazza una miniera sulla miglior cella controllata disponibile."""
+        ai_can_build_anywhere = self._is_ability_unlocked(AI, DOMAIN_ENGINEERING_ID)
+        ai_army_pos = self.game_map.positions.get(AI)
+
         best_cell = None
         best_score = float("-inf")
         for row in self.game_map.grid:
             for cell in row:
                 if cell.occupation != AI or cell.is_castle or cell.is_mine or cell.terrain == "Fiume":
+                    continue
+                if not ai_can_build_anywhere and ai_army_pos != (cell.row, cell.col):
                     continue
                 score = 2.0 if cell.is_strategic else 0.0
                 if cell.terrain in {"Pianura", "Montagna"}:
@@ -532,6 +768,16 @@ class GameSession:
         """Recluta una unità, scala il costo e ricalcola il vettore esercito."""
         if unit_id not in self.unit_costs:
             raise ValueError(f"Unità sconosciuta: {unit_id}")
+
+        if not self._can_recruit_now(entity):
+            last_turn = self.last_recruit_turn.get(entity)
+            turns_passed = 0 if last_turn is None else (self.game_map.turn - last_turn)
+            remaining = max(0, self.recruit_cooldown_turns - turns_passed)
+            if auto:
+                return None
+            raise ValueError(
+                f"Reclutamento in cooldown: attendi ancora {remaining} turno/i prima di reclutare di nuovo."
+            )
 
         cost = self.unit_costs[unit_id]
         if self.grux_balance[entity] < cost:
@@ -573,6 +819,7 @@ class GameSession:
         unit_name = self.units_map.get(unit_id, {}).get("name", unit_id)
         log_entry = f"[Turno {self.game_map.turn}] 💰 {side} recluta {unit_name} per {cost} grux"
         self.battle_log.append(log_entry)
+        self.last_recruit_turn[entity] = self.game_map.turn
 
         after_breakdown = self._strength_breakdown(entity, home_terrain)
         log_strength_debug(
@@ -695,6 +942,8 @@ class GameSession:
         defender = attacker.opposite()
         terrain = move_result["terrain"]
         to_pos = tuple(move_result["to_pos"])
+        attacker_units_before = len(self._entity_units(attacker))
+        defender_units_before = len(self._entity_units(defender))
 
         attacker_breakdown = self._strength_breakdown(attacker, terrain)
         defender_breakdown = self._strength_breakdown(defender, terrain)
@@ -714,6 +963,7 @@ class GameSession:
         contested_cell = self.game_map.get_cell(*to_pos)
         if contested_cell is not None:
             contested_cell.garrison_strength = 0
+            contested_cell.fortification_level = 0
             contested_cell.occupation = winner
 
         self.game_map.positions[winner] = to_pos
@@ -731,13 +981,39 @@ class GameSession:
         attacker_comp = attacker_breakdown["composition_text"]
         defender_comp = defender_breakdown["composition_text"]
 
+        attacker_losses = self._calculate_losses_for_battle(
+            attacker_units_before,
+            attacker_strength,
+            defender_strength,
+        )
+        defender_losses = self._calculate_losses_for_battle(
+            defender_units_before,
+            defender_strength,
+            attacker_strength,
+        )
+        attacker_loss_result = self._apply_attacker_losses(attacker, attacker_losses)
+        defender_loss_result = self._apply_attacker_losses(defender, defender_losses)
+
         log_entry = (
             f"[Turno {self.game_map.turn}] {battle_label}: "
             f"{attacker.value.upper()} [{attacker_comp}] forza {attacker_strength} "
             f"vs {defender.value.upper()} [{defender_comp}] forza {defender_strength} "
             f"→ Ritirata di {loser.value.upper()}"
         )
+        if attacker_loss_result["losses"] > 0 or defender_loss_result["losses"] > 0:
+            log_entry += (
+                f" | Perdite {attacker.value.upper()}: {attacker_loss_result['losses']}"
+                f" | Perdite {defender.value.upper()}: {defender_loss_result['losses']}"
+            )
         self.battle_log.append(log_entry)
+        if attacker_loss_result["losses"] > 0 and attacker_loss_result["removed_text"]:
+            self.battle_log.append(
+                f"[Turno {self.game_map.turn}] ☠ {attacker.value.upper()} perde {attacker_loss_result['removed_text']}"
+            )
+        if defender_loss_result["losses"] > 0 and defender_loss_result["removed_text"]:
+            self.battle_log.append(
+                f"[Turno {self.game_map.turn}] ☠ {defender.value.upper()} perde {defender_loss_result['removed_text']}"
+            )
         log_strength_debug(
             "field_battle_strength",
             {
@@ -748,6 +1024,10 @@ class GameSession:
                 "defender": defender.value,
                 "attacker_breakdown": attacker_breakdown,
                 "defender_breakdown": defender_breakdown,
+                "attacker_units_before": attacker_units_before,
+                "defender_units_before": defender_units_before,
+                "attacker_losses": attacker_loss_result["losses"],
+                "defender_losses": defender_loss_result["losses"],
                 "winner": winner.value,
                 "loser": loser.value,
                 "encounter_pos": list(to_pos),
@@ -771,29 +1051,61 @@ class GameSession:
         to_pos = tuple(move_result["to_pos"])
         dest_cell = self.game_map.get_cell(*to_pos)
         encounter_type = move_result["encounter_type"]
+        attacker_units_before = len(self._entity_units(attacker))
 
         attacker_breakdown = self._strength_breakdown(attacker, terrain)
         attacker_strength = attacker_breakdown["effective_strength"]
         garrison_strength = dest_cell.garrison_strength if dest_cell else 0
+        fortification_level = dest_cell.fortification_level if dest_cell else 0
+        fortification_bonus = 0.0
+        garrison_component = 0.0
+        synergy_bonus = 0.0
+
+        if garrison_strength > 0:
+            # Presidio più incisivo, con componente che scala sull'intensità dell'assalto.
+            garrison_component = (
+                (garrison_strength * 18.0)
+                + (attacker_strength * min(0.22, garrison_strength * 0.025))
+            )
+
+        if fortification_level > 0:
+            # Fortificazioni con impatto crescente anche in late game:
+            # base fissa + componente scalata sulla forza dell'assalto.
+            scaling_component = attacker_strength * min(0.32, 0.12 + (fortification_level * 0.05))
+            stack_component = max(0, fortification_level - 1) * 16.0
+            fortification_bonus = (fortification_level * 18.0) + scaling_component + stack_component
+
+        if garrison_strength > 0 and fortification_level > 0:
+            # Sinergia: presidio dentro fortificazione rende la difesa molto più efficiente.
+            synergy_bonus = (
+                (fortification_level * garrison_strength * 7.0)
+                + (attacker_strength * min(0.12, 0.015 * fortification_level * garrison_strength))
+            )
 
         if dest_cell and dest_cell.is_castle:
             # Difesa castello rinforzata per evitare cadute immediate
             defender_units = len(self.player_units if defender == PLAYER else self.ai_units)
-            garrison_component = garrison_strength * 9.0
             terrain_bonus = 8.0 if terrain in {"Foresta", "Montagna", "Palude"} else 5.0
             castle_bonus = 38.0 + (defender_units * 3.2)
         else:
-            garrison_component = garrison_strength * 6.0
             terrain_bonus = 5.0 if terrain in {"Foresta", "Montagna", "Palude"} else 2.0
             castle_bonus = 0.0
 
-        defender_score = garrison_component + terrain_bonus + castle_bonus
+        defender_score = garrison_component + terrain_bonus + castle_bonus + fortification_bonus + synergy_bonus
+        attacker_losses = self._calculate_losses_for_battle(
+            attacker_units_before,
+            attacker_strength,
+            defender_score,
+            fortification_level=fortification_level,
+            garrison_strength=garrison_strength,
+        )
 
         if attacker_strength > defender_score:
             winner = attacker
             loser = defender
             if dest_cell is not None:
                 dest_cell.garrison_strength = 0
+                dest_cell.fortification_level = 0
                 dest_cell.occupation = attacker
             self.game_map.positions[attacker] = to_pos
             if dest_cell and dest_cell.is_castle:
@@ -806,10 +1118,16 @@ class GameSession:
             if dest_cell is not None:
                 dest_cell.occupation = defender
 
+        loss_result = self._apply_attacker_losses(attacker, attacker_losses)
+
         if encounter_type == "castle":
             label = "🏰 Assalto al castello centrale"
         elif dest_cell is not None and dest_cell.is_mine:
             label = "⛏ Battaglia per la conquista della miniera"
+        elif encounter_type == "garrison" and fortification_level > 0:
+            label = "🧱🛡 Assalto a presidio fortificato"
+        elif encounter_type == "fortified":
+            label = "🧱 Assalto a territorio fortificato"
         elif encounter_type == "garrison":
             label = "🛡 Scontro contro presidio territoriale"
         else:
@@ -823,7 +1141,13 @@ class GameSession:
             f"vs difesa statica {int(round(defender_score))} "
             f"→ Vince {winner.value.upper()}"
         )
+        if loss_result["losses"] > 0:
+            log_entry += f" | Perdite {attacker.value.upper()}: {loss_result['losses']}"
         self.battle_log.append(log_entry)
+        if loss_result["losses"] > 0 and loss_result["removed_text"]:
+            self.battle_log.append(
+                f"[Turno {self.game_map.turn}] ☠ {attacker.value.upper()} perde {loss_result['removed_text']}"
+            )
         log_strength_debug(
             "static_defense_battle_strength",
             {
@@ -836,10 +1160,15 @@ class GameSession:
                 "attacker_breakdown": attacker_breakdown,
                 "defense_breakdown": {
                     "garrison_strength": garrison_strength,
+                    "fortification_level": fortification_level,
+                    "fortification_bonus": round(fortification_bonus, 4),
+                    "synergy_bonus": round(synergy_bonus, 4),
                     "garrison_component": round(garrison_component, 4),
                     "terrain_bonus": terrain_bonus,
                     "castle_bonus": castle_bonus,
                     "defender_score": round(defender_score, 4),
+                    "attacker_units_before": attacker_units_before,
+                    "attacker_losses": loss_result["losses"],
                 },
                 "winner": winner.value,
                 "loser": loser.value,
@@ -877,6 +1206,11 @@ class GameSession:
                 "grux_balance":  self.grux_balance[PLAYER],
                 "army_cost":     self.player_army_cost,
                 "available_mine_slots": self._available_mine_slots(PLAYER),
+                "fortification_base_cost": self.base_fortification_cost,
+                "abilities": {
+                    ability_id: state.to_dict(self.game_map.turn)
+                    for ability_id, state in self.ability_states[PLAYER].items()
+                },
                 "unit_costs":    {unit_id: self.unit_costs[unit_id] for unit_id in self.player_units},
             },
             "ai": {
@@ -890,6 +1224,10 @@ class GameSession:
                 "grux_balance":  self.grux_balance[AI],
                 "army_cost":     self.ai_army_cost,
                 "available_mine_slots": self._available_mine_slots(AI),
+                "abilities": {
+                    ability_id: state.to_dict(self.game_map.turn)
+                    for ability_id, state in self.ability_states[AI].items()
+                },
                 "unit_costs":    {unit_id: self.unit_costs[unit_id] for unit_id in self.ai_units},
             },
             "map":        self.game_map.to_dict(),

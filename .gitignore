@@ -181,3 +181,4 @@ cython_debug/
 .cursorindexingignore
 War Advisor/istruzioni.md
 loggioco.txt
+*.txt

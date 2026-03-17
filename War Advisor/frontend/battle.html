@@ -138,7 +138,7 @@
 
         .battle-layout {
             display: grid;
-            grid-template-columns: 1.3fr 0.9fr;
+            grid-template-columns: minmax(0, 1.7fr) minmax(260px, 0.75fr);
             gap: 20px;
         }
 
@@ -261,6 +261,32 @@
             align-items: center;
         }
 
+        .toolbar-recruit {
+            margin-top: 10px;
+            display: grid;
+            grid-template-columns: minmax(200px, 1fr) auto;
+            gap: 8px;
+            align-items: center;
+            max-width: 520px;
+        }
+
+        .toolbar-recruit select {
+            width: 100%;
+            min-width: 180px;
+            padding: 8px 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            font-size: 0.9em;
+            background: #fff;
+        }
+
+        .toolbar-recruit button {
+            padding: 8px 10px;
+            font-size: 0.84em;
+            border-radius: 8px;
+            background: #7c2d12;
+        }
+
         .recruit-row select {
             flex: 1;
             min-width: 180px;
@@ -280,23 +306,58 @@
             margin-left: 6px;
         }
 
+        .fort-badge {
+            display: inline-block;
+            min-width: 22px;
+            padding: 2px 6px;
+            border-radius: 999px;
+            background: #1a1a2e;
+            color: #fff;
+            font-size: 0.78em;
+            margin-left: 6px;
+        }
+
+        .ability-inline {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: 4px;
+        }
+
+        .ability-star {
+            width: 36px;
+            height: 36px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.26);
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            font-size: 1.05em;
+            cursor: pointer;
+        }
+
+        .ability-label {
+            font-size: 0.86em;
+            color: #d6e0ff;
+            font-weight: 700;
+        }
+
         .battle-log {
-            max-height: 320px;
+            max-height: 520px;
             overflow-y: auto;
             background: #0f172a;
             color: #dbeafe;
             font-family: Consolas, monospace;
-            font-size: 0.85em;
-            padding: 12px;
+            font-size: 0.88em;
+            padding: 14px;
             border-radius: 10px;
             white-space: normal;
-            line-height: 1.4;
+            line-height: 1.45;
         }
 
         .split-logs {
             margin-top: 14px;
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
             gap: 12px;
         }
 
@@ -322,13 +383,37 @@
         }
 
         .battle-log.battle-log-split {
-            max-height: 220px;
+            min-height: 360px;
+            max-height: 520px;
             padding: 10px;
         }
 
         .log-entry {
             margin-bottom: 6px;
             word-break: break-word;
+            border-left: 3px solid rgba(148, 163, 184, 0.35);
+            padding-left: 8px;
+        }
+
+        .log-entry.log-priority-high {
+            border-left-color: #ef4444;
+            background: rgba(239, 68, 68, 0.1);
+        }
+
+        .log-entry.log-priority-medium {
+            border-left-color: #f59e0b;
+            background: rgba(245, 158, 11, 0.1);
+        }
+
+        .log-entry.log-priority-low {
+            border-left-color: #22c55e;
+            background: rgba(34, 197, 94, 0.09);
+        }
+
+        .log-turn {
+            color: #93c5fd;
+            font-weight: 800;
+            margin-right: 4px;
         }
 
         .log-player {
@@ -482,6 +567,15 @@
                         <button class="action-btn" id="actionMoveBtn" type="button" onclick="setAction('move')">Mossa [1]</button>
                         <button class="action-btn" id="actionGarrisonBtn" type="button" onclick="setAction('move_garrison')">Mossa+Presidio [2]</button>
                         <button class="action-btn" id="actionMineBtn" type="button" onclick="setAction('place_mine')">Piazza Miniera [3]</button>
+                        <button class="action-btn" id="actionFortifyBtn" type="button" onclick="setAction('place_fortification')">Fortifica [4]</button>
+                        <div class="ability-inline">
+                            <button class="ability-star" id="abilityResearchBtn" type="button" onclick="researchAbility()">⭐</button>
+                            <span class="ability-label" id="abilityLabel">Abilità</span>
+                        </div>
+                    </div>
+                    <div class="toolbar-recruit">
+                        <select id="recruitSelect"></select>
+                        <button type="button" onclick="recruitSelectedUnit()">Compra Unità</button>
                     </div>
                 </div>
                 <div class="button-row">
@@ -507,7 +601,7 @@
             </div>
 
             <div class="shortcuts-panel" id="shortcutsPanel">
-                1: Modalita Mossa | 2: Presidio immediato | 3: Miniera immediata | Shift+Click: Presidio su mossa | Alt+Click: Miniera sulla cella | Frecce: Muovi | Shift+Frecce: Presidio su mossa | R: Recluta
+                1: Modalita Mossa | 2: Presidio immediato | 3: Miniera immediata | 4: Fortifica | A: Ricerca Abilità | Shift+Click: Presidio su mossa | Alt+Click: Miniera sulla cella | Frecce: Muovi | Shift+Frecce: Presidio su mossa | R: Recluta
             </div>
 
             <div class="battle-layout">
@@ -534,19 +628,13 @@
                     <div class="battle-card">
                         <h3>Economia e Presidi</h3>
                         <p id="playerMinesInfo">PLAYER miniere: ---</p>
+                        <p id="playerFortInfo">PLAYER fortificazioni: ---</p>
                         <p id="playerReserveInfo">PLAYER guarnigioni: ---</p>
                         <div class="economy-box" id="playerGruxInfo">PLAYER grux: ---</div>
                         <p id="aiMinesInfo" style="margin-top:10px;">IA miniere: ---</p>
+                        <p id="aiFortInfo">IA fortificazioni: ---</p>
                         <p id="aiReserveInfo">IA guarnigioni: ---</p>
                         <div class="economy-box" id="aiGruxInfo">IA grux: ---</div>
-                    </div>
-
-                    <div class="battle-card">
-                        <h3>Reclutamento</h3>
-                        <div class="recruit-row">
-                            <select id="recruitSelect"></select>
-                            <button type="button" onclick="recruitSelectedUnit()">Compra Unità</button>
-                        </div>
                     </div>
 
                 </div>
@@ -634,6 +722,8 @@
                     document.getElementById('battleStatusHint').textContent = 'Nessun presidio disponibile: recluta unità o cambia azione.';
                 } else if (currentAction === 'place_mine' && sessionData.player.available_mine_slots <= 0) {
                     document.getElementById('battleStatusHint').textContent = 'Nessuno slot miniera: conquista più territorio per costruirne altre.';
+                } else if (currentAction === 'place_fortification') {
+                    document.getElementById('battleStatusHint').textContent = 'Seleziona una cella PLAYER per fortificarla (costo crescente sulla stessa casella).';
                 } else {
                     document.getElementById('battleStatusHint').textContent = 'Usa i pulsanti azione o premi H per i comandi rapidi.';
                 }
@@ -641,10 +731,26 @@
 
             document.getElementById('playerReserveInfo').textContent = `PLAYER guarnigioni disponibili: ${sessionData.player.available_garrisons}`;
             document.getElementById('playerMinesInfo').textContent = `Miniere: ${sessionData.map.stats.player_mines} | Slot liberi: ${sessionData.player.available_mine_slots}`;
+            document.getElementById('playerFortInfo').textContent = `Fortificazioni: ${sessionData.map.stats.player_fortification_levels} livelli su ${sessionData.map.stats.player_fortified_cells} celle`;
             document.getElementById('playerGruxInfo').textContent = `PLAYER grux: ${sessionData.player.grux_balance} | Costo esercito: ${sessionData.player.army_cost}`;
             document.getElementById('aiReserveInfo').textContent = `IA guarnigioni disponibili: ${sessionData.ai.available_garrisons}`;
             document.getElementById('aiMinesInfo').textContent = `Miniere: ${sessionData.map.stats.ai_mines} | Slot liberi: ${sessionData.ai.available_mine_slots}`;
+            document.getElementById('aiFortInfo').textContent = `Fortificazioni: ${sessionData.map.stats.ai_fortification_levels} livelli su ${sessionData.map.stats.ai_fortified_cells} celle`;
             document.getElementById('aiGruxInfo').textContent = `IA grux: ${sessionData.ai.grux_balance} | Costo esercito: ${sessionData.ai.army_cost}`;
+
+            const abilityState = sessionData.player?.abilities?.domain_engineering;
+            const abilityLabel = document.getElementById('abilityLabel');
+            if (abilityState) {
+                if (abilityState.unlocked) {
+                    abilityLabel.textContent = 'Abilità: Sbloccata';
+                } else if (abilityState.researching) {
+                    abilityLabel.textContent = `Abilità: ${abilityState.turns_remaining} turni`;
+                } else {
+                    abilityLabel.textContent = 'Abilità: Pronta ricerca';
+                }
+            } else {
+                abilityLabel.textContent = 'Abilità';
+            }
 
             renderMapBoard(sessionData.map);
 
@@ -688,10 +794,20 @@
 
             const formatLine = (line) => {
                 let safe = escapeHtml(line);
+                safe = safe.replace(/(\[Turno\s+\d+\])/g, '<span class="log-turn">$1</span>');
                 safe = safe.replace(/\bPLAYER\b|\bplayer\b/g, '<span class="log-player">PLAYER</span>');
                 safe = safe.replace(/\bIA\b|\bAI\b|\bai\b/g, '<span class="log-ai">IA</span>');
                 safe = safe.replace(/\b(Turno|Assalto|Battaglia|Presidio|Scontro|Ritirata|conquista)\b/g, '<span class="log-system">$1</span>');
-                return `<div class="log-entry">${safe}</div>`;
+
+                const raw = String(line).toLowerCase();
+                let priorityClass = 'log-priority-low';
+                if (raw.includes('errore') || raw.includes('assalto') || raw.includes('☠') || raw.includes('perdite') || raw.includes('vince')) {
+                    priorityClass = 'log-priority-high';
+                } else if (raw.includes('battaglia') || raw.includes('ritirata') || raw.includes('recluta') || raw.includes('fortifica') || raw.includes('presidio')) {
+                    priorityClass = 'log-priority-medium';
+                }
+
+                return `<div class="log-entry ${priorityClass}">${safe}</div>`;
             };
 
             playerContainer.innerHTML = playerLines.length > 0
@@ -733,14 +849,16 @@
                     }
 
                     const isAdjacent = adjacentMoves.some(move => move[0] === rowIndex && move[1] === colIndex);
-                    const canMine = canPlaceMineOnCell(cell);
+                    const canMine = canPlaceMineOnCell(cell, rowIndex, colIndex, mapData.positions.player);
+                    const canFortify = canPlaceFortificationOnCell(cell, rowIndex, colIndex, mapData.positions.player);
                     const mineMode = currentAction === 'place_mine';
+                    const fortifyMode = currentAction === 'place_fortification';
 
                     if (currentBattleState && currentBattleState.state !== 'game_over') {
-                        if (isAdjacent || (mineMode && cell.occupation === 'player' && !cell.is_castle && !cell.is_mine && cell.terrain !== 'Fiume')) {
+                        if (isAdjacent || (mineMode && canMine) || (fortifyMode && canFortify)) {
                             button.classList.add('cell-adjacent');
                         }
-                        button.onclick = (event) => handleCellAction(event, rowIndex, colIndex, isAdjacent, canMine);
+                        button.onclick = (event) => handleCellAction(event, rowIndex, colIndex, isAdjacent, canMine, canFortify);
                     } else {
                         button.disabled = true;
                     }
@@ -756,12 +874,27 @@
             const isPlayerArmy = mapData.positions.player && mapData.positions.player[0] === rowIndex && mapData.positions.player[1] === colIndex;
             const isAiArmy = mapData.positions.ai && mapData.positions.ai[0] === rowIndex && mapData.positions.ai[1] === colIndex;
 
-            if (isPlayerArmy) return cell.is_mine ? 'YOU⛏' : 'YOU';
-            if (isAiArmy) return cell.is_mine ? 'IA⛏' : 'IA';
+            if (isPlayerArmy) {
+                let playerLabel = cell.is_mine ? 'YOU⛏' : 'YOU';
+                if (cell.fortification_level > 0) {
+                    playerLabel += `<span class="fort-badge">🧱${cell.fortification_level}</span>`;
+                }
+                return playerLabel;
+            }
+            if (isAiArmy) {
+                let aiLabel = cell.is_mine ? 'IA⛏' : 'IA';
+                if (cell.fortification_level > 0) {
+                    aiLabel += `<span class="fort-badge">🧱${cell.fortification_level}</span>`;
+                }
+                return aiLabel;
+            }
 
             let label = cell.is_castle ? '🏰' : terrainAbbrev(cell.terrain);
             if (cell.is_mine) {
                 label = '⛏' + label;
+            }
+            if (cell.fortification_level > 0) {
+                label += `<span class="fort-badge">🧱${cell.fortification_level}</span>`;
             }
             if (cell.garrison_strength > 0) {
                 label += `<span class="garrison-badge">${cell.garrison_strength}</span>`;
@@ -769,13 +902,24 @@
             return label;
         }
 
-        function canPlaceMineOnCell(cell) {
-            return currentBattleState
-                && cell.occupation === 'player'
-                && !cell.is_castle
-                && !cell.is_mine
-                && cell.terrain !== 'Fiume'
-                && currentBattleState.player.available_mine_slots > 0;
+        function playerCanBuildAnywhere() {
+            const abilityState = currentBattleState?.player?.abilities?.domain_engineering;
+            return Boolean(abilityState && abilityState.unlocked);
+        }
+
+        function canPlaceMineOnCell(cell, row, col, playerPos) {
+            if (!currentBattleState) return false;
+            if (cell.occupation !== 'player' || cell.is_castle || cell.is_mine || cell.terrain === 'Fiume') return false;
+            if (currentBattleState.player.available_mine_slots <= 0) return false;
+            if (playerCanBuildAnywhere()) return true;
+            return Array.isArray(playerPos) && playerPos[0] === row && playerPos[1] === col;
+        }
+
+        function canPlaceFortificationOnCell(cell, row, col, playerPos) {
+            if (!currentBattleState) return false;
+            if (cell.occupation !== 'player' || cell.is_castle) return false;
+            if (playerCanBuildAnywhere()) return true;
+            return Array.isArray(playerPos) && playerPos[0] === row && playerPos[1] === col;
         }
 
         function setAction(action) {
@@ -783,6 +927,7 @@
             document.getElementById('actionMoveBtn').classList.toggle('active', action === 'move');
             document.getElementById('actionGarrisonBtn').classList.toggle('active', action === 'move_garrison');
             document.getElementById('actionMineBtn').classList.toggle('active', action === 'place_mine');
+            document.getElementById('actionFortifyBtn').classList.toggle('active', action === 'place_fortification');
 
             if (currentBattleState) {
                 renderBattleState(currentBattleState);
@@ -792,6 +937,7 @@
         function actionLabel(action) {
             if (action === 'move_garrison') return 'Mossa + Presidio';
             if (action === 'place_mine') return 'Piazza Miniera';
+            if (action === 'place_fortification') return 'Fortifica';
             return 'Mossa';
         }
 
@@ -835,7 +981,7 @@
             }
         }
 
-        function handleCellAction(event, row, col, isAdjacent, canMine) {
+        function handleCellAction(event, row, col, isAdjacent, canMine, canFortify) {
             const targetCell = currentBattleState?.map?.grid?.[row]?.[col];
 
             if (!currentBattleState || currentBattleState.state === 'game_over') {
@@ -854,15 +1000,30 @@
             }
 
             if (currentAction === 'place_mine') {
-                if (targetCell && targetCell.occupation === 'player') {
+                if (canMine) {
                     placeMine(row, col);
                 } else {
                     if (!currentBattleState || !targetCell) {
                         document.getElementById('battleStatusHint').textContent = 'Stato partita non disponibile: aggiorna la sessione.';
                     } else if (targetCell.occupation !== 'player') {
                         document.getElementById('battleStatusHint').textContent = 'Miniera non valida: puoi costruire solo su celle PLAYER.';
+                    } else if (!playerCanBuildAnywhere()) {
+                        document.getElementById('battleStatusHint').textContent = 'Senza Abilità puoi costruire solo sulla cella dove si trova la tua armata.';
                     } else {
                         document.getElementById('battleStatusHint').textContent = 'Miniera non valida su questa cella.';
+                    }
+                }
+                return;
+            }
+
+            if (currentAction === 'place_fortification') {
+                if (canFortify) {
+                    placeFortification(row, col);
+                } else {
+                    if (!playerCanBuildAnywhere()) {
+                        document.getElementById('battleStatusHint').textContent = 'Senza Abilità puoi fortificare solo la cella della tua armata.';
+                    } else {
+                        document.getElementById('battleStatusHint').textContent = 'Fortificazione non valida: seleziona una cella PLAYER non castello.';
                     }
                 }
                 return;
@@ -906,9 +1067,20 @@
                 autoPlaceMine();
                 return;
             }
+            if (event.key === '4') {
+                event.preventDefault();
+                setAction('place_fortification');
+                return;
+            }
             if (event.key.toLowerCase() === 'r') {
                 event.preventDefault();
                 recruitSelectedUnit();
+                return;
+            }
+
+            if (event.key.toLowerCase() === 'a') {
+                event.preventDefault();
+                researchAbility();
                 return;
             }
 
@@ -1081,12 +1253,7 @@
 
             for (const [r, c] of candidates) {
                 const cell = mapData.grid[r][c];
-                if (
-                    cell.occupation === 'player'
-                    && !cell.is_castle
-                    && !cell.is_mine
-                    && cell.terrain !== 'Fiume'
-                ) {
+                if (canPlaceMineOnCell(cell, r, c, mapData.positions.player)) {
                     return [r, c];
                 }
             }
@@ -1100,15 +1267,127 @@
                 return;
             }
 
+            if ((currentBattleState.player?.available_mine_slots || 0) <= 0) {
+                document.getElementById('battleStatusHint').textContent = 'Non puoi piazzare una miniera: non hai slot miniera disponibili (conquista più celle).';
+                transientLogLines = ['Errore PLAYER miniera: slot miniera insufficienti, conquista più territorio'];
+                renderBattleState(currentBattleState);
+                return;
+            }
+
             const target = findAutoMineTarget();
             if (!target) {
-                document.getElementById('battleStatusHint').textContent = 'Nessuna cella valida per piazzare una miniera.';
-                transientLogLines = ['Errore PLAYER miniera: nessuna cella valida trovata'];
+                if (!playerCanBuildAnywhere()) {
+                    document.getElementById('battleStatusHint').textContent = 'Senza Abilità puoi costruire miniere solo sulla cella della tua armata.';
+                    transientLogLines = ['Errore PLAYER miniera: abilità non sbloccata per costruire fuori dalla cella armata'];
+                } else {
+                    document.getElementById('battleStatusHint').textContent = 'Nessuna cella valida per piazzare una miniera.';
+                    transientLogLines = ['Errore PLAYER miniera: nessuna cella valida trovata'];
+                }
                 renderBattleState(currentBattleState);
                 return;
             }
 
             placeMine(target[0], target[1]);
+        }
+
+        function findAutoFortificationTarget() {
+            if (!currentBattleState || !currentBattleState.map || !currentBattleState.map.positions.player) {
+                return null;
+            }
+
+            const mapData = currentBattleState.map;
+            const [pr, pc] = mapData.positions.player;
+            const candidates = [];
+
+            candidates.push([pr, pc]);
+            for (const [r, c] of getAdjacentMoves([pr, pc], mapData.rows, mapData.cols)) {
+                candidates.push([r, c]);
+            }
+
+            for (let r = 0; r < mapData.rows; r += 1) {
+                for (let c = 0; c < mapData.cols; c += 1) {
+                    candidates.push([r, c]);
+                }
+            }
+
+            let best = null;
+            for (const [r, c] of candidates) {
+                const cell = mapData.grid[r][c];
+                if (!canPlaceFortificationOnCell(cell, r, c, mapData.positions.player)) {
+                    continue;
+                }
+                if (!best || cell.fortification_level < best[2]) {
+                    best = [r, c, cell.fortification_level];
+                }
+            }
+
+            return best ? [best[0], best[1]] : null;
+        }
+
+        function autoPlaceFortification() {
+            if (!currentBattleState) {
+                document.getElementById('battleStatusHint').textContent = 'Partita non disponibile.';
+                return;
+            }
+
+            const target = findAutoFortificationTarget();
+            if (!target) {
+                document.getElementById('battleStatusHint').textContent = 'Nessuna cella valida per fortificare.';
+                transientLogLines = ['Errore PLAYER fortificazione: nessuna cella valida trovata'];
+                renderBattleState(currentBattleState);
+                return;
+            }
+
+            placeFortification(target[0], target[1]);
+        }
+
+        async function placeFortification(row, col) {
+            try {
+                const response = await fetch('http://127.0.0.1:8000/game/place-fortification', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ row: row, col: col })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Errore nella fortificazione');
+                }
+
+                await response.json();
+                transientLogLines = [];
+                const stateResponse = await fetch('http://127.0.0.1:8000/game/state');
+                const stateData = await stateResponse.json();
+                renderBattleState(stateData);
+                resetActionToDefault();
+            } catch (error) {
+                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
+                transientLogLines = [`Errore PLAYER fortificazione: ${error.message}`];
+                renderBattleState(currentBattleState);
+            }
+        }
+
+        async function researchAbility() {
+            try {
+                const response = await fetch('http://127.0.0.1:8000/game/research-ability', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Errore nella ricerca abilità');
+                }
+
+                const result = await response.json();
+                transientLogLines = [];
+                renderBattleState(result.session);
+                resetActionToDefault();
+            } catch (error) {
+                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
+                transientLogLines = [`Errore ricerca abilità: ${error.message}`];
+                renderBattleState(currentBattleState);
+            }
         }
 
         async function recruitSelectedUnit() {

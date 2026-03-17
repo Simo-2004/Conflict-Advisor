@@ -9,9 +9,11 @@ Esporta:
 
 from .session    import GameSession, SessionState
 from .ai_builder import build_ai_army
+from .abilities  import DOMAIN_ENGINEERING_ID
 
 __all__ = [
     "GameSession",
     "SessionState",
     "build_ai_army",
+    "DOMAIN_ENGINEERING_ID",
 ]

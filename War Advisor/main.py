@@ -370,6 +370,20 @@ async def game_place_garrison_here():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/game/place-fortification")
+async def game_place_fortification(request: MineRequest):
+    """Piazza una fortificazione su una cella controllata dal giocatore."""
+    if _active_session is None:
+        raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
+
+    try:
+        return _active_session.place_fortification(request.row, request.col)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/game/recruit")
 async def game_recruit(request: RecruitRequest):
     """Compra una nuova unità spendendo grux dalla tesoreria globale."""
@@ -378,6 +392,20 @@ async def game_recruit(request: RecruitRequest):
 
     try:
         return _active_session.recruit_player_unit(request.unit_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/game/research-ability")
+async def game_research_ability():
+    """Avvia la ricerca abilità del player."""
+    if _active_session is None:
+        raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
+
+    try:
+        return _active_session.research_player_ability()
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
