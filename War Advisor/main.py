@@ -70,6 +70,7 @@ _active_session: Optional[GameSession] = None
 class ConfigResponse(BaseModel):
     """Risposta per l'endpoint GET /config"""
     units: List[Dict[str, Any]] = Field(..., description="Lista di unità disponibili")
+    strategies: List[Dict[str, Any]] = Field(..., description="Lista di strategie disponibili")
     terrains: List[Dict[str, Any]] = Field(..., description="Lista di terreni disponibili")
     weather: List[Dict[str, Any]] = Field(..., description="Lista di condizioni meteo disponibili")
     troop_status: List[Dict[str, Any]] = Field(..., description="Lista di stati truppe disponibili")
@@ -118,18 +119,29 @@ async def get_config():
     Ritorna le liste di unità, terreni, meteo e stati truppe disponibili per popolare i dropdown del frontend.
     """
     try:
+        units_by_id = {unit["id"]: unit for unit in DATA["units"]}
         units = [
             {
                 **unit,
+                "attributes": units_by_id.get(unit["id"], {}).get("attributes", unit.get("attributes", {})),
                 "cost_grux": UNIT_COSTS[unit["id"]],
             }
             for unit in get_available_units(DATA)
         ]
         terrains = get_available_terrains(DATA)
+        strategies = [
+            {
+                "id": strategy["id"],
+                "name": strategy["name"],
+                "description": strategy["description"],
+            }
+            for strategy in DATA["strategies"]
+        ]
         weather = get_available_weather(DATA)
         troop_status = get_available_troop_status(DATA)
         return ConfigResponse(
             units=units,
+            strategies=strategies,
             terrains=terrains,
             weather=weather,
             troop_status=troop_status
@@ -245,6 +257,12 @@ class MoveRequest(BaseModel):
     to_row: int = Field(..., description="Riga di destinazione")
     to_col: int = Field(..., description="Colonna di destinazione")
     leave_garrison: bool = Field(False, description="Se True lascia un distaccamento sulla casella di partenza")
+    garrison_unit_id: Optional[str] = Field(None, description="ID unità da distaccare nel presidio")
+
+
+class GarrisonRequest(BaseModel):
+    """Richiesta per piazzare presidio con scelta unità."""
+    unit_id: Optional[str] = Field(None, description="ID unità da distaccare")
 
 
 class MineRequest(BaseModel):
@@ -256,6 +274,16 @@ class MineRequest(BaseModel):
 class RecruitRequest(BaseModel):
     """Richiesta per reclutare una unità."""
     unit_id: str = Field(..., description="ID unità da comprare")
+
+
+class StrategyChangeRequest(BaseModel):
+    """Richiesta per cambiare strategia del player durante la battaglia."""
+    strategy_id: str = Field(..., description="ID strategia da impostare")
+
+
+class AbilityResearchRequest(BaseModel):
+    """Richiesta per avviare ricerca di una abilità specifica."""
+    ability_id: str = Field(..., description="ID abilità da ricercare")
 
 
 # ==================== ENDPOINT GIOCO ====================
@@ -319,6 +347,7 @@ async def game_move(request: MoveRequest):
             request.to_row,
             request.to_col,
             leave_garrison=request.leave_garrison,
+            garrison_unit_id=request.garrison_unit_id,
         )
         if not result.get("ok", True):
             raise HTTPException(status_code=400, detail=result.get("message", "Mossa non valida."))
@@ -357,13 +386,14 @@ async def game_place_mine(request: MineRequest):
 
 
 @app.post("/game/place-garrison-here")
-async def game_place_garrison_here():
+async def game_place_garrison_here(request: Optional[GarrisonRequest] = None):
     """Piazza subito un presidio sulla casella corrente del player."""
     if _active_session is None:
         raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
 
     try:
-        return _active_session.place_garrison_here()
+        unit_id = request.unit_id if request is not None else None
+        return _active_session.place_garrison_here(unit_id=unit_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -399,13 +429,41 @@ async def game_recruit(request: RecruitRequest):
 
 
 @app.post("/game/research-ability")
-async def game_research_ability():
+async def game_research_ability(request: AbilityResearchRequest):
     """Avvia la ricerca abilità del player."""
     if _active_session is None:
         raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
 
     try:
-        return _active_session.research_player_ability()
+        return _active_session.research_player_ability(request.ability_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/game/set-strategy")
+async def game_set_strategy(request: StrategyChangeRequest):
+    """Aggiorna la strategia attiva del player durante la partita."""
+    if _active_session is None:
+        raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
+
+    try:
+        return _active_session.set_player_strategy(request.strategy_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/game/debug/ai-kill-switch")
+async def game_debug_ai_kill_switch():
+    """DEBUG TEMPORANEO (DA RIMUOVERE): toggle pausa completa IA."""
+    if _active_session is None:
+        raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
+
+    try:
+        return _active_session.toggle_debug_ai_kill_switch()
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

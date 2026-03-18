@@ -3,7 +3,7 @@ War Advisor - Cell
 Definisce le strutture dati di base per ogni cella della mappa di gioco.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 
@@ -57,6 +57,7 @@ class Cell:
     is_strategic: bool     = False
     is_castle: bool        = False
     garrison_strength: int = 0
+    garrison_unit_ids: list[str] = field(default_factory=list)
     is_mine: bool          = False
     fortification_level: int = 0
 
@@ -77,6 +78,7 @@ class Cell:
             "is_strategic": self.is_strategic,
             "is_castle":    self.is_castle,
             "garrison_strength": self.garrison_strength,
+            "garrison_unit_ids": list(self.garrison_unit_ids),
             "is_mine":      self.is_mine,
             "fortification_level": self.fortification_level,
         }
@@ -89,6 +91,8 @@ class Cell:
             markers.append("castle")
         if self.garrison_strength:
             markers.append(f"garrison={self.garrison_strength}")
+        if self.garrison_unit_ids:
+            markers.append(f"garrison_units={len(self.garrison_unit_ids)}")
         if self.is_mine:
             markers.append("mine")
         if self.fortification_level > 0:

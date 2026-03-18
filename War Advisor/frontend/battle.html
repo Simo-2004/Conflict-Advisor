@@ -108,8 +108,22 @@
 
         .status-muted {
             color: #4b5563;
-            font-size: 0.86em;
+            font-size: 0.99em;
+            font-weight: 600;
             margin-top: 6px;
+            padding: 6px 8px;
+            border-radius: 8px;
+            transition: background-color 0.15s ease, color 0.15s ease;
+        }
+
+        .status-hint-info {
+            color: #2f6e47;
+            background: rgba(34, 197, 94, 0.12);
+        }
+
+        .status-hint-error {
+            color: #9f4147;
+            background: rgba(239, 68, 68, 0.12);
         }
 
         .action-row {
@@ -117,6 +131,47 @@
             gap: 8px;
             flex-wrap: wrap;
             margin-top: 10px;
+        }
+
+        .garrison-select-wrap {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 5px 7px;
+        }
+
+        .garrison-select-wrap label {
+            margin: 0;
+            font-size: 0.76em;
+            color: #334155;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .garrison-select-wrap select {
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            padding: 4px 6px;
+            font-size: 0.78em;
+            min-width: 170px;
+            background: #fff;
+            color: #111827;
+        }
+
+        .garrison-defense-preview {
+            margin-top: 6px;
+            font-size: 0.8em;
+            color: #334155;
+            font-weight: 600;
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 8px;
+            padding: 6px 8px;
+            display: inline-block;
+            max-width: 680px;
         }
 
         .action-btn {
@@ -140,6 +195,91 @@
             display: grid;
             grid-template-columns: minmax(0, 1.7fr) minmax(260px, 0.75fr);
             gap: 20px;
+            align-items: start;
+        }
+
+        .battle-layout.layout-with-divider {
+            grid-template-columns: minmax(0, var(--layout-map-fr, 1.7fr)) 10px minmax(260px, var(--layout-side-fr, 0.75fr));
+            gap: 14px;
+        }
+
+        .battle-main-column {
+            min-width: 0;
+        }
+
+        .layout-divider {
+            width: 10px;
+            align-self: stretch;
+            border-radius: 999px;
+            background: linear-gradient(180deg, #cbd5e1 0%, #94a3b8 100%);
+            cursor: col-resize;
+            border: 1px solid #94a3b8;
+            user-select: none;
+            position: relative;
+        }
+
+        .layout-divider::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 4px;
+            height: 48px;
+            border-radius: 999px;
+            background: rgba(15, 23, 42, 0.28);
+        }
+
+        .layout-divider.dragging {
+            background: linear-gradient(180deg, #93c5fd 0%, #3b82f6 100%);
+            border-color: #2563eb;
+        }
+
+        .layout-mode-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+
+        .layout-btn {
+            border: 1px solid var(--border);
+            background: #fff;
+            color: #1f2937;
+            padding: 8px 10px;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 0.8em;
+            cursor: pointer;
+        }
+
+        .layout-btn.active {
+            background: #111827;
+            color: #fff;
+            border-color: #111827;
+        }
+
+        .battle-layout.view-map {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .battle-layout.view-map .layout-divider,
+        .battle-layout.view-map .battle-sidebar,
+        .battle-layout.view-map .split-logs {
+            display: none;
+        }
+
+        .battle-layout.view-map .map-board {
+            min-height: 620px;
+        }
+
+        .battle-layout.view-logs {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .battle-layout.view-logs .layout-divider,
+        .battle-layout.view-logs .map-board {
+            display: none;
         }
 
         .map-board {
@@ -254,6 +394,118 @@
             font-weight: 600;
         }
 
+        .economy-sections {
+            display: grid;
+            gap: 12px;
+        }
+
+        .economy-side {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px;
+            background: #f8fafc;
+        }
+
+        .economy-side.player {
+            border-left: 4px solid #16a34a;
+        }
+
+        .economy-side.ai {
+            border-left: 4px solid #dc2626;
+        }
+
+        .economy-side-title {
+            margin: 0 0 8px;
+            font-size: 0.92em;
+            font-weight: 800;
+            color: #0f172a;
+            letter-spacing: 0.01em;
+        }
+
+        .economy-kpi {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 2px;
+            margin-bottom: 8px;
+            padding: 9px 10px;
+            border-radius: 10px;
+            background: #fff;
+            border: 1px solid #e2e8f0;
+        }
+
+        .economy-kpi-label {
+            font-size: 0.73em;
+            color: #64748b;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .economy-kpi-value {
+            font-size: 1.25em;
+            font-weight: 800;
+            color: #7c2d12;
+        }
+
+        .economy-kpi-sub {
+            font-size: 0.8em;
+            color: #475569;
+            font-weight: 600;
+        }
+
+        .economy-metrics {
+            display: grid;
+            gap: 6px;
+            margin-bottom: 9px;
+        }
+
+        .economy-metric {
+            margin: 0;
+            font-size: 0.86em;
+            color: #334155;
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 6px 8px;
+            font-weight: 600;
+        }
+
+        .legion-box {
+            background: #ffffff;
+            border: 1px solid #dbe3ef;
+            border-radius: 10px;
+            padding: 8px;
+        }
+
+        .legion-title {
+            margin: 0 0 4px;
+            font-size: 0.8em;
+            font-weight: 800;
+            color: #1e293b;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .legion-summary,
+        .legion-meta,
+        .legion-composition {
+            margin: 0;
+            font-size: 0.82em;
+            color: #334155;
+            line-height: 1.35;
+        }
+
+        .legion-meta {
+            color: #475569;
+            margin-top: 3px;
+        }
+
+        .legion-composition {
+            color: #0f172a;
+            margin-top: 4px;
+            font-weight: 600;
+        }
+
         .recruit-row {
             display: flex;
             gap: 8px;
@@ -285,6 +537,32 @@
             font-size: 0.84em;
             border-radius: 8px;
             background: #7c2d12;
+        }
+
+        .toolbar-strategy {
+            margin-top: 8px;
+            display: grid;
+            grid-template-columns: minmax(220px, 1fr) auto;
+            gap: 8px;
+            align-items: center;
+            max-width: 640px;
+        }
+
+        .toolbar-strategy select {
+            width: 100%;
+            min-width: 200px;
+            padding: 8px 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            font-size: 0.9em;
+            background: #fff;
+        }
+
+        .toolbar-strategy button {
+            padding: 8px 10px;
+            font-size: 0.84em;
+            border-radius: 8px;
+            background: #1d4ed8;
         }
 
         .recruit-row select {
@@ -328,17 +606,180 @@
             width: 36px;
             height: 36px;
             border-radius: 999px;
-            border: 1px solid rgba(255, 255, 255, 0.26);
-            background: rgba(255, 255, 255, 0.1);
-            color: #fff;
+            border: 1px solid #fbbf24;
+            background: #facc15;
+            color: #7c2d12;
             font-size: 1.05em;
             cursor: pointer;
+            box-shadow: 0 2px 6px rgba(250, 204, 21, 0.35);
         }
 
         .ability-label {
             font-size: 0.86em;
             color: #d6e0ff;
             font-weight: 700;
+        }
+
+        .skilltree-overlay {
+            position: fixed;
+            inset: 0;
+            display: none;
+            background: rgba(15, 23, 42, 0.42);
+            backdrop-filter: blur(1.5px);
+            z-index: 120;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+
+        .skilltree-overlay.open {
+            display: flex;
+        }
+
+        .skilltree-modal {
+            width: min(1100px, 98vw);
+            max-height: 90vh;
+            overflow: hidden;
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            box-shadow: 0 18px 40px rgba(15, 23, 42, 0.35);
+            display: grid;
+            grid-template-rows: auto 1fr;
+        }
+
+        .skilltree-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 16px;
+            border-bottom: 1px solid #e5e7eb;
+            background: #f8fafc;
+        }
+
+        .skilltree-header h3 {
+            margin: 0;
+            color: #111827;
+            font-size: 1.12em;
+        }
+
+        .skilltree-header p {
+            margin: 4px 0 0;
+            color: #475569;
+            font-size: 0.9em;
+        }
+
+        .skilltree-close {
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            color: #334155;
+            border-radius: 10px;
+            padding: 7px 10px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .skilltree-body {
+            overflow: auto;
+            padding: 14px;
+            background: #f8fafc;
+        }
+
+        .skilltree-paths {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(240px, 1fr));
+            gap: 12px;
+        }
+
+        .skilltree-path {
+            border: 1px solid #dbe3ef;
+            border-radius: 12px;
+            background: #fff;
+            padding: 10px;
+        }
+
+        .skilltree-path-title {
+            margin: 0 0 8px;
+            font-size: 0.92em;
+            color: #1e293b;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+        }
+
+        .skill-node {
+            border: 1px solid #d9e2ec;
+            border-radius: 10px;
+            padding: 9px;
+            margin-bottom: 8px;
+            background: #f8fafc;
+        }
+
+        .skill-node:last-child {
+            margin-bottom: 0;
+        }
+
+        .skill-node h4 {
+            margin: 0 0 4px;
+            font-size: 0.9em;
+            color: #0f172a;
+        }
+
+        .skill-node p {
+            margin: 0;
+            font-size: 0.82em;
+            color: #475569;
+        }
+
+        .skill-node .skill-meta {
+            margin-top: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .skill-state-pill {
+            font-size: 0.74em;
+            font-weight: 700;
+            border-radius: 999px;
+            padding: 3px 8px;
+            background: #e2e8f0;
+            color: #334155;
+        }
+
+        .skill-node.unlocked {
+            border-color: #22c55e;
+            background: #ecfdf5;
+        }
+
+        .skill-node.researching {
+            border-color: #f59e0b;
+            background: #fffbeb;
+        }
+
+        .skill-node.locked {
+            border-color: #cbd5e1;
+            background: #f8fafc;
+            opacity: 0.86;
+        }
+
+        .skill-action-btn {
+            border: 1px solid #2563eb;
+            background: #2563eb;
+            color: #fff;
+            border-radius: 8px;
+            padding: 5px 8px;
+            font-size: 0.74em;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .skill-action-btn:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
         }
 
         .battle-log {
@@ -436,6 +877,23 @@
             gap: 10px;
             flex-wrap: wrap;
             align-items: center;
+        }
+
+        .debug-switch-btn {
+            border: 1px solid #f59e0b;
+            background: #fffbeb;
+            color: #92400e;
+            padding: 9px 12px;
+            border-radius: 10px;
+            font-size: 0.82em;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .debug-switch-btn.active {
+            background: #fef3c7;
+            border-color: #d97706;
+            color: #7c2d12;
         }
 
         .settings-menu {
@@ -539,7 +997,33 @@
                 grid-template-columns: 1fr;
             }
 
+            .battle-layout.layout-with-divider {
+                grid-template-columns: 1fr;
+            }
+
+            .layout-divider {
+                display: none;
+            }
+
+            .layout-mode-row {
+                margin-top: 10px;
+            }
+
+            .battle-layout.view-map .split-logs,
+            .battle-layout.view-logs .map-board {
+                display: block;
+            }
+
+            .battle-layout.view-map .battle-sidebar,
+            .battle-layout.view-logs .battle-sidebar {
+                display: grid;
+            }
+
             .split-logs {
+                grid-template-columns: 1fr;
+            }
+
+            .skilltree-paths {
                 grid-template-columns: 1fr;
             }
         }
@@ -562,23 +1046,33 @@
                         <span class="status-pill" id="battleStatusMode">Azione: Mossa</span>
                         <span class="status-pill" id="battleStatusRound">Partita attiva</span>
                     </div>
-                    <div class="status-muted" id="battleStatusHint">Premi H per vedere i comandi rapidi.</div>
+                    <div class="status-muted status-hint-info" id="battleStatusHint">Premi H per vedere i comandi rapidi.</div>
                     <div class="action-row">
                         <button class="action-btn" id="actionMoveBtn" type="button" onclick="setAction('move')">Mossa [1]</button>
                         <button class="action-btn" id="actionGarrisonBtn" type="button" onclick="setAction('move_garrison')">Mossa+Presidio [2]</button>
                         <button class="action-btn" id="actionMineBtn" type="button" onclick="setAction('place_mine')">Piazza Miniera [3]</button>
                         <button class="action-btn" id="actionFortifyBtn" type="button" onclick="setAction('place_fortification')">Fortifica [4]</button>
+                        <div class="garrison-select-wrap">
+                            <label for="garrisonUnitSelect">Unità presidio</label>
+                            <select id="garrisonUnitSelect"></select>
+                        </div>
                         <div class="ability-inline">
-                            <button class="ability-star" id="abilityResearchBtn" type="button" onclick="researchAbility()">⭐</button>
+                            <button class="ability-star" id="abilityResearchBtn" type="button" onclick="openSkillTree()">⭐</button>
                             <span class="ability-label" id="abilityLabel">Abilità</span>
                         </div>
                     </div>
+                    <div class="garrison-defense-preview" id="garrisonDefensePreview">Difesa presidio stimata: ---</div>
                     <div class="toolbar-recruit">
                         <select id="recruitSelect"></select>
-                        <button type="button" onclick="recruitSelectedUnit()">Compra Unità</button>
+                        <button id="recruitBtn" type="button" onclick="recruitSelectedUnit()">Compra Unità</button>
+                    </div>
+                    <div class="toolbar-strategy">
+                        <select id="strategySelect"></select>
+                        <button type="button" onclick="applyBattleStrategy()">Applica Strategia</button>
                     </div>
                 </div>
                 <div class="button-row">
+                    <button class="debug-switch-btn" id="aiKillSwitchBtn" type="button" onclick="toggleAiKillSwitch()">🧪 IA ON</button>
                     <div class="settings-menu" id="settingsMenu">
                         <button
                             class="secondary settings-trigger"
@@ -598,14 +1092,19 @@
                         </div>
                     </div>
                 </div>
+                <div class="layout-mode-row">
+                    <button class="layout-btn active" id="layoutSplitBtn" type="button" onclick="setLayoutMode('split')">Vista Split</button>
+                    <button class="layout-btn" id="layoutMapBtn" type="button" onclick="setLayoutMode('map')">Vista Mappa</button>
+                    <button class="layout-btn" id="layoutLogsBtn" type="button" onclick="setLayoutMode('logs')">Vista Log</button>
+                </div>
             </div>
 
             <div class="shortcuts-panel" id="shortcutsPanel">
-                1: Modalita Mossa | 2: Presidio immediato | 3: Miniera immediata | 4: Fortifica | A: Ricerca Abilità | Shift+Click: Presidio su mossa | Alt+Click: Miniera sulla cella | Frecce: Muovi | Shift+Frecce: Presidio su mossa | R: Recluta
+                1: Modalita Mossa | 2: Presidio immediato | 3: Miniera immediata | 4: Fortifica | A: Ricerca Abilità | V: Cambia vista layout | Shift+Click: Presidio su mossa | Alt+Click: Miniera sulla cella | Frecce: Muovi | Shift+Frecce: Presidio su mossa | R: Recluta
             </div>
 
-            <div class="battle-layout">
-                <div>
+            <div class="battle-layout layout-with-divider" id="battleLayoutRoot">
+                <div class="battle-main-column" id="battleMainColumn">
                     <div id="mapBoard" class="map-board"></div>
 
                     <div class="split-logs">
@@ -624,17 +1123,52 @@
                     </div>
                 </div>
 
-                <div class="battle-sidebar">
+                <div class="layout-divider" id="layoutDivider" title="Trascina per ridimensionare mappa e pannello"></div>
+
+                <div class="battle-sidebar" id="battleSidebarColumn">
                     <div class="battle-card">
                         <h3>Economia e Presidi</h3>
-                        <p id="playerMinesInfo">PLAYER miniere: ---</p>
-                        <p id="playerFortInfo">PLAYER fortificazioni: ---</p>
-                        <p id="playerReserveInfo">PLAYER guarnigioni: ---</p>
-                        <div class="economy-box" id="playerGruxInfo">PLAYER grux: ---</div>
-                        <p id="aiMinesInfo" style="margin-top:10px;">IA miniere: ---</p>
-                        <p id="aiFortInfo">IA fortificazioni: ---</p>
-                        <p id="aiReserveInfo">IA guarnigioni: ---</p>
-                        <div class="economy-box" id="aiGruxInfo">IA grux: ---</div>
+                        <div class="economy-sections">
+                            <div class="economy-side player">
+                                <h4 class="economy-side-title">PLAYER</h4>
+                                <div class="economy-kpi">
+                                    <span class="economy-kpi-label">Tesoreria Grux</span>
+                                    <span class="economy-kpi-value" id="playerGruxValue">---</span>
+                                    <span class="economy-kpi-sub" id="playerGruxSub">Costo legione: ---</span>
+                                </div>
+                                <div class="economy-metrics">
+                                    <p class="economy-metric" id="playerMinesInfo">Miniere: ---</p>
+                                    <p class="economy-metric" id="playerFortInfo">Fortificazioni: ---</p>
+                                    <p class="economy-metric" id="playerReserveInfo">Guarnigioni: ---</p>
+                                </div>
+                                <div class="legion-box">
+                                    <p class="legion-title">Legione attuale</p>
+                                    <p class="legion-summary" id="playerLegionSummary">Unità: ---</p>
+                                    <p class="legion-meta" id="playerLegionMeta">Strategia: ---</p>
+                                    <p class="legion-composition" id="playerLegionComposition">Composizione: ---</p>
+                                </div>
+                            </div>
+
+                            <div class="economy-side ai">
+                                <h4 class="economy-side-title">IA</h4>
+                                <div class="economy-kpi">
+                                    <span class="economy-kpi-label">Tesoreria Grux</span>
+                                    <span class="economy-kpi-value" id="aiGruxValue">---</span>
+                                    <span class="economy-kpi-sub" id="aiGruxSub">Costo legione: ---</span>
+                                </div>
+                                <div class="economy-metrics">
+                                    <p class="economy-metric" id="aiMinesInfo">Miniere: ---</p>
+                                    <p class="economy-metric" id="aiFortInfo">Fortificazioni: ---</p>
+                                    <p class="economy-metric" id="aiReserveInfo">Guarnigioni: ---</p>
+                                </div>
+                                <div class="legion-box">
+                                    <p class="legion-title">Legione attuale</p>
+                                    <p class="legion-summary" id="aiLegionSummary">Unità: ---</p>
+                                    <p class="legion-meta" id="aiLegionMeta">Strategia: ---</p>
+                                    <p class="legion-composition" id="aiLegionComposition">Composizione: ---</p>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                 </div>
@@ -645,13 +1179,44 @@
             <h2>Nessuna simulazione disponibile</h2>
             <p>Prima esegui una simulazione nella pagina principale, poi torna qui per iniziare la battaglia.</p>
         </div>
+
+        <div class="skilltree-overlay" id="skillTreeOverlay" onclick="closeSkillTreeIfBackdrop(event)">
+            <div class="skilltree-modal">
+                <div class="skilltree-header">
+                    <div>
+                        <h3>⭐ Skill Tree</h3>
+                        <p>Scegli e ricerca abilità durante la battaglia.</p>
+                    </div>
+                    <button class="skilltree-close" type="button" onclick="closeSkillTree()">Chiudi</button>
+                </div>
+                <div class="skilltree-body">
+                    <div class="skilltree-paths" id="skillTreePaths"></div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
         let currentBattleState = null;
         let transientLogLines = [];
         let recruitableUnits = [];
+        let availableStrategies = [];
         let currentAction = 'move';
+        let currentLayoutMode = 'split';
+        let layoutSplitRatio = 0.7;
+        let splitterDragging = false;
+        const SKILL_TREE_DEFINITION = [
+            { id: 'domain_engineering', name: 'Costruzione Territoriale', path: 'Ingegneria', description: 'Costruisci ovunque nel dominio controllato.', turnsRequired: 40 },
+            { id: 'fortress_doctrine', name: 'Dottrina Fortezza', path: 'Ingegneria', description: 'Placeholder abilità futura.', turnsRequired: 26 },
+            { id: 'rapid_entrenchment', name: 'Trinceramento Rapido', path: 'Ingegneria', description: 'Placeholder abilità futura.', turnsRequired: 18 },
+            { id: 'supply_lines', name: 'Linee di Rifornimento', path: 'Economia', description: 'Placeholder abilità futura.', turnsRequired: 20 },
+            { id: 'war_industry', name: 'Industria Bellica', path: 'Economia', description: 'Placeholder abilità futura.', turnsRequired: 28 },
+            { id: 'black_market', name: 'Mercato Nero', path: 'Economia', description: 'Placeholder abilità futura.', turnsRequired: 24 },
+            { id: 'adaptive_command', name: 'Comando Adattivo', path: 'Tattica', description: 'Placeholder abilità futura.', turnsRequired: 16 },
+            { id: 'counter_mobility', name: 'Contro-Manovra', path: 'Tattica', description: 'Placeholder abilità futura.', turnsRequired: 22 },
+            { id: 'deep_recon', name: 'Ricognizione Profonda', path: 'Tattica', description: 'Placeholder abilità futura.', turnsRequired: 14 },
+            { id: 'combined_arms', name: 'Armi Combinate', path: 'Tattica', description: 'Placeholder abilità futura.', turnsRequired: 30 },
+        ];
 
         window.addEventListener('DOMContentLoaded', initBattlePage);
 
@@ -659,6 +1224,14 @@
             setAction('move');
             document.addEventListener('keydown', handleKeyboardShortcuts);
             document.addEventListener('click', handleOutsideMenuClick);
+            initHintToneObserver();
+            initLayoutControls();
+            applyLayoutMode();
+
+            const garrisonSelector = document.getElementById('garrisonUnitSelect');
+            if (garrisonSelector) {
+                garrisonSelector.addEventListener('change', () => updateGarrisonDefensePreview());
+            }
 
             const setupRaw = sessionStorage.getItem('warAdvisorBattleSetup');
             if (!setupRaw) {
@@ -679,19 +1252,30 @@
             const response = await fetch('http://127.0.0.1:8000/config');
             const data = await response.json();
             recruitableUnits = data.units || [];
+            availableStrategies = data.strategies || [];
             const select = document.getElementById('recruitSelect');
             select.innerHTML = recruitableUnits
                 .map(unit => `<option value="${unit.id}">${unit.name} • ${unit.cost_grux} grux</option>`)
+                .join('');
+
+            const strategySelect = document.getElementById('strategySelect');
+            strategySelect.innerHTML = availableStrategies
+                .map(strategy => `<option value="${strategy.id}">${strategy.name}</option>`)
                 .join('');
         }
 
         async function startBattleFromStoredSetup(setup) {
             await fetch('http://127.0.0.1:8000/game/reset', { method: 'DELETE' });
 
+            const freshSetup = {
+                ...setup,
+                map_seed: Math.floor(Math.random() * 2147483647)
+            };
+
             const response = await fetch('http://127.0.0.1:8000/game/confirm', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(setup)
+                body: JSON.stringify(freshSetup)
             });
 
             if (!response.ok) {
@@ -729,14 +1313,28 @@
                 }
             }
 
-            document.getElementById('playerReserveInfo').textContent = `PLAYER guarnigioni disponibili: ${sessionData.player.available_garrisons}`;
-            document.getElementById('playerMinesInfo').textContent = `Miniere: ${sessionData.map.stats.player_mines} | Slot liberi: ${sessionData.player.available_mine_slots}`;
+            const playerLegion = buildLegionInfo(sessionData.player.units || []);
+            const aiLegion = buildLegionInfo(sessionData.ai.units || []);
+            renderGarrisonUnitSelector(sessionData.player.units || []);
+            updateGarrisonDefensePreview();
+
+            document.getElementById('playerGruxValue').textContent = formatGrux(sessionData.player.grux_balance);
+            document.getElementById('playerGruxSub').textContent = `Costo legione: ${formatGrux(sessionData.player.army_cost)}`;
+            document.getElementById('playerMinesInfo').textContent = `Miniere attive: ${sessionData.map.stats.player_mines} · Slot liberi: ${sessionData.player.available_mine_slots}`;
             document.getElementById('playerFortInfo').textContent = `Fortificazioni: ${sessionData.map.stats.player_fortification_levels} livelli su ${sessionData.map.stats.player_fortified_cells} celle`;
-            document.getElementById('playerGruxInfo').textContent = `PLAYER grux: ${sessionData.player.grux_balance} | Costo esercito: ${sessionData.player.army_cost}`;
-            document.getElementById('aiReserveInfo').textContent = `IA guarnigioni disponibili: ${sessionData.ai.available_garrisons}`;
-            document.getElementById('aiMinesInfo').textContent = `Miniere: ${sessionData.map.stats.ai_mines} | Slot liberi: ${sessionData.ai.available_mine_slots}`;
+            document.getElementById('playerReserveInfo').textContent = `Guarnigioni disponibili: ${sessionData.player.available_garrisons}`;
+            document.getElementById('playerLegionSummary').textContent = `Unità sul campo: ${playerLegion.totalUnits} (${playerLegion.totalTypes} tipi)`;
+            document.getElementById('playerLegionMeta').textContent = `Strategia: ${sessionData.player.strategy_name || sessionData.player.strategy_id} · Stato: ${sessionData.player.troop_status || 'N/D'}`;
+            document.getElementById('playerLegionComposition').textContent = `Composizione: ${playerLegion.compositionText}`;
+
+            document.getElementById('aiGruxValue').textContent = formatGrux(sessionData.ai.grux_balance);
+            document.getElementById('aiGruxSub').textContent = `Costo legione: ${formatGrux(sessionData.ai.army_cost)}`;
+            document.getElementById('aiMinesInfo').textContent = `Miniere attive: ${sessionData.map.stats.ai_mines} · Slot liberi: ${sessionData.ai.available_mine_slots}`;
             document.getElementById('aiFortInfo').textContent = `Fortificazioni: ${sessionData.map.stats.ai_fortification_levels} livelli su ${sessionData.map.stats.ai_fortified_cells} celle`;
-            document.getElementById('aiGruxInfo').textContent = `IA grux: ${sessionData.ai.grux_balance} | Costo esercito: ${sessionData.ai.army_cost}`;
+            document.getElementById('aiReserveInfo').textContent = `Guarnigioni disponibili: ${sessionData.ai.available_garrisons}`;
+            document.getElementById('aiLegionSummary').textContent = `Unità sul campo: ${aiLegion.totalUnits} (${aiLegion.totalTypes} tipi)`;
+            document.getElementById('aiLegionMeta').textContent = `Strategia: ${sessionData.ai.strategy_name || sessionData.ai.strategy_id} · Stato: ${sessionData.ai.troop_status || 'N/D'}`;
+            document.getElementById('aiLegionComposition').textContent = `Composizione: ${aiLegion.compositionText}`;
 
             const abilityState = sessionData.player?.abilities?.domain_engineering;
             const abilityLabel = document.getElementById('abilityLabel');
@@ -752,10 +1350,210 @@
                 abilityLabel.textContent = 'Abilità';
             }
 
+            const killSwitchBtn = document.getElementById('aiKillSwitchBtn');
+            const killSwitchActive = Boolean(sessionData.debug?.ai_kill_switch_active);
+            if (killSwitchBtn) {
+                killSwitchBtn.classList.toggle('active', killSwitchActive);
+                killSwitchBtn.textContent = killSwitchActive ? '🧪 IA OFF (PAUSA)' : '🧪 IA ON';
+            }
+
+            const strategySelect = document.getElementById('strategySelect');
+            if (strategySelect && sessionData.player?.strategy_id) {
+                strategySelect.value = sessionData.player.strategy_id;
+            }
+
+            const gameOver = sessionData.state === 'game_over';
+            const recruitSelect = document.getElementById('recruitSelect');
+            const recruitBtn = document.getElementById('recruitBtn');
+            if (recruitSelect) {
+                recruitSelect.disabled = gameOver;
+            }
+            if (recruitBtn) {
+                recruitBtn.disabled = gameOver;
+            }
+
             renderMapBoard(sessionData.map);
 
             const logLines = [...(sessionData.battle_log || []), ...transientLogLines];
             renderLog(logLines);
+            applyHintTone();
+        }
+
+        function applyHintTone() {
+            const hint = document.getElementById('battleStatusHint');
+            if (!hint) return;
+            const text = (hint.textContent || '').toLowerCase();
+            const isError = /\berrore\b/.test(text);
+            hint.classList.toggle('status-hint-error', isError);
+            hint.classList.toggle('status-hint-info', !isError);
+        }
+
+        function formatGrux(value) {
+            const amount = Number.isFinite(value) ? value : 0;
+            return `${amount.toLocaleString('it-IT')} grux`;
+        }
+
+        function buildLegionInfo(unitIds) {
+            if (!Array.isArray(unitIds) || unitIds.length === 0) {
+                return {
+                    totalUnits: 0,
+                    totalTypes: 0,
+                    compositionText: 'nessuna unità disponibile',
+                };
+            }
+
+            const namesById = new Map(recruitableUnits.map(unit => [unit.id, unit.name || unit.id]));
+            const counts = new Map();
+            for (const unitId of unitIds) {
+                const unitName = namesById.get(unitId) || unitId;
+                counts.set(unitName, (counts.get(unitName) || 0) + 1);
+            }
+
+            const sorted = [...counts.entries()].sort((a, b) => {
+                if (b[1] !== a[1]) return b[1] - a[1];
+                return a[0].localeCompare(b[0], 'it');
+            });
+
+            const parts = sorted.map(([name, count]) => `${name} x${count}`);
+            return {
+                totalUnits: unitIds.length,
+                totalTypes: sorted.length,
+                compositionText: parts.join(', '),
+            };
+        }
+
+        function getSelectedGarrisonUnitId() {
+            const selector = document.getElementById('garrisonUnitSelect');
+            if (!selector || selector.disabled) {
+                return null;
+            }
+            return selector.value || null;
+        }
+
+        function evaluateUnitBattleValue(unitId, terrainName) {
+            const unit = recruitableUnits.find(item => item.id === unitId);
+            if (!unit || !unit.attributes) return 0;
+            const attrs = unit.attributes;
+            const baseValue = (
+                (attrs.U1_attack || 0) * 24
+                + (attrs.U2_defense || 0) * 20
+                + (attrs.U3_mobility || 0) * 12
+                + (attrs.U4_stealth || 0) * 10
+                + (attrs.U5_discipline || 0) * 14
+                + (attrs.U6_terrain_adapt || 0) * 10
+                + (attrs.U7_range_power || 0) * 8
+                + (attrs.U8_support || 0) * 6
+            );
+
+            const terrain = String(terrainName || '').toLowerCase();
+            let terrainFactor = 1.0 + ((attrs.U6_terrain_adapt || 0) * 0.18);
+
+            if (terrain === 'foresta') {
+                terrainFactor += ((attrs.U4_stealth || 0) * 0.08) + ((attrs.U3_mobility || 0) * 0.04);
+            } else if (terrain === 'palude') {
+                terrainFactor += ((attrs.U6_terrain_adapt || 0) * 0.08) + ((attrs.U3_mobility || 0) * 0.05);
+            } else if (terrain === 'montagna') {
+                terrainFactor += ((attrs.U2_defense || 0) * 0.08) + ((attrs.U5_discipline || 0) * 0.04);
+            } else if (terrain === 'pianura') {
+                terrainFactor += ((attrs.U1_attack || 0) * 0.05) + ((attrs.U7_range_power || 0) * 0.03);
+            } else if (terrain === 'fiume') {
+                terrainFactor += ((attrs.U3_mobility || 0) * 0.08) + ((attrs.U6_terrain_adapt || 0) * 0.08);
+            }
+
+            return baseValue * terrainFactor;
+        }
+
+        function updateGarrisonDefensePreview() {
+            const preview = document.getElementById('garrisonDefensePreview');
+            if (!preview) return;
+
+            if (!currentBattleState || !currentBattleState.map || !currentBattleState.map.positions?.player) {
+                preview.textContent = 'Difesa presidio stimata: stato mappa non disponibile.';
+                return;
+            }
+
+            const selectedUnitId = getSelectedGarrisonUnitId();
+            if (!selectedUnitId) {
+                preview.textContent = 'Difesa presidio stimata: nessuna unità distaccabile.';
+                return;
+            }
+
+            const [row, col] = currentBattleState.map.positions.player;
+            const cell = currentBattleState.map.grid?.[row]?.[col];
+            if (!cell) {
+                preview.textContent = 'Difesa presidio stimata: cella non disponibile.';
+                return;
+            }
+
+            const existingGarrison = Number(cell.garrison_strength || 0);
+            const fortificationLevel = Number(cell.fortification_level || 0);
+            const nextGarrison = existingGarrison + 1;
+
+            const unitBattleValue = evaluateUnitBattleValue(selectedUnitId, cell.terrain);
+            const unitBonus = unitBattleValue * 11.5;
+            const garrisonBase = nextGarrison * 18;
+            const terrainBonus = ['Foresta', 'Montagna', 'Palude'].includes(cell.terrain) ? 5 : 2;
+            const fortificationBase = (fortificationLevel * 18) + (Math.max(0, fortificationLevel - 1) * 16);
+            const synergyBase = fortificationLevel > 0 ? (fortificationLevel * nextGarrison * 7) : 0;
+
+            const estimatedDefense = Math.round(
+                garrisonBase + unitBonus + terrainBonus + fortificationBase + synergyBase
+            );
+
+            const unitName = recruitableUnits.find(unit => unit.id === selectedUnitId)?.name || selectedUnitId;
+            preview.textContent =
+                `Difesa presidio stimata: ${estimatedDefense} ` +
+                `(unità ${unitName} +${Math.round(unitBonus)}, presidio +${Math.round(garrisonBase)}, ` +
+                `terreno +${terrainBonus}, fortificazioni +${Math.round(fortificationBase + synergyBase)}).`;
+        }
+
+        function renderGarrisonUnitSelector(unitIds) {
+            const selector = document.getElementById('garrisonUnitSelect');
+            if (!selector) return;
+
+            const previousValue = selector.value;
+            const namesById = new Map(recruitableUnits.map(unit => [unit.id, unit.name || unit.id]));
+            const counts = new Map();
+            for (const unitId of unitIds) {
+                counts.set(unitId, (counts.get(unitId) || 0) + 1);
+            }
+
+            const options = [];
+            for (const [unitId, count] of counts.entries()) {
+                if (count <= 0) continue;
+                options.push({
+                    id: unitId,
+                    name: namesById.get(unitId) || unitId,
+                    count,
+                });
+            }
+
+            options.sort((a, b) => a.name.localeCompare(b.name, 'it'));
+            selector.innerHTML = options
+                .map(item => `<option value="${item.id}">${item.name} (${item.count})</option>`)
+                .join('');
+
+            const hasDetachableUnit = unitIds.length > 1 && options.length > 0;
+            selector.disabled = !hasDetachableUnit;
+            if (!hasDetachableUnit) {
+                selector.innerHTML = '<option value="">Nessuna unità distaccabile</option>';
+                updateGarrisonDefensePreview();
+                return;
+            }
+
+            if (previousValue && options.some(item => item.id === previousValue)) {
+                selector.value = previousValue;
+            }
+
+            updateGarrisonDefensePreview();
+        }
+
+        function initHintToneObserver() {
+            const hint = document.getElementById('battleStatusHint');
+            if (!hint) return;
+            const observer = new MutationObserver(() => applyHintTone());
+            observer.observe(hint, { childList: true, characterData: true, subtree: true });
+            applyHintTone();
         }
 
         function escapeHtml(text) {
@@ -959,6 +1757,75 @@
             menu.classList.toggle('open', shouldOpen);
         }
 
+        function initLayoutControls() {
+            const divider = document.getElementById('layoutDivider');
+            const layoutRoot = document.getElementById('battleLayoutRoot');
+            if (!divider || !layoutRoot) return;
+
+            divider.addEventListener('mousedown', (event) => {
+                if (window.innerWidth <= 1024 || currentLayoutMode !== 'split') {
+                    return;
+                }
+                event.preventDefault();
+                splitterDragging = true;
+                divider.classList.add('dragging');
+            });
+
+            window.addEventListener('mousemove', (event) => {
+                if (!splitterDragging || currentLayoutMode !== 'split') {
+                    return;
+                }
+
+                const rect = layoutRoot.getBoundingClientRect();
+                if (rect.width <= 0) {
+                    return;
+                }
+
+                const rawRatio = (event.clientX - rect.left) / rect.width;
+                layoutSplitRatio = Math.min(0.82, Math.max(0.5, rawRatio));
+                applyLayoutMode();
+            });
+
+            window.addEventListener('mouseup', () => {
+                if (!splitterDragging) {
+                    return;
+                }
+                splitterDragging = false;
+                divider.classList.remove('dragging');
+            });
+
+            window.addEventListener('resize', () => applyLayoutMode());
+        }
+
+        function setLayoutMode(mode) {
+            currentLayoutMode = mode;
+            applyLayoutMode();
+        }
+
+        function applyLayoutMode() {
+            const layoutRoot = document.getElementById('battleLayoutRoot');
+            if (!layoutRoot) return;
+
+            if (window.innerWidth <= 1024) {
+                layoutRoot.classList.remove('view-map', 'view-logs');
+            } else {
+                layoutRoot.classList.toggle('view-map', currentLayoutMode === 'map');
+                layoutRoot.classList.toggle('view-logs', currentLayoutMode === 'logs');
+            }
+
+            const mapFr = Math.max(0.5, Math.min(0.82, layoutSplitRatio));
+            const sideFr = Math.max(0.18, 1 - mapFr);
+            layoutRoot.style.setProperty('--layout-map-fr', `${mapFr}fr`);
+            layoutRoot.style.setProperty('--layout-side-fr', `${sideFr}fr`);
+
+            const splitBtn = document.getElementById('layoutSplitBtn');
+            const mapBtn = document.getElementById('layoutMapBtn');
+            const logsBtn = document.getElementById('layoutLogsBtn');
+            if (splitBtn) splitBtn.classList.toggle('active', currentLayoutMode === 'split');
+            if (mapBtn) mapBtn.classList.toggle('active', currentLayoutMode === 'map');
+            if (logsBtn) logsBtn.classList.toggle('active', currentLayoutMode === 'logs');
+        }
+
         function handleOutsideMenuClick(event) {
             const menu = document.getElementById('settingsMenu');
             if (menu && !menu.contains(event.target)) {
@@ -1054,6 +1921,7 @@
             }
 
             if (event.key === 'Escape') {
+                closeSkillTree();
                 toggleSettingsMenu(false);
             }
 
@@ -1080,13 +1948,24 @@
 
             if (event.key.toLowerCase() === 'a') {
                 event.preventDefault();
-                researchAbility();
+                openSkillTree();
                 return;
             }
 
             if (event.key.toLowerCase() === 'h') {
                 event.preventDefault();
                 toggleShortcuts();
+                return;
+            }
+
+            if (event.key.toLowerCase() === 'v') {
+                event.preventDefault();
+                const nextMode = currentLayoutMode === 'split'
+                    ? 'map'
+                    : currentLayoutMode === 'map'
+                        ? 'logs'
+                        : 'split';
+                setLayoutMode(nextMode);
                 return;
             }
 
@@ -1151,13 +2030,15 @@
                 const leaveGarrison = (leaveGarrisonOverride !== null)
                     ? leaveGarrisonOverride
                     : (currentAction === 'move_garrison');
+                const selectedGarrisonUnitId = leaveGarrison ? getSelectedGarrisonUnitId() : null;
                 const response = await fetch('http://127.0.0.1:8000/game/move', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         to_row: row,
                         to_col: col,
-                        leave_garrison: leaveGarrison
+                        leave_garrison: leaveGarrison,
+                        garrison_unit_id: selectedGarrisonUnitId
                     })
                 });
 
@@ -1208,9 +2089,11 @@
 
         async function placeGarrisonHere() {
             try {
+                const selectedGarrisonUnitId = getSelectedGarrisonUnitId();
                 const response = await fetch('http://127.0.0.1:8000/game/place-garrison-here', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ unit_id: selectedGarrisonUnitId })
                 });
 
                 if (!response.ok) {
@@ -1368,10 +2251,15 @@
         }
 
         async function researchAbility() {
+            return researchAbilityById('domain_engineering');
+        }
+
+        async function researchAbilityById(abilityId) {
             try {
                 const response = await fetch('http://127.0.0.1:8000/game/research-ability', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ability_id: abilityId })
                 });
 
                 if (!response.ok) {
@@ -1383,6 +2271,7 @@
                 transientLogLines = [];
                 renderBattleState(result.session);
                 resetActionToDefault();
+                renderSkillTree(result.session);
             } catch (error) {
                 document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
                 transientLogLines = [`Errore ricerca abilità: ${error.message}`];
@@ -1390,7 +2279,83 @@
             }
         }
 
+        function openSkillTree() {
+            const overlay = document.getElementById('skillTreeOverlay');
+            if (!overlay) return;
+            renderSkillTree(currentBattleState);
+            overlay.classList.add('open');
+        }
+
+        function closeSkillTree() {
+            const overlay = document.getElementById('skillTreeOverlay');
+            if (!overlay) return;
+            overlay.classList.remove('open');
+        }
+
+        function closeSkillTreeIfBackdrop(event) {
+            if (event.target && event.target.id === 'skillTreeOverlay') {
+                closeSkillTree();
+            }
+        }
+
+        function renderSkillTree(sessionData) {
+            const container = document.getElementById('skillTreePaths');
+            if (!container) return;
+
+            const abilitiesState = sessionData?.player?.abilities || {};
+            const paths = [...new Set(SKILL_TREE_DEFINITION.map(skill => skill.path))];
+            container.innerHTML = paths.map(pathName => {
+                const nodes = SKILL_TREE_DEFINITION.filter(skill => skill.path === pathName).map(skill => {
+                    const state = abilitiesState[skill.id];
+                    const isKnown = Boolean(state);
+                    const isUnlocked = Boolean(state?.unlocked);
+                    const isResearching = Boolean(state?.researching && !state?.unlocked);
+                    const canResearch = isKnown && !isUnlocked && !isResearching;
+
+                    let stateClass = 'locked';
+                    let stateText = 'Non disponibile';
+                    if (isUnlocked) {
+                        stateClass = 'unlocked';
+                        stateText = 'Sbloccata';
+                    } else if (isResearching) {
+                        stateClass = 'researching';
+                        stateText = `${state.turns_remaining} turni`;
+                    } else if (isKnown) {
+                        stateClass = 'locked';
+                        stateText = 'Pronta ricerca';
+                    }
+
+                    const actionButton = canResearch
+                        ? `<button class="skill-action-btn" type="button" onclick="researchAbilityById('${skill.id}')">Avvia ricerca</button>`
+                        : `<button class="skill-action-btn" type="button" disabled>${isUnlocked ? 'Attiva' : (isResearching ? 'In ricerca' : 'Bloccata')}</button>`;
+
+                    return `
+                        <div class="skill-node ${stateClass}">
+                            <h4>${skill.name}</h4>
+                            <p>${skill.description}</p>
+                            <div class="skill-meta">
+                                <span class="skill-state-pill">${stateText}</span>
+                                ${actionButton}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                return `
+                    <div class="skilltree-path">
+                        <h4 class="skilltree-path-title">${pathName}</h4>
+                        ${nodes}
+                    </div>
+                `;
+            }).join('');
+        }
+
         async function recruitSelectedUnit() {
+            if (!currentBattleState || currentBattleState.state === 'game_over') {
+                document.getElementById('battleStatusHint').textContent = 'Partita terminata: non puoi reclutare nuove unità.';
+                return;
+            }
+
             try {
                 const unitId = document.getElementById('recruitSelect').value;
                 const response = await fetch('http://127.0.0.1:8000/game/recruit', {
@@ -1409,6 +2374,54 @@
                 renderBattleState(result.session);
             } catch (error) {
                 document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
+            }
+        }
+
+        async function applyBattleStrategy() {
+            try {
+                const strategyId = document.getElementById('strategySelect').value;
+                const response = await fetch('http://127.0.0.1:8000/game/set-strategy', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ strategy_id: strategyId })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Errore nel cambio strategia');
+                }
+
+                const result = await response.json();
+                transientLogLines = [];
+                renderBattleState(result.session);
+            } catch (error) {
+                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
+                transientLogLines = [`Errore cambio strategia: ${error.message}`];
+                renderBattleState(currentBattleState);
+            }
+        }
+
+        async function toggleAiKillSwitch() {
+            try {
+                const response = await fetch('http://127.0.0.1:8000/game/debug/ai-kill-switch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Errore nel toggle kill switch IA');
+                }
+
+                const result = await response.json();
+                transientLogLines = [];
+                renderBattleState(result.session);
+                const stateLabel = result.enabled ? 'attivato' : 'disattivato';
+                document.getElementById('battleStatusHint').textContent = `DEBUG TEMPORANEO: kill switch IA ${stateLabel}.`;
+            } catch (error) {
+                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
+                transientLogLines = [`Errore kill switch IA: ${error.message}`];
+                renderBattleState(currentBattleState);
             }
         }
 
