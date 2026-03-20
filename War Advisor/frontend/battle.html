@@ -29,7 +29,8 @@
 
         .page {
             max-width: 1400px;
-            margin: 0 auto;
+            margin-left: auto;
+            margin-right: 28px;
         }
 
         .header {
@@ -966,6 +967,174 @@
             display: block;
         }
 
+        body.battle-has-dock {
+            padding-left: 340px;
+            padding-bottom: 20px;
+        }
+
+        .battle_bar {
+            position: fixed;
+            left: 14px;
+            top: 14px;
+            bottom: 14px;
+            width: min(320px, calc(100vw - 28px));
+            background: #ffffff;
+            border: 1px solid #dbe3ef;
+            border-radius: 14px;
+            box-shadow: 0 14px 34px rgba(15, 23, 42, 0.22);
+            z-index: 220;
+            overflow: visible;
+            display: grid;
+            grid-template-columns: 110px minmax(0, 1fr);
+        }
+
+        .bar-tabs {
+            display: flex;
+            flex-direction: column;
+            background: #f8fafc;
+            border-right: 1px solid #e2e8f0;
+            border-bottom: none;
+            padding: 6px;
+            gap: 6px;
+        }
+
+        .bar-tab {
+            border: none;
+            background: transparent;
+            color: #1f2937;
+            font-weight: 800;
+            font-size: 0.78em;
+            padding: 12px 8px;
+            cursor: pointer;
+            border-radius: 8px;
+            text-align: left;
+        }
+
+        .bar-tab.active {
+            background: #111827;
+            color: #fff;
+        }
+
+        .bar-content {
+            padding: 10px;
+            max-height: 100%;
+            overflow-y: auto;
+            overflow-x: hidden;
+            background: #fff;
+        }
+
+        .battle_bar[data-active-tab="system"] .bar-content {
+            overflow: visible;
+        }
+
+        .battle_bar .settings-menu {
+            margin-left: 0;
+            width: 100%;
+        }
+
+        .battle_bar .settings-dropdown {
+            position: static;
+            top: auto;
+            right: auto;
+            bottom: auto;
+            margin-top: 8px;
+            width: 100%;
+            min-width: 0;
+            z-index: auto;
+            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+        }
+
+        .battle_bar .button-row {
+            width: 100%;
+            align-items: flex-start;
+        }
+
+        .dock-pane {
+            display: none;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .dock-pane.active {
+            display: flex;
+        }
+
+        .dock-pane .action-row,
+        .dock-pane .button-row,
+        .dock-pane .layout-mode-row,
+        .dock-pane .toolbar-recruit,
+        .dock-pane .toolbar-strategy {
+            margin-top: 0;
+            width: 100%;
+            max-width: none;
+        }
+
+        .dock-pane .garrison-defense-preview {
+            margin-top: 0;
+            width: 100%;
+            max-width: none;
+        }
+
+        .dock-pane[data-pane="war"].active {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+            align-items: stretch;
+        }
+
+        .dock-pane[data-pane="war"] .action-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 10px;
+            padding-bottom: 4px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .dock-pane[data-pane="war"] .action-btn,
+        .dock-pane[data-pane="war"] .ability-star {
+            width: 100%;
+        }
+
+        .dock-pane[data-pane="war"] .garrison-select-wrap,
+        .dock-pane[data-pane="war"] .ability-inline {
+            width: 100%;
+            margin-left: 0;
+        }
+
+        .dock-pane[data-pane="war"] .garrison-select-wrap {
+            justify-content: space-between;
+        }
+
+        .dock-pane[data-pane="war"] .garrison-select-wrap select,
+        .dock-pane[data-pane="war"] .toolbar-recruit select,
+        .dock-pane[data-pane="war"] .toolbar-strategy select {
+            min-width: 0;
+            width: 100%;
+        }
+
+        .dock-pane[data-pane="war"] .toolbar-recruit,
+        .dock-pane[data-pane="war"] .toolbar-strategy {
+            grid-template-columns: 1fr;
+            gap: 6px;
+            align-items: stretch;
+        }
+
+        .dock-pane[data-pane="war"] .toolbar-recruit button,
+        .dock-pane[data-pane="war"] .toolbar-strategy button {
+            width: 100%;
+            justify-self: stretch;
+        }
+
+        .battle-toolbar.toolbar-condensed .action-row,
+        .battle-toolbar.toolbar-condensed .toolbar-recruit,
+        .battle-toolbar.toolbar-condensed .toolbar-strategy,
+        .battle-toolbar.toolbar-condensed .button-row,
+        .battle-toolbar.toolbar-condensed .layout-mode-row,
+        .battle-toolbar.toolbar-condensed .garrison-defense-preview {
+            display: none;
+        }
+
         button {
             padding: 12px 14px;
             background: var(--accent);
@@ -1025,6 +1194,50 @@
 
             .skilltree-paths {
                 grid-template-columns: 1fr;
+            }
+
+            .page {
+                margin-right: auto;
+                margin-left: auto;
+            }
+
+            body.battle-has-dock {
+                padding-left: 10px;
+                padding-bottom: 250px;
+            }
+
+            .battle_bar {
+                left: 6px;
+                right: 6px;
+                width: auto;
+                top: auto;
+                bottom: 6px;
+                max-height: 240px;
+                grid-template-columns: 1fr;
+            }
+
+            .bar-tabs {
+                flex-direction: row;
+                border-right: none;
+                border-bottom: 1px solid #e2e8f0;
+            }
+
+            .bar-tab {
+                text-align: center;
+                font-size: 0.8em;
+            }
+
+            .bar-content {
+                max-height: 170px;
+            }
+
+            .dock-pane[data-pane="war"] .toolbar-recruit,
+            .dock-pane[data-pane="war"] .toolbar-strategy {
+                grid-template-columns: 1fr;
+            }
+
+            .dock-pane[data-pane="war"] .action-row {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
             }
         }
     </style>
@@ -1087,7 +1300,6 @@
                         </button>
                         <div class="settings-dropdown" id="settingsDropdown">
                             <button class="menu-item" type="button" onclick="handleSettingsAction('shortcuts')">Comandi rapidi [H]</button>
-                            <button class="menu-item" type="button" onclick="handleSettingsAction('reset')">Reset partita</button>
                             <button class="menu-item" type="button" onclick="handleSettingsAction('restart')">Ricomincia scontro</button>
                         </div>
                     </div>
@@ -2449,5 +2661,6 @@
             }
         }
     </script>
+    <script src="/static/battle_bar.js"></script>
 </body>
 </html>
