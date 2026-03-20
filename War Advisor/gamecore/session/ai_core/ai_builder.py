@@ -13,9 +13,39 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from engine import aggregate_army, apply_modifiers, compute_ranking
 from gamecore.economy import STARTING_GRUX, calculate_army_cost, get_unit_costs
+from .ai_easy_difficulty import AI_EASY_ID, EasyAIDifficultyPolicy, build_ai_army_easy
+from .ai_normal_difficulty import AI_NORMAL_ID, NormalAIDifficultyPolicy, build_ai_army_normal
 
 # Stato truppe fisso per l'IA all'inizio partita
 AI_TROOP_STATUS: str = "Fresche"
+AI_DIFFICULTY_LABELS: Dict[str, str] = {
+    AI_EASY_ID: "Facile",
+    AI_NORMAL_ID: "Normale",
+}
+
+
+def normalize_ai_difficulty(difficulty: Optional[str]) -> str:
+    """Normalizza la difficoltà richiesta (fallback: easy)."""
+    key = (difficulty or AI_EASY_ID).strip().lower()
+    if key in AI_DIFFICULTY_LABELS:
+        return key
+    return AI_EASY_ID
+
+
+def get_available_ai_difficulties() -> List[str]:
+    return list(AI_DIFFICULTY_LABELS.keys())
+
+
+def get_ai_difficulty_labels() -> Dict[str, str]:
+    return AI_DIFFICULTY_LABELS.copy()
+
+
+def build_ai_policy(difficulty: Optional[str], seed: Optional[int] = None):
+    """Costruisce la policy runtime in base alla difficoltà."""
+    normalized = normalize_ai_difficulty(difficulty)
+    if normalized == AI_NORMAL_ID:
+        return NormalAIDifficultyPolicy(seed=seed)
+    return EasyAIDifficultyPolicy(seed=seed)
 
 
 def _score_unit_on_terrain(
@@ -39,7 +69,7 @@ def _score_unit_on_terrain(
     return total
 
 
-def build_ai_army(
+def _build_ai_army_standard(
     data: Dict[str, Any],
     ai_terrain: str,
     weather: Optional[str],
@@ -48,7 +78,7 @@ def build_ai_army(
     seed: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
-    Costruisce l'esercito dell'IA.
+    Costruisce l'esercito dell'IA (profilo standard).
 
     Algoritmo:
       1. Scorifica ogni unità disponibile sul terreno di partenza dell'IA,
@@ -140,3 +170,45 @@ def build_ai_army(
         "strategy":          ranking[0],
         "ranking":           ranking,
     }
+
+
+def build_ai_army(
+    data: Dict[str, Any],
+    ai_terrain: str,
+    weather: Optional[str],
+    n_units: int = 3,
+    budget: int = STARTING_GRUX,
+    seed: Optional[int] = None,
+    difficulty: str = AI_EASY_ID,
+) -> Dict[str, Any]:
+    """Dispatcher costruzione esercito IA in base alla difficoltà."""
+    normalized_difficulty = normalize_ai_difficulty(difficulty)
+
+    if normalized_difficulty == AI_EASY_ID:
+        return build_ai_army_easy(
+            data=data,
+            ai_terrain=ai_terrain,
+            weather=weather,
+            n_units=n_units,
+            budget=budget,
+            seed=seed,
+        )
+
+    if normalized_difficulty == AI_NORMAL_ID:
+        return build_ai_army_normal(
+            data=data,
+            ai_terrain=ai_terrain,
+            weather=weather,
+            n_units=n_units,
+            budget=budget,
+            seed=seed,
+        )
+
+    return _build_ai_army_standard(
+        data=data,
+        ai_terrain=ai_terrain,
+        weather=weather,
+        n_units=n_units,
+        budget=budget,
+        seed=seed,
+    )

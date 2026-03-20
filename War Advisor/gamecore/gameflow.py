@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional
 from gamecore.economy import STARTING_GRUX, calculate_army_cost, get_unit_costs
 from gamecore.maps import TERRAIN_TYPES
 from gamecore.session import GameSession, build_ai_army
+from gamecore.session.ai_core.ai_easy_difficulty import AI_EASY_ID
 
 
 def start_game_session(
@@ -24,6 +25,7 @@ def start_game_session(
     army_profile: Dict[str, float],
     modified_profile: Dict[str, float],
     map_seed: Optional[int] = None,
+    ai_difficulty: str = AI_EASY_ID,
 ) -> Dict[str, Any]:
     """Crea una sessione di gioco completa partendo dal risultato di /calculate."""
     if terrain not in TERRAIN_TYPES:
@@ -41,6 +43,7 @@ def start_game_session(
         n_units=3,
         budget=STARTING_GRUX,
         seed=map_seed,
+        difficulty=ai_difficulty,
     )
 
     session = GameSession(
@@ -56,6 +59,7 @@ def start_game_session(
         data=data,
         player_home_terrain=terrain,
         map_seed=map_seed,
+        ai_difficulty=ai_difficulty,
     )
 
     units_map = {unit["id"]: unit.get("name", unit["id"]) for unit in data["units"]}

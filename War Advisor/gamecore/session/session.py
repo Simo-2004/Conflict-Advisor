@@ -14,6 +14,12 @@ from engine import aggregate_army, apply_modifiers, euclidean_distance
 from gamecore.economy import MINE_YIELD_PER_ROUND, STARTING_GRUX, available_mine_slots, get_unit_costs
 from gamecore.maps import GameMap, Occupation
 from gamecore.session.abilities import DOMAIN_ENGINEERING_ID, build_default_ability_states
+from gamecore.session.ai_core.ai_builder import (
+    build_ai_policy,
+    get_ai_difficulty_labels,
+    normalize_ai_difficulty,
+)
+from gamecore.session.ai_core.ai_easy_difficulty import AI_EASY_ID
 
 try:
     from debug.strength_debug import log_strength_debug
@@ -80,6 +86,7 @@ class GameSession:
         player_home_terrain: str,
         # Mappa
         map_seed: Optional[int] = None,
+        ai_difficulty: str = AI_EASY_ID,
     ) -> None:
         self.data = data
         self.units_map = {unit["id"]: unit for unit in self.data["units"]}
@@ -130,6 +137,9 @@ class GameSession:
             AI: None,
         }
         self.debug_ai_kill_switch: bool = False
+        self.ai_difficulty: str = normalize_ai_difficulty(ai_difficulty)
+        self.ai_policy = build_ai_policy(self.ai_difficulty, seed=map_seed)
+        self.ai_policy_seed = map_seed
 
     # ──────────────────────────────────────────────────────────
     # MOSSA GIOCATORE (entry-point principale)
@@ -273,6 +283,15 @@ class GameSession:
                 })
                 return result
 
+            if self.ai_policy.should_skip_turn(self.game_map.turn):
+                result.update({
+                    "skipped": True,
+                    "ok": True,
+                    "reason": "easy_ai_skip_turn",
+                    "message": f"[Turno {self.game_map.turn}] IA esita e perde l'iniziativa.",
+                })
+                return result
+
             ai_pos = self.game_map.positions.get(AI)
             if ai_pos is None:
                 result.update({"skipped": True, "reason": "IA eliminata"})
@@ -335,6 +354,22 @@ class GameSession:
         enemy_castle = self.game_map.get_castle_position(PLAYER)
         own_castle = self.game_map.get_castle_position(AI)
 
+        strategic_targets = self.game_map.get_strategic_targets(
+            entity=AI,
+            army_vector=self.ai_army,
+            terrain_modifiers=self.data["terrain"],
+        )
+
+        easy_target = self.ai_policy.choose_target(
+            ai_pos=ai_pos,
+            player_pos=player_pos,
+            own_castle=own_castle,
+            enemy_castle=enemy_castle,
+            strategic_targets=strategic_targets,
+        )
+        if easy_target is not None:
+            return easy_target
+
         # Priorita difensiva: se il player e vicino al castello IA, intercetta.
         if player_pos and own_castle:
             player_to_own_castle = abs(player_pos[0] - own_castle[0]) + abs(player_pos[1] - own_castle[1])
@@ -346,11 +381,7 @@ class GameSession:
             if dist_castle <= 4:
                 return enemy_castle
 
-        targets = self.game_map.get_strategic_targets(
-            entity=AI,
-            army_vector=self.ai_army,
-            terrain_modifiers=self.data["terrain"],
-        )
+        targets = strategic_targets
 
         if targets:
             _, best_cell     = targets[0]
@@ -372,16 +403,16 @@ class GameSession:
         cell = self.game_map.get_cell(*from_pos)
         if cell is None:
             return False
-        if self._available_garrisons(AI) <= 0:
+        available = self._available_garrisons(AI)
+        if available <= 0:
             return False
 
-        if cell.is_castle:
-            return cell.garrison_strength < 3
-
-        if cell.is_strategic:
-            return cell.garrison_strength < 1
-
-        return False
+        return self.ai_policy.should_leave_garrison(
+            is_castle=cell.is_castle,
+            is_strategic=cell.is_strategic,
+            current_strength=cell.garrison_strength,
+            available=available,
+        )
 
     def _advance_round_economy(self) -> List[str]:
         """Accredita i grux delle miniere e fa gestire all'IA la propria economia."""
@@ -417,21 +448,52 @@ class GameSession:
             "session": self.to_dict(),
         }
 
+    def set_ai_difficulty(self, difficulty: str) -> Dict[str, Any]:
+        """Aggiorna la difficoltà IA runtime e ricalcola la policy decisionale."""
+        if self.state != SessionState.ACTIVE:
+            raise ValueError("La partita è terminata.")
+
+        normalized = normalize_ai_difficulty(difficulty)
+        if normalized == self.ai_difficulty:
+            return {
+                "ok": True,
+                "message": f"Difficoltà IA già impostata su {normalized}.",
+                "state": self.state.value,
+                "map": self.game_map.to_dict(),
+                "session": self.to_dict(),
+            }
+
+        self.ai_difficulty = normalized
+        self.ai_policy = build_ai_policy(self.ai_difficulty, seed=None)
+        log_entry = f"[Turno {self.game_map.turn}] ⚙ Sistema: difficoltà IA impostata su {self.ai_difficulty.upper()}"
+        self.battle_log.append(log_entry)
+
+        return {
+            "ok": True,
+            "message": log_entry,
+            "state": self.state.value,
+            "map": self.game_map.to_dict(),
+            "session": self.to_dict(),
+        }
+
     def _auto_manage_ai_economy(self) -> List[str]:
         """L'IA piazza miniere disponibili e recluta automaticamente se può permetterselo."""
         logs: List[str] = []
-        self._start_ability_research(AI, DOMAIN_ENGINEERING_ID)
+        if self.ai_policy.should_start_research(self.game_map.turn):
+            self._start_ability_research(AI, DOMAIN_ENGINEERING_ID)
 
         ai_slots = self._available_mine_slots(AI)
-        while ai_slots > 0:
+        attempts = self.ai_policy.mine_attempts(ai_slots, self.game_map.turn)
+        while attempts > 0 and ai_slots > 0:
             placed = self._place_best_ai_mine()
             if not placed:
                 break
             logs.append(placed)
             ai_slots -= 1
+            attempts -= 1
 
         can_recruit_now = self._can_recruit_now(AI)
-        if can_recruit_now:
+        if can_recruit_now and self.ai_policy.should_recruit(grux_balance=self.grux_balance[AI], turn=self.game_map.turn):
             affordable_units = [unit for unit in self.data["units"] if self.unit_costs[unit["id"]] <= self.grux_balance[AI]]
             if affordable_units:
                 best_unit = max(
@@ -1412,6 +1474,8 @@ class GameSession:
                 "units":         self.ai_units,
                 "strategy_id":   self.ai_strategy_id,
                 "strategy_name": self.ai_strategy_name,
+                "difficulty":    self.ai_difficulty,
+                "difficulty_labels": get_ai_difficulty_labels(),
                 "army":          self.ai_army,
                 "modified":      self.ai_modified,
                 "troop_status":  self.ai_troop_status,

@@ -897,6 +897,44 @@
             color: #7c2d12;
         }
 
+        .difficulty-inline {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 6px 8px;
+        }
+
+        .difficulty-select {
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            padding: 7px 9px;
+            font-size: 0.84em;
+            font-weight: 700;
+            color: #111827;
+            background: #fff;
+            min-width: 150px;
+        }
+
+        .difficulty-apply-btn {
+            border: 1px solid #1a1a2e;
+            background: #1a1a2e;
+            color: #fff;
+            padding: 8px 10px;
+            border-radius: 8px;
+            font-size: 0.8em;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .difficulty-apply-btn:disabled,
+        .difficulty-select:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
         .settings-menu {
             position: relative;
         }
@@ -1286,6 +1324,10 @@
                 </div>
                 <div class="button-row">
                     <button class="debug-switch-btn" id="aiKillSwitchBtn" type="button" onclick="toggleAiKillSwitch()">🧪 IA ON</button>
+                    <div class="difficulty-inline">
+                        <select id="aiDifficultySelect" class="difficulty-select"></select>
+                        <button id="applyAiDifficultyBtn" class="difficulty-apply-btn" type="button" onclick="applyAiDifficulty()">Applica IA</button>
+                    </div>
                     <div class="settings-menu" id="settingsMenu">
                         <button
                             class="secondary settings-trigger"
@@ -1569,12 +1611,29 @@
                 killSwitchBtn.textContent = killSwitchActive ? '🧪 IA OFF (PAUSA)' : '🧪 IA ON';
             }
 
+            const gameOver = sessionData.state === 'game_over';
+
+            const difficultySelect = document.getElementById('aiDifficultySelect');
+            const applyDifficultyBtn = document.getElementById('applyAiDifficultyBtn');
+            const difficultyLabels = sessionData.ai?.difficulty_labels || { easy: 'Facile', normal: 'Normale' };
+            const currentDifficulty = sessionData.ai?.difficulty || 'easy';
+            if (difficultySelect) {
+                const options = Object.entries(difficultyLabels)
+                    .map(([id, label]) => `<option value="${id}">${label}</option>`)
+                    .join('');
+                difficultySelect.innerHTML = options;
+                difficultySelect.value = currentDifficulty;
+                difficultySelect.disabled = gameOver;
+            }
+            if (applyDifficultyBtn) {
+                applyDifficultyBtn.disabled = gameOver;
+            }
+
             const strategySelect = document.getElementById('strategySelect');
             if (strategySelect && sessionData.player?.strategy_id) {
                 strategySelect.value = sessionData.player.strategy_id;
             }
 
-            const gameOver = sessionData.state === 'game_over';
             const recruitSelect = document.getElementById('recruitSelect');
             const recruitBtn = document.getElementById('recruitBtn');
             if (recruitSelect) {
@@ -2609,6 +2668,36 @@
             } catch (error) {
                 document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
                 transientLogLines = [`Errore cambio strategia: ${error.message}`];
+                renderBattleState(currentBattleState);
+            }
+        }
+
+        async function applyAiDifficulty() {
+            if (!currentBattleState || currentBattleState.state === 'game_over') {
+                document.getElementById('battleStatusHint').textContent = 'Partita terminata: non puoi cambiare difficoltà IA.';
+                return;
+            }
+
+            try {
+                const difficulty = document.getElementById('aiDifficultySelect').value;
+                const response = await fetch('http://127.0.0.1:8000/game/set-ai-difficulty', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ difficulty })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Errore nel cambio difficoltà IA');
+                }
+
+                const result = await response.json();
+                transientLogLines = [];
+                renderBattleState(result.session);
+                document.getElementById('battleStatusHint').textContent = `Difficoltà IA impostata su ${difficulty.toUpperCase()}.`;
+            } catch (error) {
+                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
+                transientLogLines = [`Errore cambio difficoltà IA: ${error.message}`];
                 renderBattleState(currentBattleState);
             }
         }

@@ -7,9 +7,9 @@ Esporta:
     build_ai_army — costruisce l'esercito dell'IA
 """
 
-from .session    import GameSession, SessionState
-from .ai_builder import build_ai_army
-from .abilities  import DOMAIN_ENGINEERING_ID
+from .session            import GameSession, SessionState
+from .ai_core.ai_builder import build_ai_army
+from .abilities          import DOMAIN_ENGINEERING_ID
 
 __all__ = [
     "GameSession",
