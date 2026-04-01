@@ -1,7 +1,7 @@
 """DEBUG TEMPORANEO (DA RIMUOVERE).
 
 Cattura il battle_log runtime e lo salva in un file con formato:
-LOG-HH-MM-SS.txt, separando le righe PLAYER e IA.
+LOG-DD-HH-MM.txt, separando le righe PLAYER e IA.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import re
 from typing import Iterable, List
 
 _BASE_DIR = Path(__file__).resolve().parent
-_TIMESTAMP = datetime.now().strftime("%H-%M-%S")
+_TIMESTAMP = datetime.now().strftime("%d-%H-%M")
 _LOG_PATH = _BASE_DIR / f"LOG-{_TIMESTAMP}.txt"
 
 _PLAYER_RE = re.compile(r"\bPLAYER\b|\bplayer\b")

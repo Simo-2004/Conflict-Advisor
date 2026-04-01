@@ -193,6 +193,40 @@ class GameSession:
                 "map": self.game_map.to_dict(),
             }
 
+        # Con armata vuota il player può comunque riposizionarsi sul campo,
+        # ma non può attaccare né conquistare territori.
+        if len(self.player_units) == 0:
+            relocation_result = self._move_player_without_troops(to_row, to_col)
+            if not relocation_result["ok"]:
+                return {
+                    "ok": False,
+                    "message": relocation_result["message"],
+                    "state": self.state.value,
+                    "map": self.game_map.to_dict(),
+                }
+
+            self.battle_log.append(relocation_result["message"])
+
+            # Passa il turno all'IA anche in modalità riposizionamento.
+            self.game_map.end_turn()
+            ai_result = self._ai_turn()
+
+            if self.state == SessionState.ACTIVE:
+                economy_logs = self._advance_round_economy()
+                if economy_logs:
+                    self.battle_log.extend(economy_logs)
+
+            return {
+                "ok": True,
+                "message": relocation_result["message"],
+                "battle_result": None,
+                "ai_move_result": ai_result,
+                "game_over": self.state == SessionState.GAME_OVER,
+                "winner": self.winner,
+                "state": self.state.value,
+                "map": self.game_map.to_dict(),
+            }
+
         move_result = self.game_map.move(PLAYER, (to_row, to_col), leave_garrison=leave_garrison)
         if not move_result["ok"]:
             return {
@@ -251,6 +285,37 @@ class GameSession:
             "winner": self.winner,
             "state": self.state.value,
             "map": self.game_map.to_dict(),
+        }
+
+    def _move_player_without_troops(self, to_row: int, to_col: int) -> Dict[str, Any]:
+        """Permette il riposizionamento del player senza truppe, senza combattimento né conquista."""
+        from_pos = self.game_map.positions.get(PLAYER)
+        if from_pos is None:
+            return {"ok": False, "message": "Posizione PLAYER non disponibile."}
+
+        to_pos = (to_row, to_col)
+        if not self.game_map.is_adjacent(from_pos, to_pos):
+            return {"ok": False, "message": "La destinazione non è adiacente alla posizione corrente."}
+
+        if not (0 <= to_row < self.game_map.rows and 0 <= to_col < self.game_map.cols):
+            return {"ok": False, "message": "Destinazione fuori dalla mappa."}
+
+        enemy_pos = self.game_map.positions.get(AI)
+        if enemy_pos == to_pos:
+            return {
+                "ok": False,
+                "message": "Armata senza truppe: non puoi ingaggiare direttamente l'armata nemica.",
+            }
+
+        self.game_map.positions[PLAYER] = to_pos
+        dest_cell = self.game_map.get_cell(to_row, to_col)
+        terrain = dest_cell.terrain if dest_cell is not None else "Sconosciuto"
+        return {
+            "ok": True,
+            "message": (
+                f"[Turno {self.game_map.turn}] PLAYER si riposiziona -> ({to_row},{to_col}) "
+                f"[{terrain}] senza truppe: nessuna conquista o attacco"
+            ),
         }
 
     # ──────────────────────────────────────────────────────────
@@ -1130,7 +1195,7 @@ class GameSession:
             total_legions += count
 
         strategy_factor = self._strategy_factor(entity, terrain, modified)
-        detached = self.game_map.count_garrisons(entity) - 2
+        detached = self.game_map.count_garrisons(entity)
         detach_penalty = max(0.7, 1.0 - (max(0, detached) * 0.06))
 
         # Fattore contesto ricavato dai modificatori su attributi: centro su 1.0
@@ -1182,6 +1247,75 @@ class GameSession:
         attacker_units_before = len(self._entity_units(attacker))
         defender_units_before = len(self._entity_units(defender))
 
+        enemy_castle = self.game_map.get_castle_position(defender)
+        battle_label = self._format_battle_location(terrain)
+        if enemy_castle == to_pos:
+            battle_label = "🏰 Assalto al castello centrale"
+
+        # Caso bordo: una delle due armate e vuota. Evita "battaglie" fittizie con forza 0.
+        if attacker_units_before <= 0 or defender_units_before <= 0:
+            if attacker_units_before > defender_units_before:
+                winner = attacker
+                loser = defender
+            elif defender_units_before > attacker_units_before:
+                winner = defender
+                loser = attacker
+            else:
+                winner = defender
+                loser = attacker
+
+            contested_cell = self.game_map.get_cell(*to_pos)
+            if contested_cell is not None:
+                contested_cell.garrison_strength = 0
+                contested_cell.garrison_unit_ids = []
+                contested_cell.fortification_level = 0
+                contested_cell.occupation = winner
+
+            self.game_map.positions[winner] = to_pos
+            self._retreat_to_castle(loser)
+
+            if enemy_castle == to_pos and winner == attacker:
+                self.state = SessionState.GAME_OVER
+                self.winner = attacker.value
+
+            attacker_comp = self._format_composition(attacker)
+            defender_comp = self._format_composition(defender)
+            attacker_strength = (
+                self._strength_breakdown(attacker, terrain)["effective_strength"]
+                if attacker_units_before > 0
+                else 0
+            )
+            defender_strength = (
+                self._strength_breakdown(defender, terrain)["effective_strength"]
+                if defender_units_before > 0
+                else 0
+            )
+
+            if attacker_units_before <= 0 and defender_units_before <= 0:
+                outcome_text = f"Nessuno scontro: armate assenti, prevale {winner.value.upper()}"
+            elif attacker_units_before <= 0:
+                outcome_text = f"Nessuno scontro: armata {attacker.value.upper()} assente, prevale {winner.value.upper()}"
+            else:
+                outcome_text = f"Nessuno scontro: armata {defender.value.upper()} assente, prevale {winner.value.upper()}"
+
+            log_entry = (
+                f"[Turno {self.game_map.turn}] {battle_label}: "
+                f"{attacker.value.upper()} [{attacker_comp}] forza {attacker_strength} "
+                f"vs {defender.value.upper()} [{defender_comp}] forza {defender_strength} "
+                f"→ {outcome_text}"
+            )
+            self.battle_log.append(log_entry)
+
+            return {
+                "type": "field_army",
+                "terrain": terrain,
+                "winner": winner.value,
+                "loser": loser.value,
+                "attacker_strength": round(attacker_strength, 3),
+                "defender_strength": round(defender_strength, 3),
+                "log": log_entry,
+            }
+
         attacker_breakdown = self._strength_breakdown(attacker, terrain)
         defender_breakdown = self._strength_breakdown(defender, terrain)
         attacker_strength = attacker_breakdown["effective_strength"]
@@ -1207,14 +1341,9 @@ class GameSession:
         self.game_map.positions[winner] = to_pos
         self._retreat_to_castle(loser)
 
-        enemy_castle = self.game_map.get_castle_position(defender)
         if enemy_castle == to_pos and winner == attacker:
             self.state = SessionState.GAME_OVER
             self.winner = attacker.value
-
-        battle_label = self._format_battle_location(terrain)
-        if enemy_castle == to_pos:
-            battle_label = "🏰 Assalto al castello centrale"
 
         attacker_comp = attacker_breakdown["composition_text"]
         defender_comp = defender_breakdown["composition_text"]

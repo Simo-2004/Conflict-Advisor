@@ -418,7 +418,8 @@ class GameMap:
                     - PLAYER: castello/armata su riga rows-1 (sud), colonna cols//2
                     - AI:     castello/armata su riga 0     (nord), colonna cols//2
 
-                I castelli partono con una guarnigione iniziale di 2 distaccamenti.
+                I castelli partono senza guarnigioni fittizie: i presidi sono solo
+                quelli realmente distaccati dalle legioni durante la partita.
         """
         player_pos: Tuple[int, int] = (self.rows - 1, self.cols // 2)
         ai_pos:     Tuple[int, int] = (0,             self.cols // 2)
@@ -432,11 +433,11 @@ class GameMap:
 
         player_cell.occupation = PLAYER
         player_cell.is_castle = True
-        player_cell.garrison_strength = 2
+        player_cell.garrison_strength = 0
 
         ai_cell.occupation = AI
         ai_cell.is_castle = True
-        ai_cell.garrison_strength = 2
+        ai_cell.garrison_strength = 0
 
         self.positions[PLAYER] = player_pos
         self.positions[AI]     = ai_pos
