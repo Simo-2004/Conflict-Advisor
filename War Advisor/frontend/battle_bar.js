@@ -72,6 +72,7 @@
         });
 
         const recruitButton = document.getElementById('recruitBtn');
+        const autoRecruitButton = document.getElementById('autoRecruitBtn');
         const garrisonButton = document.getElementById('actionGarrisonBtn');
         const layoutButtons = [
             document.getElementById('layoutSplitBtn'),
@@ -82,6 +83,7 @@
         const aiButton = document.getElementById('aiKillSwitchBtn');
 
         if (recruitButton) recruitButton.addEventListener('click', () => activateBattleBarTab('war'));
+    if (autoRecruitButton) autoRecruitButton.addEventListener('click', () => activateBattleBarTab('war'));
         if (garrisonButton) garrisonButton.addEventListener('click', () => activateBattleBarTab('war'));
         layoutButtons.forEach((btn) => {
             if (btn) btn.addEventListener('click', () => activateBattleBarTab('view'));

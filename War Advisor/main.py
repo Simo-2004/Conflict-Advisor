@@ -276,6 +276,12 @@ class RecruitRequest(BaseModel):
     unit_id: str = Field(..., description="ID unità da comprare")
 
 
+class AutoRecruitRequest(BaseModel):
+    """Richiesta per avviare autoreclutamento player."""
+    unit_id: str = Field(..., description="ID unità da autoreclutare")
+    turns: int = Field(..., description="Numero turni piano autoreclutamento", ge=1, le=40)
+
+
 class StrategyChangeRequest(BaseModel):
     """Richiesta per cambiare strategia del player durante la battaglia."""
     strategy_id: str = Field(..., description="ID strategia da impostare")
@@ -427,6 +433,34 @@ async def game_recruit(request: RecruitRequest):
 
     try:
         return _active_session.recruit_player_unit(request.unit_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/game/auto-recruit/start")
+async def game_auto_recruit_start(request: AutoRecruitRequest):
+    """Avvia un piano di autoreclutamento per il player."""
+    if _active_session is None:
+        raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
+
+    try:
+        return _active_session.start_player_auto_recruit(request.unit_id, request.turns)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/game/auto-recruit/stop")
+async def game_auto_recruit_stop():
+    """Ferma il piano di autoreclutamento del player."""
+    if _active_session is None:
+        raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
+
+    try:
+        return _active_session.stop_player_auto_recruit(reason="manual")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

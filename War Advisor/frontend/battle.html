@@ -523,6 +523,13 @@
             max-width: 520px;
         }
 
+        .toolbar-recruit-actions {
+            display: inline-flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
         .toolbar-recruit select {
             width: 100%;
             min-width: 180px;
@@ -538,6 +545,14 @@
             font-size: 0.84em;
             border-radius: 8px;
             background: #7c2d12;
+        }
+
+        .auto-recruit-btn {
+            background: #0f766e;
+        }
+
+        .auto-recruit-btn.active {
+            background: #be123c;
         }
 
         .toolbar-strategy {
@@ -781,6 +796,152 @@
         .skill-action-btn:disabled {
             opacity: 0.55;
             cursor: not-allowed;
+        }
+
+        .auto-recruit-overlay {
+            position: fixed;
+            inset: 0;
+            display: none;
+            background: rgba(15, 23, 42, 0.42);
+            backdrop-filter: blur(1.5px);
+            z-index: 121;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+
+        .auto-recruit-overlay.open {
+            display: flex;
+        }
+
+        .auto-recruit-modal {
+            width: min(760px, 96vw);
+            max-height: 90vh;
+            overflow: hidden;
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            box-shadow: 0 18px 40px rgba(15, 23, 42, 0.35);
+            display: grid;
+            grid-template-rows: auto 1fr;
+        }
+
+        .auto-recruit-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 16px;
+            border-bottom: 1px solid #e5e7eb;
+            background: #f8fafc;
+        }
+
+        .auto-recruit-header h3 {
+            margin: 0;
+            color: #111827;
+            font-size: 1.1em;
+        }
+
+        .auto-recruit-header p {
+            margin: 4px 0 0;
+            color: #475569;
+            font-size: 0.9em;
+        }
+
+        .auto-recruit-close {
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            color: #334155;
+            border-radius: 10px;
+            padding: 7px 10px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .auto-recruit-body {
+            overflow: auto;
+            padding: 14px;
+            background: #f8fafc;
+            display: grid;
+            gap: 12px;
+        }
+
+        .auto-recruit-form {
+            display: grid;
+            grid-template-columns: 1fr 160px;
+            gap: 10px;
+            align-items: end;
+        }
+
+        .auto-recruit-field {
+            display: grid;
+            gap: 6px;
+        }
+
+        .auto-recruit-field label {
+            font-size: 0.82em;
+            font-weight: 700;
+            color: #334155;
+        }
+
+        .auto-recruit-field select,
+        .auto-recruit-field input {
+            width: 100%;
+            padding: 8px 10px;
+            border-radius: 8px;
+            border: 1px solid #cbd5e1;
+            font-size: 0.9em;
+            background: #fff;
+        }
+
+        .auto-recruit-summary {
+            border: 1px solid #dbe3ef;
+            border-radius: 10px;
+            background: #fff;
+            padding: 8px 10px;
+            color: #334155;
+            font-size: 0.84em;
+            line-height: 1.35;
+        }
+
+        .auto-recruit-chart-wrap {
+            border: 1px solid #dbe3ef;
+            border-radius: 10px;
+            background: #fff;
+            padding: 8px;
+        }
+
+        .auto-recruit-chart-title {
+            margin: 0 0 6px;
+            color: #0f172a;
+            font-size: 0.84em;
+            font-weight: 800;
+        }
+
+        .auto-recruit-chart {
+            width: 100%;
+            aspect-ratio: 360 / 170;
+            height: auto;
+            min-height: 160px;
+            display: block;
+            background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+            border-radius: 8px;
+        }
+
+        .auto-recruit-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+
+        .auto-recruit-start {
+            border: 1px solid #0f766e;
+            background: #0f766e;
+            color: #fff;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-weight: 800;
+            cursor: pointer;
         }
 
         .battle-log {
@@ -1117,16 +1278,37 @@
         .dock-pane[data-pane="war"].active {
             display: grid;
             grid-template-columns: 1fr;
-            gap: 10px;
+            gap: 14px;
             align-items: stretch;
+        }
+
+        .dock-pane[data-pane="war"] .action-row,
+        .dock-pane[data-pane="war"] .garrison-defense-preview,
+        .dock-pane[data-pane="war"] .toolbar-recruit,
+        .dock-pane[data-pane="war"] .toolbar-strategy {
+            background: #f8fafc;
+            border: 1px solid #dbe3ef;
+            border-radius: 12px;
+            padding: 10px;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
         }
 
         .dock-pane[data-pane="war"] .action-row {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
             gap: 10px;
-            padding-bottom: 4px;
-            border-bottom: 1px solid #e2e8f0;
+            border-left: 4px solid #ef4444;
+        }
+
+        .dock-pane[data-pane="war"] .action-row::before {
+            content: 'Azioni Tattiche';
+            grid-column: 1 / -1;
+            font-size: 0.74em;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+            color: #475569;
+            font-weight: 800;
+            margin-bottom: 2px;
         }
 
         .dock-pane[data-pane="war"] .action-btn,
@@ -1138,6 +1320,11 @@
         .dock-pane[data-pane="war"] .ability-inline {
             width: 100%;
             margin-left: 0;
+        }
+
+        .dock-pane[data-pane="war"] .garrison-defense-preview {
+            border-left: 4px solid #2563eb;
+            font-size: 0.82em;
         }
 
         .dock-pane[data-pane="war"] .garrison-select-wrap {
@@ -1156,6 +1343,39 @@
             grid-template-columns: 1fr;
             gap: 6px;
             align-items: stretch;
+        }
+
+        .dock-pane[data-pane="war"] .toolbar-recruit-actions {
+            justify-content: stretch;
+            display: grid;
+            grid-template-columns: 1fr;
+        }
+
+        .dock-pane[data-pane="war"] .toolbar-recruit {
+            border-left: 4px solid #7c2d12;
+        }
+
+        .dock-pane[data-pane="war"] .toolbar-strategy {
+            border-left: 4px solid #1d4ed8;
+        }
+
+        .dock-pane[data-pane="war"] .toolbar-recruit::before,
+        .dock-pane[data-pane="war"] .toolbar-strategy::before {
+            grid-column: 1 / -1;
+            font-size: 0.74em;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+            color: #475569;
+            font-weight: 800;
+            margin-bottom: 2px;
+        }
+
+        .dock-pane[data-pane="war"] .toolbar-recruit::before {
+            content: 'Reclutamento';
+        }
+
+        .dock-pane[data-pane="war"] .toolbar-strategy::before {
+            content: 'Strategia';
         }
 
         .dock-pane[data-pane="war"] .toolbar-recruit button,
@@ -1274,6 +1494,10 @@
                 grid-template-columns: 1fr;
             }
 
+            .auto-recruit-form {
+                grid-template-columns: 1fr;
+            }
+
             .dock-pane[data-pane="war"] .action-row {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
             }
@@ -1315,7 +1539,10 @@
                     <div class="garrison-defense-preview" id="garrisonDefensePreview">Difesa presidio stimata: ---</div>
                     <div class="toolbar-recruit">
                         <select id="recruitSelect"></select>
-                        <button id="recruitBtn" type="button" onclick="recruitSelectedUnit()">Compra Unità</button>
+                        <div class="toolbar-recruit-actions">
+                            <button id="recruitBtn" type="button" onclick="recruitSelectedUnit()">Compra Unità</button>
+                            <button id="autoRecruitBtn" class="auto-recruit-btn" type="button" onclick="handleAutoRecruitButton()">Autoreclutamento</button>
+                        </div>
                     </div>
                     <div class="toolbar-strategy">
                         <select id="strategySelect"></select>
@@ -1448,6 +1675,40 @@
                 </div>
             </div>
         </div>
+
+        <div class="auto-recruit-overlay" id="autoRecruitOverlay" onclick="closeAutoRecruitIfBackdrop(event)">
+            <div class="auto-recruit-modal">
+                <div class="auto-recruit-header">
+                    <div>
+                        <h3>🤖 Autoreclutamento</h3>
+                        <p>Imposta unità e durata del piano automatico.</p>
+                    </div>
+                    <button class="auto-recruit-close" type="button" onclick="closeAutoRecruitMenu()">Chiudi</button>
+                </div>
+                <div class="auto-recruit-body">
+                    <div class="auto-recruit-form">
+                        <div class="auto-recruit-field">
+                            <label for="autoRecruitUnitSelect">Unità da autoreclutare</label>
+                            <select id="autoRecruitUnitSelect"></select>
+                        </div>
+                        <div class="auto-recruit-field">
+                            <label for="autoRecruitTurnsInput">Turni piano</label>
+                            <input id="autoRecruitTurnsInput" type="number" min="1" max="40" value="6">
+                        </div>
+                    </div>
+                    <div class="auto-recruit-summary" id="autoRecruitSummary">
+                        Stima preliminare: accuratezza limitata nelle prime fasi della partita.
+                    </div>
+                    <div class="auto-recruit-chart-wrap">
+                        <p class="auto-recruit-chart-title">Potenziale forza stimata (trend)</p>
+                        <svg id="autoRecruitChart" class="auto-recruit-chart" viewBox="0 0 360 170" preserveAspectRatio="xMidYMid meet"></svg>
+                    </div>
+                    <div class="auto-recruit-actions">
+                        <button class="auto-recruit-start" type="button" onclick="startAutoRecruitFromMenu()">Avvia autoreclutamento</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -1487,6 +1748,15 @@
                 garrisonSelector.addEventListener('change', () => updateGarrisonDefensePreview());
             }
 
+            const autoRecruitUnitSelect = document.getElementById('autoRecruitUnitSelect');
+            const autoRecruitTurnsInput = document.getElementById('autoRecruitTurnsInput');
+            if (autoRecruitUnitSelect) {
+                autoRecruitUnitSelect.addEventListener('change', () => renderAutoRecruitForecast());
+            }
+            if (autoRecruitTurnsInput) {
+                autoRecruitTurnsInput.addEventListener('input', () => renderAutoRecruitForecast());
+            }
+
             const setupRaw = sessionStorage.getItem('warAdvisorBattleSetup');
             if (!setupRaw) {
                 showEmptyState();
@@ -1511,6 +1781,13 @@
             select.innerHTML = recruitableUnits
                 .map(unit => `<option value="${unit.id}">${unit.name} • ${unit.cost_grux} grux</option>`)
                 .join('');
+
+            const autoSelect = document.getElementById('autoRecruitUnitSelect');
+            if (autoSelect) {
+                autoSelect.innerHTML = recruitableUnits
+                    .map(unit => `<option value="${unit.id}">${unit.name} • ${unit.cost_grux} grux</option>`)
+                    .join('');
+            }
 
             const strategySelect = document.getElementById('strategySelect');
             strategySelect.innerHTML = availableStrategies
@@ -1636,11 +1913,25 @@
 
             const recruitSelect = document.getElementById('recruitSelect');
             const recruitBtn = document.getElementById('recruitBtn');
+            const autoRecruitBtn = document.getElementById('autoRecruitBtn');
             if (recruitSelect) {
                 recruitSelect.disabled = gameOver;
             }
             if (recruitBtn) {
                 recruitBtn.disabled = gameOver;
+            }
+
+            const autoRecruitState = sessionData.player?.auto_recruit || null;
+            if (autoRecruitBtn) {
+                const enabled = Boolean(autoRecruitState?.enabled);
+                autoRecruitBtn.disabled = gameOver;
+                autoRecruitBtn.classList.toggle('active', enabled);
+                autoRecruitBtn.textContent = enabled ? 'Ferma autoreclutamento' : 'Autoreclutamento';
+                if (enabled && autoRecruitState?.unit_name) {
+                    autoRecruitBtn.title = `${autoRecruitState.unit_name} (${autoRecruitState.turns_remaining} turni rimanenti)`;
+                } else {
+                    autoRecruitBtn.title = 'Configura piano automatico di reclutamento';
+                }
             }
 
             renderMapBoard(sessionData.map);
@@ -2193,6 +2484,7 @@
 
             if (event.key === 'Escape') {
                 closeSkillTree();
+                closeAutoRecruitMenu();
                 toggleSettingsMenu(false);
             }
 
@@ -2566,6 +2858,243 @@
         function closeSkillTreeIfBackdrop(event) {
             if (event.target && event.target.id === 'skillTreeOverlay') {
                 closeSkillTree();
+            }
+        }
+
+        function handleAutoRecruitButton() {
+            if (!currentBattleState || currentBattleState.state === 'game_over') {
+                document.getElementById('battleStatusHint').textContent = 'Partita terminata: autoreclutamento non disponibile.';
+                return;
+            }
+
+            const autoRecruitState = currentBattleState.player?.auto_recruit;
+            if (autoRecruitState?.enabled) {
+                stopAutoRecruit();
+                return;
+            }
+
+            openAutoRecruitMenu();
+        }
+
+        function openAutoRecruitMenu() {
+            const overlay = document.getElementById('autoRecruitOverlay');
+            if (!overlay) return;
+
+            const autoSelect = document.getElementById('autoRecruitUnitSelect');
+            const recruitSelect = document.getElementById('recruitSelect');
+            const turnsInput = document.getElementById('autoRecruitTurnsInput');
+            const autoRecruitState = currentBattleState?.player?.auto_recruit;
+
+            if (autoSelect) {
+                if (autoRecruitState?.unit_id) {
+                    autoSelect.value = autoRecruitState.unit_id;
+                } else if (recruitSelect && recruitSelect.value) {
+                    autoSelect.value = recruitSelect.value;
+                }
+            }
+
+            if (turnsInput) {
+                const defaultTurns = Number.isFinite(autoRecruitState?.turns_remaining)
+                    ? Math.max(1, Math.min(40, Number(autoRecruitState.turns_remaining)))
+                    : 6;
+                turnsInput.value = String(defaultTurns);
+            }
+
+            renderAutoRecruitForecast();
+            overlay.classList.add('open');
+        }
+
+        function closeAutoRecruitMenu() {
+            const overlay = document.getElementById('autoRecruitOverlay');
+            if (!overlay) return;
+            overlay.classList.remove('open');
+        }
+
+        function closeAutoRecruitIfBackdrop(event) {
+            if (event.target && event.target.id === 'autoRecruitOverlay') {
+                closeAutoRecruitMenu();
+            }
+        }
+
+        function getAutoRecruitTurnsValue() {
+            const input = document.getElementById('autoRecruitTurnsInput');
+            const raw = Number.parseInt(input?.value || '0', 10);
+            const turns = Number.isFinite(raw) ? raw : 0;
+            return Math.max(1, Math.min(40, turns));
+        }
+
+        function getPlayerCurrentTerrainName() {
+            const mapData = currentBattleState?.map;
+            const playerPos = mapData?.positions?.player;
+            if (!mapData || !Array.isArray(playerPos)) return 'Pianura';
+            const [row, col] = playerPos;
+            return mapData.grid?.[row]?.[col]?.terrain || 'Pianura';
+        }
+
+        function estimateArmyPotential(unitIds, terrainName) {
+            if (!Array.isArray(unitIds) || unitIds.length === 0) return 0;
+            const counts = new Map();
+            let base = 0;
+            for (const unitId of unitIds) {
+                base += evaluateUnitBattleValue(unitId, terrainName);
+                counts.set(unitId, (counts.get(unitId) || 0) + 1);
+            }
+            let stackBonus = 0;
+            counts.forEach((count, unitId) => {
+                if (count <= 1) return;
+                const unitValue = evaluateUnitBattleValue(unitId, terrainName);
+                stackBonus += unitValue * 0.34 * Math.pow(count - 1, 1.22);
+            });
+            return Math.max(0, base + stackBonus);
+        }
+
+        function renderAutoRecruitForecast() {
+            const summary = document.getElementById('autoRecruitSummary');
+            const svg = document.getElementById('autoRecruitChart');
+            const autoSelect = document.getElementById('autoRecruitUnitSelect');
+            if (!summary || !svg || !autoSelect) return;
+
+            const selectedUnitId = autoSelect.value;
+            const turns = getAutoRecruitTurnsValue();
+            const terrainName = getPlayerCurrentTerrainName();
+            const unit = recruitableUnits.find(item => item.id === selectedUnitId);
+            const unitName = unit?.name || selectedUnitId || 'Unità';
+            const unitPotential = evaluateUnitBattleValue(selectedUnitId, terrainName);
+            const currentPotential = estimateArmyPotential(currentBattleState?.player?.units || [], terrainName);
+
+            const values = [];
+            for (let i = 0; i < turns; i += 1) {
+                const expectedRecruits = Math.floor((i + 2) / 2); // approssima cooldown a 2 turni
+                const expected = currentPotential + (expectedRecruits * unitPotential * 0.95);
+                const uncertainty = Math.max(0.14, 0.36 - (i * 0.02));
+                values.push({
+                    turn: i + 1,
+                    expected,
+                    min: expected * (1 - uncertainty),
+                    max: expected * (1 + uncertainty),
+                });
+            }
+
+            const rawMinY = Math.min(...values.map(v => v.min), currentPotential);
+            const rawMaxY = Math.max(...values.map(v => v.max), currentPotential);
+            const span = Math.max(1, rawMaxY - rawMinY);
+            const minY = Math.max(0, rawMinY - (span * 0.1));
+            const maxY = rawMaxY + (span * 0.1);
+
+            const w = 360;
+            const h = 170;
+            const padX = 24;
+            const padY = 16;
+            const chartW = w - (padX * 2);
+            const chartH = h - (padY * 2);
+            const chartInset = Math.min(14, chartW * 0.08);
+
+            const xForIndex = (idx) => {
+                if (values.length <= 1) return padX + (chartW / 2);
+                const usableWidth = Math.max(20, chartW - (chartInset * 2));
+                return padX + chartInset + ((idx / (values.length - 1)) * usableWidth);
+            };
+            const yForValue = (v) => {
+                if (maxY <= minY) return padY + (chartH / 2);
+                const y = padY + ((maxY - v) / (maxY - minY)) * chartH;
+                return Math.min(padY + chartH - 2, Math.max(padY + 2, y));
+            };
+
+            const topPoints = values.map((v, idx) => `${xForIndex(idx)},${yForValue(v.max)}`).join(' ');
+            const bottomPoints = [...values].reverse().map((v, idx) => {
+                const originalIdx = values.length - 1 - idx;
+                return `${xForIndex(originalIdx)},${yForValue(v.min)}`;
+            }).join(' ');
+            const areaPoints = `${topPoints} ${bottomPoints}`;
+            const expectedPoints = values.map((v, idx) => `${xForIndex(idx)},${yForValue(v.expected)}`).join(' ');
+            const baselineY = yForValue(currentPotential);
+            const startX = xForIndex(0);
+            const startY = yForValue(values[0].expected);
+            const endX = xForIndex(values.length - 1);
+            const endY = yForValue(values[values.length - 1].expected);
+
+            const uncertaintyLayer = values.length > 1
+                ? `<polygon points="${areaPoints}" fill="rgba(56, 189, 248, 0.22)"></polygon>`
+                : `<line x1="${startX}" y1="${yForValue(values[0].max)}" x2="${startX}" y2="${yForValue(values[0].min)}" stroke="rgba(56, 189, 248, 0.8)" stroke-width="3" stroke-linecap="round"></line>`;
+            const trendLayer = values.length > 1
+                ? `<polyline points="${expectedPoints}" fill="none" stroke="#0369a1" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"></polyline>`
+                : '';
+            const endMarker = values.length > 1
+                ? `<circle cx="${endX}" cy="${endY}" r="3" fill="#7c2d12"></circle>`
+                : '';
+            const endTurnLabel = turns > 1
+                ? `<text x="${w - padX}" y="${h - 4}" text-anchor="end" fill="#334155" font-size="10">T${turns}</text>`
+                : '';
+
+            svg.innerHTML = `
+                <line x1="${padX}" y1="${baselineY}" x2="${w - padX}" y2="${baselineY}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="3 3" />
+                ${uncertaintyLayer}
+                ${trendLayer}
+                <circle cx="${startX}" cy="${startY}" r="3" fill="#0f766e"></circle>
+                ${endMarker}
+                <text x="${padX}" y="${h - 4}" fill="#334155" font-size="10">T1</text>
+                ${endTurnLabel}
+            `;
+
+            const finalExpected = values[values.length - 1]?.expected || currentPotential;
+            const firstUncertainty = values[0] ? ((values[0].max - values[0].min) / Math.max(1, values[0].expected)) * 100 : 0;
+            summary.textContent =
+                `Unità: ${unitName} · Durata: ${turns} turni · Terreno attuale: ${terrainName} · ` +
+                `Potenziale stimato finale: ${Math.round(finalExpected)} · Incertezza iniziale ±${Math.round(firstUncertainty / 2)}% (stima preliminare)`;
+        }
+
+        async function startAutoRecruitFromMenu() {
+            if (!currentBattleState || currentBattleState.state === 'game_over') {
+                document.getElementById('battleStatusHint').textContent = 'Partita terminata: autoreclutamento non disponibile.';
+                return;
+            }
+
+            try {
+                const unitId = document.getElementById('autoRecruitUnitSelect').value;
+                const turns = getAutoRecruitTurnsValue();
+                const response = await fetch('http://127.0.0.1:8000/game/auto-recruit/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ unit_id: unitId, turns })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Errore avvio autoreclutamento');
+                }
+
+                const result = await response.json();
+                transientLogLines = [];
+                closeAutoRecruitMenu();
+                renderBattleState(result.session);
+                document.getElementById('battleStatusHint').textContent = 'Autoreclutamento avviato con successo.';
+            } catch (error) {
+                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
+                transientLogLines = [`Errore autoreclutamento: ${error.message}`];
+                renderBattleState(currentBattleState);
+            }
+        }
+
+        async function stopAutoRecruit() {
+            try {
+                const response = await fetch('http://127.0.0.1:8000/game/auto-recruit/stop', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Errore stop autoreclutamento');
+                }
+
+                const result = await response.json();
+                transientLogLines = [];
+                renderBattleState(result.session);
+                document.getElementById('battleStatusHint').textContent = 'Autoreclutamento fermato.';
+            } catch (error) {
+                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
+                transientLogLines = [`Errore stop autoreclutamento: ${error.message}`];
+                renderBattleState(currentBattleState);
             }
         }
 

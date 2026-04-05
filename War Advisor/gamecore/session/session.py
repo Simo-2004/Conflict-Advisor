@@ -140,6 +140,16 @@ class GameSession:
         self.ai_difficulty: str = normalize_ai_difficulty(ai_difficulty)
         self.ai_policy = build_ai_policy(self.ai_difficulty, seed=map_seed)
         self.ai_policy_seed = map_seed
+        self.player_auto_recruit: Dict[str, Any] = {
+            "enabled": False,
+            "unit_id": None,
+            "unit_name": None,
+            "turns_total": 0,
+            "turns_remaining": 0,
+            "attempted_turns": 0,
+            "successful_recruits": 0,
+            "last_result": "inactive",
+        }
 
     # ──────────────────────────────────────────────────────────
     # MOSSA GIOCATORE (entry-point principale)
@@ -495,6 +505,7 @@ class GameSession:
 
         if not self.debug_ai_kill_switch:
             logs.extend(self._auto_manage_ai_economy())
+        logs.extend(self._run_player_auto_recruit())
         return logs
 
     def toggle_debug_ai_kill_switch(self) -> Dict[str, Any]:
@@ -799,17 +810,38 @@ class GameSession:
 
     def _strategy_factor(self, entity: Occupation, terrain: str, modified_vector: Dict[str, float]) -> float:
         """Fattore tattico legato alla qualità della manovra scelta rispetto all'esercito corrente."""
+        compatibility = self._strategy_compatibility(entity, modified_vector)
+
+        # Impatto strategico intenzionalmente forte:
+        # - strategia affine => moltiplicatore molto alto
+        # - strategia disallineata => malus severo
+        # - soglie critiche per premiare/penalizzare scelte estreme
+        base_factor = 0.38 + ((compatibility ** 2.6) * 1.92)
+
+        critical_bonus = 0.0
+        if compatibility >= 0.88:
+            critical_bonus += 0.22
+        elif compatibility >= 0.78:
+            critical_bonus += 0.12
+
+        critical_malus = 0.0
+        if compatibility <= 0.22:
+            critical_malus += 0.22
+        elif compatibility <= 0.32:
+            critical_malus += 0.12
+
+        factor = base_factor + critical_bonus - critical_malus
+        return max(0.30, min(2.35, factor))
+
+    def _strategy_compatibility(self, entity: Occupation, modified_vector: Dict[str, float]) -> float:
+        """Compatibilità [0..1] tra esercito modificato e strategia corrente."""
         strategy_id = self.player_strategy_id if entity == PLAYER else self.ai_strategy_id
         strategy = next((s for s in self.data["strategies"] if s["id"] == strategy_id), None)
         if strategy is None:
-            return 1.0
+            return 0.5
 
         distance = euclidean_distance(modified_vector, strategy["ideal_attributes"])
-        compatibility = max(0.0, 1.0 - (distance / (8 ** 0.5)))
-
-        # Armata ben organizzata può ribaltare differenze moderate,
-        # ma non differenze schiaccianti di massa.
-        return 0.82 + (compatibility * 0.46)
+        return max(0.0, min(1.0, 1.0 - (distance / (8 ** 0.5))))
 
     def _current_army_terrain(self, entity: Occupation) -> str:
         """Terreno attuale dell'armata, fallback al terreno base se la posizione non è valida."""
@@ -1063,6 +1095,128 @@ class GameSession:
             "session": self.to_dict(),
         }
 
+    def start_player_auto_recruit(self, unit_id: str, turns: int) -> Dict[str, Any]:
+        """Avvia il piano di autoreclutamento del player per un numero di turni."""
+        if self.state != SessionState.ACTIVE:
+            raise ValueError("La partita è terminata.")
+        if unit_id not in self.unit_costs:
+            raise ValueError(f"Unità sconosciuta: {unit_id}")
+
+        turns_value = int(turns)
+        if turns_value <= 0:
+            raise ValueError("I turni di autoreclutamento devono essere almeno 1.")
+        if turns_value > 40:
+            raise ValueError("I turni di autoreclutamento non possono superare 40.")
+
+        unit_name = self.units_map.get(unit_id, {}).get("name", unit_id)
+        self.player_auto_recruit.update(
+            {
+                "enabled": True,
+                "unit_id": unit_id,
+                "unit_name": unit_name,
+                "turns_total": turns_value,
+                "turns_remaining": turns_value,
+                "attempted_turns": 0,
+                "successful_recruits": 0,
+                "last_result": "scheduled",
+            }
+        )
+
+        log_entry = (
+            f"[Turno {self.game_map.turn}] 🤖 PLAYER avvia autoreclutamento: "
+            f"{unit_name} per {turns_value} turni"
+        )
+        self.battle_log.append(log_entry)
+        return {
+            "ok": True,
+            "message": log_entry,
+            "state": self.state.value,
+            "map": self.game_map.to_dict(),
+            "session": self.to_dict(),
+        }
+
+    def stop_player_auto_recruit(self, reason: str = "manual") -> Dict[str, Any]:
+        """Ferma il piano di autoreclutamento del player."""
+        was_enabled = bool(self.player_auto_recruit.get("enabled"))
+        unit_name = self.player_auto_recruit.get("unit_name") or "unità"
+
+        self.player_auto_recruit["enabled"] = False
+        self.player_auto_recruit["turns_remaining"] = 0
+        self.player_auto_recruit["last_result"] = "stopped"
+
+        if was_enabled:
+            reason_label = "manuale" if reason == "manual" else reason
+            log_entry = (
+                f"[Turno {self.game_map.turn}] 🤖 PLAYER ferma autoreclutamento "
+                f"({unit_name}) - motivo: {reason_label}"
+            )
+            self.battle_log.append(log_entry)
+            message = log_entry
+        else:
+            message = "Autoreclutamento non attivo."
+
+        return {
+            "ok": True,
+            "message": message,
+            "state": self.state.value,
+            "map": self.game_map.to_dict(),
+            "session": self.to_dict(),
+        }
+
+    def _run_player_auto_recruit(self) -> List[str]:
+        """Esegue una iterazione del piano di autoreclutamento player al termine del round."""
+        logs: List[str] = []
+        if self.state != SessionState.ACTIVE:
+            return logs
+
+        if not self.player_auto_recruit.get("enabled"):
+            return logs
+
+        unit_id = self.player_auto_recruit.get("unit_id")
+        unit_name = self.player_auto_recruit.get("unit_name") or (unit_id or "unità")
+        turns_remaining = int(self.player_auto_recruit.get("turns_remaining") or 0)
+
+        if not unit_id or unit_id not in self.unit_costs:
+            self.player_auto_recruit["enabled"] = False
+            self.player_auto_recruit["last_result"] = "invalid_unit"
+            logs.append(
+                f"[Turno {self.game_map.turn}] 🤖 Autoreclutamento interrotto: unità non valida"
+            )
+            return logs
+
+        if turns_remaining <= 0:
+            self.player_auto_recruit["enabled"] = False
+            self.player_auto_recruit["last_result"] = "completed"
+            logs.append(
+                f"[Turno {self.game_map.turn}] 🤖 Autoreclutamento completato ({unit_name})"
+            )
+            return logs
+
+        self.player_auto_recruit["attempted_turns"] = int(self.player_auto_recruit.get("attempted_turns") or 0) + 1
+        self.player_auto_recruit["turns_remaining"] = turns_remaining - 1
+
+        recruit_log = self._recruit_unit(PLAYER, unit_id, auto=True)
+        if recruit_log:
+            self.player_auto_recruit["successful_recruits"] = int(self.player_auto_recruit.get("successful_recruits") or 0) + 1
+            self.player_auto_recruit["last_result"] = "success"
+            logs.append(
+                f"[Turno {self.game_map.turn}] 🤖 Autoreclutamento riuscito: {unit_name}"
+            )
+        else:
+            self.player_auto_recruit["last_result"] = "skipped"
+            logs.append(
+                f"[Turno {self.game_map.turn}] 🤖 Autoreclutamento non riuscito: cooldown o grux insufficienti per {unit_name}"
+            )
+
+        if int(self.player_auto_recruit.get("turns_remaining") or 0) <= 0:
+            self.player_auto_recruit["enabled"] = False
+            self.player_auto_recruit["last_result"] = "completed"
+            logs.append(
+                f"[Turno {self.game_map.turn}] 🤖 Piano autoreclutamento terminato ({unit_name})"
+            )
+
+        return logs
+
     def _recruit_unit(self, entity: Occupation, unit_id: str, auto: bool) -> Optional[str]:
         """Recluta una unità, scala il costo e ricalcola il vettore esercito."""
         if self.state != SessionState.ACTIVE:
@@ -1194,6 +1348,7 @@ class GameSession:
             stack_bonus_total += stack_bonus
             total_legions += count
 
+        strategy_compatibility = self._strategy_compatibility(entity, modified)
         strategy_factor = self._strategy_factor(entity, terrain, modified)
         detached = self.game_map.count_garrisons(entity)
         detach_penalty = max(0.7, 1.0 - (max(0, detached) * 0.06))
@@ -1215,6 +1370,7 @@ class GameSession:
             "detached_garrisons_over_base": max(0, detached),
             "detach_penalty": round(detach_penalty, 4),
             "strategy_factor": round(strategy_factor, 4),
+            "strategy_compatibility": round(strategy_compatibility, 4),
             "context_factor": round(context_factor, 4),
             "base_strength": round(base_strength, 4),
             "effective_strength": int(round(effective_strength)),
@@ -1588,6 +1744,16 @@ class GameSession:
                 "army":          self.player_army,
                 "modified":      self.player_modified,
                 "troop_status":  self.player_troop_status,
+                "auto_recruit": {
+                    "enabled": bool(self.player_auto_recruit.get("enabled")),
+                    "unit_id": self.player_auto_recruit.get("unit_id"),
+                    "unit_name": self.player_auto_recruit.get("unit_name"),
+                    "turns_total": int(self.player_auto_recruit.get("turns_total") or 0),
+                    "turns_remaining": int(self.player_auto_recruit.get("turns_remaining") or 0),
+                    "attempted_turns": int(self.player_auto_recruit.get("attempted_turns") or 0),
+                    "successful_recruits": int(self.player_auto_recruit.get("successful_recruits") or 0),
+                    "last_result": self.player_auto_recruit.get("last_result") or "inactive",
+                },
                 "available_garrisons": self._available_garrisons(PLAYER),
                 "grux_balance":  self.grux_balance[PLAYER],
                 "army_cost":     self.player_army_cost,
