@@ -20,6 +20,8 @@ from gamecore.session.ai_core.ai_builder import (
     normalize_ai_difficulty,
 )
 from gamecore.session.ai_core.ai_easy_difficulty import AI_EASY_ID
+from gamecore.session.in_game_advisor import build_in_game_advisor_payload
+from gamecore.session.movement_points import MovementPointsSystem
 
 try:
     from debug.strength_debug import log_strength_debug
@@ -140,6 +142,7 @@ class GameSession:
         self.ai_difficulty: str = normalize_ai_difficulty(ai_difficulty)
         self.ai_policy = build_ai_policy(self.ai_difficulty, seed=map_seed)
         self.ai_policy_seed = map_seed
+        self.movement_system = MovementPointsSystem()
         self.player_auto_recruit: Dict[str, Any] = {
             "enabled": False,
             "unit_id": None,
@@ -203,6 +206,31 @@ class GameSession:
                 "map": self.game_map.to_dict(),
             }
 
+        block = self.movement_system.consume_block_if_any(PLAYER)
+        if block.get("blocked"):
+            blocked_message = self._build_movement_block_message(PLAYER, block)
+            self.battle_log.append(blocked_message)
+
+            self.game_map.end_turn()
+            ai_result = self._ai_turn()
+
+            if self.state == SessionState.ACTIVE:
+                economy_logs = self._advance_round_economy()
+                if economy_logs:
+                    self.battle_log.extend(economy_logs)
+
+            return {
+                "ok": True,
+                "skipped": True,
+                "message": blocked_message,
+                "battle_result": None,
+                "ai_move_result": ai_result,
+                "game_over": self.state == SessionState.GAME_OVER,
+                "winner": self.winner,
+                "state": self.state.value,
+                "map": self.game_map.to_dict(),
+            }
+
         # Con armata vuota il player può comunque riposizionarsi sul campo,
         # ma non può attaccare né conquistare territori.
         if len(self.player_units) == 0:
@@ -215,6 +243,13 @@ class GameSession:
                     "map": self.game_map.to_dict(),
                 }
 
+            move_cost_info = self.movement_system.register_move(
+                PLAYER,
+                relocation_result["terrain"],
+                from_pos=tuple(relocation_result["from_pos"]),
+                to_pos=tuple(relocation_result["to_pos"]),
+            )
+            relocation_result["message"] += self._format_movement_cost_suffix(move_cost_info)
             self.battle_log.append(relocation_result["message"])
 
             # Passa il turno all'IA anche in modalità riposizionamento.
@@ -247,6 +282,13 @@ class GameSession:
             }
 
         # Log persistente della mossa player per debug cronologico completo.
+        move_cost_info = self.movement_system.register_move(
+            PLAYER,
+            move_result["terrain"],
+            from_pos=tuple(move_result["from_pos"]),
+            to_pos=tuple(move_result["to_pos"]),
+        )
+        move_result["message"] += self._format_movement_cost_suffix(move_cost_info)
         self.battle_log.append(move_result["message"])
 
         if leave_garrison and move_result.get("leave_garrison"):
@@ -322,11 +364,43 @@ class GameSession:
         terrain = dest_cell.terrain if dest_cell is not None else "Sconosciuto"
         return {
             "ok": True,
+            "terrain": terrain,
+            "from_pos": from_pos,
+            "to_pos": to_pos,
             "message": (
                 f"[Turno {self.game_map.turn}] PLAYER si riposiziona -> ({to_row},{to_col}) "
                 f"[{terrain}] senza truppe: nessuna conquista o attacco"
             ),
         }
+
+    def _format_movement_cost_suffix(self, move_cost_info: Dict[str, Any]) -> str:
+        """Ritorna un suffisso leggibile con costo movimento e ritardo eventuale."""
+        cost = int(move_cost_info.get("cost", 0))
+        points_per_turn = int(move_cost_info.get("points_per_turn", 100))
+        extra_wait_turns = int(move_cost_info.get("extra_wait_turns", 0))
+        if extra_wait_turns > 0:
+            return (
+                f" — Movimento: costo {cost}/{points_per_turn}"
+                f" (rallentamento: +{extra_wait_turns} turno/i)"
+            )
+        return f" — Movimento: costo {cost}/{points_per_turn}"
+
+    def _build_movement_block_message(self, entity: Occupation, block: Dict[str, Any]) -> str:
+        """Messaggio di skip turno quando l'armata è rallentata dal terreno."""
+        side = entity.value.upper()
+        remaining = int(block.get("remaining_blocked_turns", 0))
+        terrain = str(block.get("last_terrain") or "terreno difficile")
+        cost = int(block.get("last_cost", self.movement_system.points_per_turn))
+        if remaining > 0:
+            return (
+                f"[Turno {self.game_map.turn}] {side} rallentato su {terrain} "
+                f"(costo {cost}): turno di movimento bloccato "
+                f"({remaining} turno/i di ritardo residui)"
+            )
+        return (
+            f"[Turno {self.game_map.turn}] {side} rallentato su {terrain} "
+            f"(costo {cost}): ultimo turno di ritardo consumato"
+        )
 
     # ──────────────────────────────────────────────────────────
     # TURNO IA (privato)
@@ -372,6 +446,20 @@ class GameSession:
                 result.update({"skipped": True, "reason": "IA eliminata"})
                 return result
 
+            ai_block = self.movement_system.consume_block_if_any(AI)
+            if ai_block.get("blocked"):
+                blocked_message = self._build_movement_block_message(AI, ai_block)
+                self.battle_log.append(blocked_message)
+                result.update(
+                    {
+                        "skipped": True,
+                        "ok": True,
+                        "reason": "movement_delay",
+                        "message": blocked_message,
+                    }
+                )
+                return result
+
             target_pos = self._compute_ai_target(ai_pos)
             if target_pos is None:
                 result.update({"skipped": True, "reason": "nessun target disponibile"})
@@ -396,6 +484,16 @@ class GameSession:
                 )
                 if detach_result and ai_move.get("message"):
                     ai_move["message"] += f" — Distaccata: {detach_result['unit_name']}"
+
+            if ai_move.get("ok"):
+                ai_move_cost_info = self.movement_system.register_move(
+                    AI,
+                    ai_move.get("terrain", "Pianura"),
+                    from_pos=tuple(ai_move["from_pos"]),
+                    to_pos=tuple(ai_move["to_pos"]),
+                )
+                if ai_move.get("message"):
+                    ai_move["message"] += self._format_movement_cost_suffix(ai_move_cost_info)
 
             if ai_move.get("ok") and ai_move.get("message"):
                 self.battle_log.append(ai_move["message"])
@@ -891,6 +989,23 @@ class GameSession:
             "map": self.game_map.to_dict(),
             "session": self.to_dict(),
         }
+
+    def get_in_game_advisor(self) -> Dict[str, Any]:
+        """Restituisce un report advisor in-battle basato sullo stato corrente del player."""
+        if self.state != SessionState.ACTIVE:
+            raise ValueError("La partita è terminata.")
+
+        terrain_name = self._current_army_terrain(PLAYER)
+        return build_in_game_advisor_payload(
+            data=self.data,
+            turn=self.game_map.turn,
+            player_units=list(self.player_units),
+            player_army=dict(self.player_army),
+            player_strategy_id=self.player_strategy_id,
+            troop_status_name=self.player_troop_status,
+            terrain_name=terrain_name,
+            weather_name=self.weather,
+        )
 
     def _available_mine_slots(self, entity: Occupation) -> int:
         """Slot miniera disponibili in base alle celle controllate."""
@@ -1476,6 +1591,21 @@ class GameSession:
         defender_breakdown = self._strength_breakdown(defender, terrain)
         attacker_strength = attacker_breakdown["effective_strength"]
         defender_strength = defender_breakdown["effective_strength"]
+        defender_movement_modifier = self.movement_system.get_defense_modifier(defender)
+
+        if defender_movement_modifier.get("active"):
+            defender_strength_before_penalty = defender_strength
+            defender_strength = int(round(defender_strength * float(defender_movement_modifier["factor"])))
+            defender_breakdown["effective_strength_before_movement_penalty"] = defender_strength_before_penalty
+            defender_breakdown["movement_defense_penalty"] = {
+                "active": True,
+                "reduction_ratio": round(float(defender_movement_modifier["reduction_ratio"]), 4),
+                "factor": round(float(defender_movement_modifier["factor"]), 4),
+                "blocked_turns": int(defender_movement_modifier["blocked_turns"]),
+                "last_terrain": defender_movement_modifier.get("last_terrain"),
+                "last_cost": defender_movement_modifier.get("last_cost"),
+            }
+            defender_breakdown["effective_strength"] = defender_strength
 
         if attacker_strength > defender_strength:
             winner = attacker
@@ -1523,6 +1653,12 @@ class GameSession:
             f"vs {defender.value.upper()} [{defender_comp}] forza {defender_strength} "
             f"→ Ritirata di {loser.value.upper()}"
         )
+        if defender_movement_modifier.get("active"):
+            penalty_pct = int(round(float(defender_movement_modifier["reduction_ratio"]) * 100))
+            log_entry += (
+                f" | Difesa {defender.value.upper()} ridotta del {penalty_pct}% "
+                f"(movimento incompleto)"
+            )
         if attacker_loss_result["losses"] > 0 or defender_loss_result["losses"] > 0:
             log_entry += (
                 f" | Perdite {attacker.value.upper()}: {attacker_loss_result['losses']}"
@@ -1759,6 +1895,7 @@ class GameSession:
                 "army_cost":     self.player_army_cost,
                 "available_mine_slots": self._available_mine_slots(PLAYER),
                 "fortification_base_cost": self.base_fortification_cost,
+                "movement": self.movement_system.export_entity_state(PLAYER),
                 "abilities": {
                     ability_id: state.to_dict(self.game_map.turn)
                     for ability_id, state in self.ability_states[PLAYER].items()
@@ -1778,12 +1915,14 @@ class GameSession:
                 "grux_balance":  self.grux_balance[AI],
                 "army_cost":     self.ai_army_cost,
                 "available_mine_slots": self._available_mine_slots(AI),
+                "movement": self.movement_system.export_entity_state(AI),
                 "abilities": {
                     ability_id: state.to_dict(self.game_map.turn)
                     for ability_id, state in self.ability_states[AI].items()
                 },
                 "unit_costs":    {unit_id: self.unit_costs[unit_id] for unit_id in self.ai_units},
             },
+            "movement": self.movement_system.export_config(),
             "map":        self.game_map.to_dict(),
             "battle_log": self.battle_log,
             "debug": {

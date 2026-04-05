@@ -382,6 +382,20 @@ async def game_state():
     return _active_session.to_dict()
 
 
+@app.get("/game/in-game-advisor")
+async def game_in_game_advisor():
+    """Ritorna il report strategico in-battle con affidabilità intenzionalmente limitata."""
+    if _active_session is None:
+        raise HTTPException(status_code=404, detail="Nessuna partita attiva.")
+
+    try:
+        return _active_session.get_in_game_advisor()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/game/place-mine")
 async def game_place_mine(request: MineRequest):
     """Piazza una miniera di grux su una cella controllata dal giocatore."""

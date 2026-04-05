@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>War Advisor - Battaglia</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
     <style>
         :root {
             --primary: #1a1a2e;
@@ -291,6 +292,7 @@
             border-radius: 12px;
             border: 1px solid var(--border);
             overflow-x: auto;
+            position: relative;
         }
 
         .map-cell {
@@ -349,6 +351,60 @@
             outline-offset: -3px;
             box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.35), inset 0 0 0 2px rgba(255,255,255,0.45);
             font-weight: 800;
+        }
+
+        .cell-army-in-transit {
+            box-shadow: 0 0 0 2px rgba(14, 116, 144, 0.5), inset 0 0 0 2px rgba(255,255,255,0.4);
+        }
+
+        .transit-marker {
+            position: absolute;
+            z-index: 24;
+            min-width: 36px;
+            height: 20px;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 8px;
+            font-size: 0.7em;
+            font-weight: 800;
+            border: 1px solid rgba(15, 23, 42, 0.35);
+            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.32);
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+
+        .transit-marker.player {
+            background: #22c55e;
+            color: #052e16;
+            animation: transitPulsePlayer 1s ease-in-out infinite;
+        }
+
+        .transit-marker.ai {
+            background: #ef4444;
+            color: #450a0a;
+            animation: transitPulseAi 1s ease-in-out infinite;
+        }
+
+        @keyframes transitPulsePlayer {
+            0%,
+            100% {
+                filter: saturate(1);
+            }
+            50% {
+                filter: saturate(1.25) brightness(0.98);
+            }
+        }
+
+        @keyframes transitPulseAi {
+            0%,
+            100% {
+                filter: saturate(1);
+            }
+            50% {
+                filter: saturate(1.2) brightness(0.95);
+            }
         }
 
         .cell-strategic::after {
@@ -558,7 +614,7 @@
         .toolbar-strategy {
             margin-top: 8px;
             display: grid;
-            grid-template-columns: minmax(220px, 1fr) auto;
+            grid-template-columns: minmax(220px, 1fr) auto auto;
             gap: 8px;
             align-items: center;
             max-width: 640px;
@@ -579,6 +635,10 @@
             font-size: 0.84em;
             border-radius: 8px;
             background: #1d4ed8;
+        }
+
+        #strategyInfoBtn {
+            background: #0f766e;
         }
 
         .recruit-row select {
@@ -942,6 +1002,179 @@
             padding: 8px 12px;
             font-weight: 800;
             cursor: pointer;
+        }
+
+        .strategy-advisor-overlay {
+            position: fixed;
+            inset: 0;
+            display: none;
+            background: rgba(15, 23, 42, 0.46);
+            backdrop-filter: blur(1.5px);
+            z-index: 124;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+
+        .strategy-advisor-overlay.open {
+            display: flex;
+        }
+
+        .strategy-advisor-modal {
+            width: min(980px, 96vw);
+            max-height: 92vh;
+            overflow: hidden;
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            box-shadow: 0 18px 40px rgba(15, 23, 42, 0.35);
+            display: grid;
+            grid-template-rows: auto 1fr;
+        }
+
+        .strategy-advisor-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 16px;
+            border-bottom: 1px solid #e5e7eb;
+            background: #f8fafc;
+        }
+
+        .strategy-advisor-header h3 {
+            margin: 0;
+            color: #0f172a;
+            font-size: 1.12em;
+        }
+
+        .strategy-advisor-header p {
+            margin: 4px 0 0;
+            color: #475569;
+            font-size: 0.9em;
+        }
+
+        .strategy-advisor-close {
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            color: #334155;
+            border-radius: 10px;
+            padding: 7px 10px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .strategy-advisor-body {
+            overflow: auto;
+            padding: 14px;
+            background: #f8fafc;
+            display: grid;
+            gap: 10px;
+        }
+
+        .strategy-advisor-reliability {
+            border: 1px solid #bfdbfe;
+            border-left: 4px solid #1d4ed8;
+            border-radius: 10px;
+            background: #eff6ff;
+            color: #1e3a8a;
+            padding: 9px 11px;
+            font-size: 0.88em;
+            font-weight: 700;
+        }
+
+        .strategy-advisor-note {
+            border: 1px solid #f5d0fe;
+            border-left: 4px solid #c026d3;
+            border-radius: 10px;
+            background: #fdf4ff;
+            color: #701a75;
+            padding: 9px 11px;
+            font-size: 0.84em;
+            line-height: 1.35;
+        }
+
+        .strategy-advisor-cards {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .advisor-card {
+            border: 1px solid #dbe3ef;
+            border-radius: 11px;
+            background: #fff;
+            padding: 10px;
+            display: grid;
+            gap: 5px;
+        }
+
+        .advisor-card.best {
+            border-left: 4px solid #16a34a;
+        }
+
+        .advisor-card.alt {
+            border-left: 4px solid #0284c7;
+        }
+
+        .advisor-card.worst {
+            border-left: 4px solid #dc2626;
+        }
+
+        .advisor-card-label {
+            font-size: 0.74em;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            font-weight: 800;
+            color: #64748b;
+        }
+
+        .advisor-card h4 {
+            margin: 0;
+            color: #0f172a;
+            font-size: 1em;
+        }
+
+        .advisor-card p {
+            margin: 0;
+            color: #334155;
+            font-size: 0.82em;
+            line-height: 1.32;
+        }
+
+        .strategy-advisor-chart-wrap {
+            border: 1px solid #dbe3ef;
+            border-radius: 11px;
+            background: #fff;
+            padding: 8px;
+            min-height: 330px;
+            position: relative;
+        }
+
+        .strategy-advisor-warnings {
+            display: none;
+            border: 1px solid #fde68a;
+            border-left: 4px solid #d97706;
+            border-radius: 10px;
+            background: #fffbeb;
+            color: #92400e;
+            padding: 9px 11px;
+            font-size: 0.82em;
+            line-height: 1.35;
+        }
+
+        .strategy-advisor-warnings.active {
+            display: block;
+        }
+
+        @media (max-width: 920px) {
+            .strategy-advisor-cards {
+                grid-template-columns: 1fr;
+            }
+
+            .strategy-advisor-chart-wrap {
+                min-height: 280px;
+            }
         }
 
         .battle-log {
@@ -1547,6 +1780,7 @@
                     <div class="toolbar-strategy">
                         <select id="strategySelect"></select>
                         <button type="button" onclick="applyBattleStrategy()">Applica Strategia</button>
+                        <button id="strategyInfoBtn" type="button" onclick="openInGameAdvisorMenu()">Info Strategie</button>
                     </div>
                 </div>
                 <div class="button-row">
@@ -1709,6 +1943,50 @@
                 </div>
             </div>
         </div>
+
+        <div class="strategy-advisor-overlay" id="strategyAdvisorOverlay" onclick="closeInGameAdvisorIfBackdrop(event)">
+            <div class="strategy-advisor-modal">
+                <div class="strategy-advisor-header">
+                    <div>
+                        <h3>Info Strategie</h3>
+                        <p id="strategyAdvisorMeta">Stima tattica in battaglia.</p>
+                    </div>
+                    <button class="strategy-advisor-close" type="button" onclick="closeInGameAdvisorMenu()">Chiudi</button>
+                </div>
+                <div class="strategy-advisor-body">
+                    <div class="strategy-advisor-reliability" id="strategyAdvisorReliability">
+                        Affidabilità report: ---
+                    </div>
+                    <div class="strategy-advisor-note" id="strategyAdvisorNote">
+                        Rapporto parziale: analisi non completamente affidabile.
+                    </div>
+                    <div class="strategy-advisor-cards">
+                        <div class="advisor-card best">
+                            <div class="advisor-card-label">Consigliata ora</div>
+                            <h4 id="advisorTopName">---</h4>
+                            <p id="advisorTopScore">Compatibilità stimata: ---</p>
+                            <p id="advisorTopDesc">---</p>
+                        </div>
+                        <div class="advisor-card alt">
+                            <div class="advisor-card-label">Alternativa</div>
+                            <h4 id="advisorSecondName">---</h4>
+                            <p id="advisorSecondScore">Compatibilità stimata: ---</p>
+                            <p id="advisorSecondDesc">---</p>
+                        </div>
+                        <div class="advisor-card worst">
+                            <div class="advisor-card-label">Sconsigliata</div>
+                            <h4 id="advisorWorstName">---</h4>
+                            <p id="advisorWorstScore">Compatibilità stimata: ---</p>
+                            <p id="advisorWorstDesc">---</p>
+                        </div>
+                    </div>
+                    <div class="strategy-advisor-chart-wrap">
+                        <canvas id="strategyAdvisorRadarChart"></canvas>
+                    </div>
+                    <div class="strategy-advisor-warnings" id="strategyAdvisorWarnings"></div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -1720,6 +1998,17 @@
         let currentLayoutMode = 'split';
         let layoutSplitRatio = 0.7;
         let splitterDragging = false;
+        let inGameAdvisorRadarChart = null;
+        const ADVISOR_ATTRIBUTE_NAMES = {
+            U1_attack: 'Attacco',
+            U2_defense: 'Difesa',
+            U3_mobility: 'Mobilità',
+            U4_stealth: 'Furtività',
+            U5_discipline: 'Disciplina',
+            U6_terrain_adapt: 'Adatt. Terreno',
+            U7_range_power: 'Potenza a Distanza',
+            U8_support: 'Supporto',
+        };
         const SKILL_TREE_DEFINITION = [
             { id: 'domain_engineering', name: 'Costruzione Territoriale', path: 'Ingegneria', description: 'Costruisci ovunque nel dominio controllato.', turnsRequired: 40 },
             { id: 'fortress_doctrine', name: 'Dottrina Fortezza', path: 'Ingegneria', description: 'Placeholder abilità futura.', turnsRequired: 26 },
@@ -1907,8 +2196,12 @@
             }
 
             const strategySelect = document.getElementById('strategySelect');
+            const strategyInfoBtn = document.getElementById('strategyInfoBtn');
             if (strategySelect && sessionData.player?.strategy_id) {
                 strategySelect.value = sessionData.player.strategy_id;
+            }
+            if (strategyInfoBtn) {
+                strategyInfoBtn.disabled = gameOver;
             }
 
             const recruitSelect = document.getElementById('recruitSelect');
@@ -2140,6 +2433,12 @@
             const aiLines = [];
 
             for (const line of lines) {
+                const isAutoRecruitEvent = /autoreclutamento/i.test(line);
+                if (isAutoRecruitEvent) {
+                    playerLines.push(line);
+                    continue;
+                }
+
                 const hasPlayer = /\bPLAYER\b|\bplayer\b/.test(line);
                 const hasAi = /\bIA\b|\bAI\b|\bai\b/.test(line);
 
@@ -2189,12 +2488,17 @@
 
             const playerPos = mapData.positions.player || null;
             const adjacentMoves = getAdjacentMoves(playerPos, mapData.rows, mapData.cols);
+            const playerTransit = getEntityTransitState('player', mapData);
+            const aiTransit = getEntityTransitState('ai', mapData);
+            const cellRefs = new Map();
 
             mapData.grid.forEach((row, rowIndex) => {
                 row.forEach((cell, colIndex) => {
                     const button = document.createElement('button');
                     button.className = `map-cell ${terrainClass(cell.terrain)}`;
                     button.type = 'button';
+                    button.dataset.row = String(rowIndex);
+                    button.dataset.col = String(colIndex);
                     button.title = `${cell.terrain} (${rowIndex}, ${colIndex})`;
 
                     if (cell.is_strategic) button.classList.add('cell-strategic');
@@ -2203,9 +2507,17 @@
 
                     if (mapData.positions.player && mapData.positions.player[0] === rowIndex && mapData.positions.player[1] === colIndex) {
                         button.classList.add('cell-player-army');
+                        if (playerTransit) {
+                            button.classList.add('cell-army-in-transit');
+                            button.title += buildTransitTitleSuffix(playerTransit);
+                        }
                     }
                     if (mapData.positions.ai && mapData.positions.ai[0] === rowIndex && mapData.positions.ai[1] === colIndex) {
                         button.classList.add('cell-ai-army');
+                        if (aiTransit) {
+                            button.classList.add('cell-army-in-transit');
+                            button.title += buildTransitTitleSuffix(aiTransit);
+                        }
                     }
 
                     const isAdjacent = adjacentMoves.some(move => move[0] === rowIndex && move[1] === colIndex);
@@ -2223,18 +2535,109 @@
                         button.disabled = true;
                     }
 
-                    button.innerHTML = buildCellLabel(cell, rowIndex, colIndex, mapData);
+                    button.innerHTML = buildCellLabel(cell, rowIndex, colIndex, mapData, playerTransit, aiTransit);
 
                     board.appendChild(button);
+                    cellRefs.set(`${rowIndex},${colIndex}`, button);
                 });
             });
+
+            renderTransitMarker(board, mapData, 'player', playerTransit, cellRefs);
+            renderTransitMarker(board, mapData, 'ai', aiTransit, cellRefs);
         }
 
-        function buildCellLabel(cell, rowIndex, colIndex, mapData) {
+        function getEntityTransitState(entityKey, mapData) {
+            const movement = currentBattleState?.[entityKey]?.movement;
+            if (!movement) return null;
+
+            const blockedTurns = Number(movement.blocked_turns || 0);
+            const missingRatio = Math.max(0, Math.min(1, Number(movement.missing_ratio || 0)));
+            const progressRatio = Math.max(0, Math.min(1, Number(movement.progress_ratio || 1)));
+
+            if (missingRatio <= 0 || blockedTurns <= 0) {
+                return null;
+            }
+
+            const fromPos = Array.isArray(movement.last_from_pos) ? movement.last_from_pos : null;
+            const toPos = Array.isArray(movement.last_to_pos) ? movement.last_to_pos : null;
+            if (!fromPos || !toPos || fromPos.length !== 2 || toPos.length !== 2) {
+                return null;
+            }
+
+            const currentPos = mapData?.positions?.[entityKey];
+            if (!Array.isArray(currentPos) || currentPos[0] !== toPos[0] || currentPos[1] !== toPos[1]) {
+                return null;
+            }
+
+            const deltaRow = toPos[0] - fromPos[0];
+            const deltaCol = toPos[1] - fromPos[1];
+
+            if ((Math.abs(deltaRow) + Math.abs(deltaCol)) !== 1) {
+                return null;
+            }
+
+            return {
+                fromPos,
+                toPos,
+                progressRatio,
+                progressPercent: Math.round(progressRatio * 100),
+                missingPercent: Math.round(missingRatio * 100),
+                blockedTurns,
+                terrain: movement.last_terrain || 'Terreno',
+                cost: Number(movement.last_cost || 0),
+            };
+        }
+
+        function renderTransitMarker(board, mapData, entityKey, transitState, cellRefs) {
+            if (!transitState) return;
+
+            const fromPos = transitState.fromPos;
+            const toPos = transitState.toPos;
+            if (!Array.isArray(fromPos) || !Array.isArray(toPos)) return;
+
+            const fromButton = cellRefs.get(`${fromPos[0]},${fromPos[1]}`);
+            const toButton = cellRefs.get(`${toPos[0]},${toPos[1]}`);
+            if (!fromButton || !toButton) return;
+
+            const boardRect = board.getBoundingClientRect();
+            const fromRect = fromButton.getBoundingClientRect();
+            const toRect = toButton.getBoundingClientRect();
+
+            const fromX = (fromRect.left - boardRect.left) + board.scrollLeft + (fromRect.width / 2);
+            const fromY = (fromRect.top - boardRect.top) + board.scrollTop + (fromRect.height / 2);
+            const toX = (toRect.left - boardRect.left) + board.scrollLeft + (toRect.width / 2);
+            const toY = (toRect.top - boardRect.top) + board.scrollTop + (toRect.height / 2);
+
+            const progress = Math.max(0, Math.min(1, Number(transitState.progressRatio || 0)));
+            const x = fromX + ((toX - fromX) * progress);
+            const y = fromY + ((toY - fromY) * progress);
+
+            const marker = document.createElement('div');
+            marker.className = `transit-marker ${entityKey}`;
+            marker.textContent = entityKey === 'player' ? 'YOU' : 'IA';
+            marker.title =
+                `${entityKey === 'player' ? 'PLAYER' : 'IA'} in movimento: ` +
+                `${transitState.progressPercent}% completato, ` +
+                `${transitState.missingPercent}% mancante`; 
+            marker.style.left = `${x}px`;
+            marker.style.top = `${y}px`;
+
+            board.appendChild(marker);
+        }
+
+        function buildTransitTitleSuffix(transitState) {
+            return (
+                ` · Movimento in corso: ${transitState.progressPercent}% completato` +
+                ` (${transitState.missingPercent}% mancante, costo ${transitState.cost}, terreno ${transitState.terrain})`
+            );
+        }
+
+        function buildCellLabel(cell, rowIndex, colIndex, mapData, playerTransit = null, aiTransit = null) {
             const isPlayerArmy = mapData.positions.player && mapData.positions.player[0] === rowIndex && mapData.positions.player[1] === colIndex;
             const isAiArmy = mapData.positions.ai && mapData.positions.ai[0] === rowIndex && mapData.positions.ai[1] === colIndex;
 
             if (isPlayerArmy) {
+                if (playerTransit) return '';
                 let playerLabel = cell.is_mine ? 'YOU⛏' : 'YOU';
                 if (cell.fortification_level > 0) {
                     playerLabel += `<span class="fort-badge">🧱${cell.fortification_level}</span>`;
@@ -2242,6 +2645,7 @@
                 return playerLabel;
             }
             if (isAiArmy) {
+                if (aiTransit) return '';
                 let aiLabel = cell.is_mine ? 'IA⛏' : 'IA';
                 if (cell.fortification_level > 0) {
                     aiLabel += `<span class="fort-badge">🧱${cell.fortification_level}</span>`;
@@ -2485,6 +2889,7 @@
             if (event.key === 'Escape') {
                 closeSkillTree();
                 closeAutoRecruitMenu();
+                closeInGameAdvisorMenu();
                 toggleSettingsMenu(false);
             }
 
@@ -3096,6 +3501,222 @@
                 transientLogLines = [`Errore stop autoreclutamento: ${error.message}`];
                 renderBattleState(currentBattleState);
             }
+        }
+
+        async function openInGameAdvisorMenu() {
+            if (!currentBattleState || currentBattleState.state === 'game_over') {
+                document.getElementById('battleStatusHint').textContent = 'Partita terminata: advisor non disponibile.';
+                return;
+            }
+
+            const overlay = document.getElementById('strategyAdvisorOverlay');
+            const reliability = document.getElementById('strategyAdvisorReliability');
+            const note = document.getElementById('strategyAdvisorNote');
+            if (reliability) {
+                reliability.textContent = 'Affidabilità report: analisi in corso...';
+            }
+            if (note) {
+                note.textContent = 'Raccolta dati tattici in corso...';
+            }
+
+            if (overlay) {
+                overlay.classList.add('open');
+            }
+
+            try {
+                const response = await fetch('http://127.0.0.1:8000/game/in-game-advisor');
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Errore recupero advisor strategico');
+                }
+
+                const advisor = await response.json();
+                renderInGameAdvisor(advisor);
+            } catch (error) {
+                if (note) {
+                    note.textContent = `Errore advisor: ${error.message}`;
+                }
+                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
+            }
+        }
+
+        function closeInGameAdvisorMenu() {
+            const overlay = document.getElementById('strategyAdvisorOverlay');
+            if (!overlay) return;
+            overlay.classList.remove('open');
+        }
+
+        function closeInGameAdvisorIfBackdrop(event) {
+            if (event.target && event.target.id === 'strategyAdvisorOverlay') {
+                closeInGameAdvisorMenu();
+            }
+        }
+
+        function renderInGameAdvisor(advisor) {
+            const top = advisor?.top_strategy || {};
+            const second = advisor?.second_strategy || top;
+            const worst = advisor?.worst_strategy || top;
+            const reliability = advisor?.reliability || {};
+
+            const weatherLabel = advisor?.weather_name || 'Nessuno';
+            const troopStatusLabel = advisor?.troop_status_name || 'N/D';
+            const meta = document.getElementById('strategyAdvisorMeta');
+            if (meta) {
+                meta.textContent = `Turno ${advisor?.turn || '?'} · Terreno: ${advisor?.terrain_name || 'N/D'} · Meteo: ${weatherLabel} · Stato truppe: ${troopStatusLabel}`;
+            }
+
+            const reliabilityEl = document.getElementById('strategyAdvisorReliability');
+            if (reliabilityEl) {
+                reliabilityEl.textContent =
+                    `Affidabilità report: ${reliability.score_pct ?? '--'}% · ` +
+                    `Incertezza: ${reliability.uncertainty_pct ?? '--'}% (${reliability.label || 'stima in-battle'})`;
+            }
+
+            const noteEl = document.getElementById('strategyAdvisorNote');
+            if (noteEl) {
+                noteEl.textContent = reliability.note || 'Analisi tattica preliminare.';
+            }
+
+            document.getElementById('advisorTopName').textContent = top.name || '---';
+            document.getElementById('advisorTopScore').textContent =
+                `Compatibilità stimata: ${formatAdvisorPct(top.compatibility)} · ` +
+                `Confidenza: ${formatAdvisorPct(top.confidence)} · ` +
+                `Distanza: ${formatAdvisorDistance(top.distance)}`;
+            document.getElementById('advisorTopDesc').textContent = top.description || 'Nessuna descrizione disponibile.';
+
+            document.getElementById('advisorSecondName').textContent = second.name || '---';
+            document.getElementById('advisorSecondScore').textContent =
+                `Compatibilità stimata: ${formatAdvisorPct(second.compatibility)} · ` +
+                `Confidenza: ${formatAdvisorPct(second.confidence)} · ` +
+                `Distanza: ${formatAdvisorDistance(second.distance)}`;
+            document.getElementById('advisorSecondDesc').textContent = second.description || 'Nessuna descrizione disponibile.';
+
+            document.getElementById('advisorWorstName').textContent = worst.name || '---';
+            document.getElementById('advisorWorstScore').textContent =
+                `Compatibilità stimata: ${formatAdvisorPct(worst.compatibility)} · ` +
+                `Confidenza: ${formatAdvisorPct(worst.confidence)} · ` +
+                `Distanza: ${formatAdvisorDistance(worst.distance)}`;
+            document.getElementById('advisorWorstDesc').textContent = worst.description || 'Nessuna descrizione disponibile.';
+
+            const warnings = advisor?.critical_warnings || [];
+            const warningsBox = document.getElementById('strategyAdvisorWarnings');
+            if (warningsBox) {
+                if (warnings.length > 0) {
+                    warningsBox.classList.add('active');
+                    warningsBox.innerHTML = `<strong>⚠️ Avvisi CRITICAL:</strong><br>${warnings.join('<br>')}`;
+                } else {
+                    warningsBox.classList.remove('active');
+                    warningsBox.innerHTML = '';
+                }
+            }
+
+            updateInGameAdvisorChart(
+                advisor?.army_profile || {},
+                advisor?.modified_profile || {},
+                top.ideal_attributes || {},
+            );
+        }
+
+        function formatAdvisorPct(value) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return '--';
+            return `${n.toFixed(1)}%`;
+        }
+
+        function formatAdvisorDistance(value) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return '--';
+            return n.toFixed(4);
+        }
+
+        function updateInGameAdvisorChart(originalArmy, modifiedArmy, topStrategyIdeal) {
+            const canvas = document.getElementById('strategyAdvisorRadarChart');
+            if (!canvas || typeof Chart === 'undefined') {
+                return;
+            }
+
+            const keys = Object.keys(originalArmy || {});
+            if (keys.length === 0) {
+                return;
+            }
+
+            const labels = keys.map(key => ADVISOR_ATTRIBUTE_NAMES[key] || key);
+            const originalValues = keys.map(key => Number(originalArmy[key] || 0));
+            const modifiedValues = keys.map(key => Number(modifiedArmy[key] || 0));
+            const idealValues = keys.map(key => Number(topStrategyIdeal[key] || 0));
+
+            if (inGameAdvisorRadarChart) {
+                inGameAdvisorRadarChart.destroy();
+            }
+
+            const ctx = canvas.getContext('2d');
+            inGameAdvisorRadarChart = new Chart(ctx, {
+                type: 'radar',
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: 'Esercito attuale',
+                            data: originalValues,
+                            backgroundColor: 'rgba(233, 69, 96, 0.16)',
+                            borderColor: '#e94560',
+                            pointBackgroundColor: '#e94560',
+                            borderWidth: 2,
+                            pointRadius: 3,
+                            pointHoverRadius: 5,
+                        },
+                        {
+                            label: 'Con modificatori',
+                            data: modifiedValues,
+                            backgroundColor: 'rgba(102, 126, 234, 0.16)',
+                            borderColor: '#667eea',
+                            pointBackgroundColor: '#667eea',
+                            borderWidth: 2,
+                            pointRadius: 3,
+                            pointHoverRadius: 5,
+                        },
+                        {
+                            label: 'Strategia stimata ideale',
+                            data: idealValues,
+                            backgroundColor: 'rgba(22, 163, 74, 0.14)',
+                            borderColor: '#16a34a',
+                            pointBackgroundColor: '#16a34a',
+                            borderDash: [5, 5],
+                            borderWidth: 2,
+                            pointRadius: 3,
+                            pointHoverRadius: 5,
+                        },
+                    ],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                font: { size: 11, weight: '600' },
+                                padding: 12,
+                            },
+                        },
+                    },
+                    scales: {
+                        r: {
+                            min: 0,
+                            max: 1,
+                            ticks: {
+                                stepSize: 0.2,
+                                font: { size: 10 },
+                            },
+                            pointLabels: {
+                                font: { size: 11, weight: '500' },
+                            },
+                            angleLines: { color: 'rgba(0,0,0,0.1)' },
+                            grid: { color: 'rgba(0,0,0,0.05)' },
+                        },
+                    },
+                },
+            });
         }
 
         function renderSkillTree(sessionData) {
