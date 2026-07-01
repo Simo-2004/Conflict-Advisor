@@ -297,6 +297,13 @@ class AbilityResearchRequest(BaseModel):
     ability_id: str = Field(..., description="ID abilità da ricercare")
 
 
+class PlayerOrdersRequest(BaseModel):
+    """Richiesta per impostare ordini operativi del player."""
+    movement_order: Optional[str] = Field(None, description="Ordine movimento")
+    build_order: Optional[str] = Field(None, description="Ordine supporto/costruzioni")
+    control_mode: Optional[str] = Field(None, description="Modalità controllo: manual | orders")
+
+
 # ==================== ENDPOINT GIOCO ====================
 
 @app.post("/game/confirm")
@@ -352,6 +359,11 @@ async def game_move(request: MoveRequest):
     """
     if _active_session is None:
         raise HTTPException(status_code=400, detail="Nessuna partita attiva. Prima chiama POST /game/confirm.")
+    if not _active_session.is_manual_control_enabled():
+        raise HTTPException(
+            status_code=400,
+            detail="Modalità ordini attiva: usa POST /game/orders/execute-turn o passa a modalità manuale.",
+        )
 
     try:
         result = _active_session.player_move(
@@ -365,6 +377,45 @@ async def game_move(request: MoveRequest):
         return result
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/game/orders")
+async def game_set_orders(request: Optional[PlayerOrdersRequest] = None):
+    """Imposta o aggiorna gli ordini del player (modalità graduale manual/orders)."""
+    if _active_session is None:
+        raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
+
+    try:
+        payload = request or PlayerOrdersRequest()
+        return _active_session.set_player_orders(
+            movement_order=payload.movement_order,
+            build_order=payload.build_order,
+            control_mode=payload.control_mode,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/game/orders/execute-turn")
+async def game_execute_order_turn(request: Optional[PlayerOrdersRequest] = None):
+    """Esegue un turno completo seguendo gli ordini correnti del player."""
+    if _active_session is None:
+        raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
+
+    try:
+        if request is not None:
+            _active_session.set_player_orders(
+                movement_order=request.movement_order,
+                build_order=request.build_order,
+                control_mode=request.control_mode,
+            )
+        return _active_session.resolve_player_order_turn()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

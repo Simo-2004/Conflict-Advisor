@@ -1,13 +1,114 @@
-﻿        function renderBattleState(sessionData) {
+﻿        const ORDER_MODE_LABELS = {
+            manual: 'Manuale',
+            orders: 'Ordini',
+        };
+
+        const MOVEMENT_ORDER_LABELS = {
+            advance_castle: 'Assalto castello',
+            engage_ai: 'Ingaggia IA',
+            expand_front: 'Espansione fronte',
+            defend_castle: 'Difesa castello',
+            hold: 'Mantieni posizione',
+        };
+
+        const BUILD_ORDER_LABELS = {
+            balanced: 'Bilanciato',
+            economy: 'Economia',
+            fortify: 'Fortificazioni',
+            garrison: 'Presidi',
+            none: 'Nessun supporto',
+        };
+
+        function renderOrderSelectOptions(select, values, labelsByValue) {
+            if (!select || !Array.isArray(values) || values.length === 0) {
+                return;
+            }
+            const currentValue = select.value;
+            select.innerHTML = values
+                .map(value => `<option value="${value}">${labelsByValue[value] || value}</option>`)
+                .join('');
+            if (values.includes(currentValue)) {
+                select.value = currentValue;
+            }
+        }
+
+        function renderOrderControls(sessionData, gameOver) {
+            const player = sessionData.player || {};
+            const orders = player.orders || {};
+            const options = orders.options || {};
+            const controlMode = player.control_mode || 'manual';
+
+            const controlModeSelect = document.getElementById('orderControlModeSelect');
+            const movementSelect = document.getElementById('orderMovementSelect');
+            const buildSelect = document.getElementById('orderBuildSelect');
+            const applyBtn = document.getElementById('ordersApplyBtn');
+            const executeBtn = document.getElementById('ordersExecuteBtn');
+
+            if (controlModeSelect) {
+                renderOrderSelectOptions(
+                    controlModeSelect,
+                    options.control_modes || ['orders', 'manual'],
+                    ORDER_MODE_LABELS,
+                );
+                controlModeSelect.value = controlMode;
+                controlModeSelect.disabled = gameOver;
+            }
+
+            if (movementSelect) {
+                renderOrderSelectOptions(
+                    movementSelect,
+                    options.movement_orders || Object.keys(MOVEMENT_ORDER_LABELS),
+                    MOVEMENT_ORDER_LABELS,
+                );
+                movementSelect.value = orders.movement_order || 'advance_castle';
+                movementSelect.disabled = gameOver;
+            }
+
+            if (buildSelect) {
+                renderOrderSelectOptions(
+                    buildSelect,
+                    options.build_orders || Object.keys(BUILD_ORDER_LABELS),
+                    BUILD_ORDER_LABELS,
+                );
+                buildSelect.value = orders.build_order || 'balanced';
+                buildSelect.disabled = gameOver;
+            }
+
+            if (applyBtn) {
+                applyBtn.disabled = gameOver;
+            }
+
+            if (executeBtn) {
+                const orderModeActive = controlMode === 'orders';
+                executeBtn.disabled = gameOver;
+                executeBtn.title = orderModeActive
+                    ? 'Esegui un turno completo secondo gli ordini attivi'
+                    : 'Esegue il turno e passa automaticamente alla modalità Ordini';
+            }
+        }
+
+        function renderBattleState(sessionData) {
             currentBattleState = sessionData;
 
-            document.getElementById('battleStatusMode').textContent = `Azione: ${actionLabel(currentAction)}`;
+            const controlMode = sessionData.player?.control_mode || 'manual';
+            const manualControl = controlMode === 'manual';
+            const movementOrder = sessionData.player?.orders?.movement_order || 'advance_castle';
+            const buildOrder = sessionData.player?.orders?.build_order || 'balanced';
+
+            document.getElementById('battleStatusMode').textContent = manualControl
+                ? `Azione: ${actionLabel(currentAction)}`
+                : `Controllo: ${ORDER_MODE_LABELS[controlMode] || controlMode}`;
             if (sessionData.state === 'game_over') {
                 document.getElementById('battleStatusRound').textContent = `Fine partita: ${sessionData.winner}`;
                 document.getElementById('battleStatusHint').textContent = 'Il registro mostra il riepilogo completo della battaglia.';
             } else {
                 document.getElementById('battleStatusRound').textContent = `Turno ${sessionData.map.turn}`;
-                if (currentAction === 'move_garrison' && sessionData.player.available_garrisons <= 0) {
+                if (!manualControl) {
+                    const moveLabel = MOVEMENT_ORDER_LABELS[movementOrder] || movementOrder;
+                    const buildLabel = BUILD_ORDER_LABELS[buildOrder] || buildOrder;
+                    document.getElementById('battleStatusHint').textContent =
+                        `Modalità Ordini: ${moveLabel} + ${buildLabel}. Premi "Esegui turno ordini" o tasto E.`;
+                } else if (currentAction === 'move_garrison' && sessionData.player.available_garrisons <= 0) {
                     document.getElementById('battleStatusHint').textContent = 'Nessun presidio disponibile: recluta unità o cambia azione.';
                 } else if (currentAction === 'place_mine' && sessionData.player.available_mine_slots <= 0) {
                     document.getElementById('battleStatusHint').textContent = 'Nessuno slot miniera: conquista più territorio per costruirne altre.';
@@ -63,6 +164,22 @@
             }
 
             const gameOver = sessionData.state === 'game_over';
+            renderOrderControls(sessionData, gameOver);
+
+            const actionButtons = [
+                document.getElementById('actionMoveBtn'),
+                document.getElementById('actionGarrisonBtn'),
+                document.getElementById('actionMineBtn'),
+                document.getElementById('actionFortifyBtn'),
+            ];
+            actionButtons.forEach((btn) => {
+                if (btn) btn.disabled = gameOver || !manualControl;
+            });
+
+            const garrisonUnitSelect = document.getElementById('garrisonUnitSelect');
+            if (garrisonUnitSelect && (gameOver || !manualControl)) {
+                garrisonUnitSelect.disabled = true;
+            }
 
             const difficultySelect = document.getElementById('aiDifficultySelect');
             const applyDifficultyBtn = document.getElementById('applyAiDifficultyBtn');
@@ -371,6 +488,7 @@
             board.innerHTML = '';
             board.style.gridTemplateColumns = `repeat(${mapData.cols}, minmax(42px, 1fr))`;
 
+            const manualControl = (currentBattleState?.player?.control_mode || 'manual') === 'manual';
             const playerPos = mapData.positions.player || null;
             const adjacentMoves = getAdjacentMoves(playerPos, mapData.rows, mapData.cols);
             const playerTransit = getEntityTransitState('player', mapData);
@@ -411,12 +529,16 @@
                     const mineMode = currentAction === 'place_mine';
                     const fortifyMode = currentAction === 'place_fortification';
 
-                    if (currentBattleState && currentBattleState.state !== 'game_over') {
+                    if (currentBattleState && currentBattleState.state !== 'game_over' && manualControl) {
                         if (isAdjacent || (mineMode && canMine) || (fortifyMode && canFortify)) {
                             button.classList.add('cell-adjacent');
                         }
                         button.onclick = (event) => handleCellAction(event, rowIndex, colIndex, isAdjacent, canMine, canFortify);
                     } else {
+                        if (currentBattleState && currentBattleState.state !== 'game_over' && !manualControl) {
+                            button.classList.add('cell-orders-locked');
+                            button.title += ' · Movimento manuale disattivato (modalità ordini)';
+                        }
                         button.disabled = true;
                     }
 

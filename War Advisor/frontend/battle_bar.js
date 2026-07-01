@@ -32,6 +32,7 @@
         const garrisonPreview = document.getElementById('garrisonDefensePreview');
         const toolbarRecruit = qs(battleToolbar, '.toolbar-recruit');
         const toolbarStrategy = qs(battleToolbar, '.toolbar-strategy');
+        const ordersPanel = document.getElementById('ordersPanel');
         const buttonRow = qs(battleToolbar, '.button-row');
         const layoutModeRow = qs(battleToolbar, '.layout-mode-row');
 
@@ -64,6 +65,7 @@
         moveIfPresent(garrisonPreview, warPane);
         moveIfPresent(toolbarRecruit, warPane);
         moveIfPresent(toolbarStrategy, warPane);
+        moveIfPresent(ordersPanel, warPane);
         moveIfPresent(layoutModeRow, viewPane);
         moveIfPresent(buttonRow, systemPane);
 
@@ -74,6 +76,11 @@
         const recruitButton = document.getElementById('recruitBtn');
         const autoRecruitButton = document.getElementById('autoRecruitBtn');
         const garrisonButton = document.getElementById('actionGarrisonBtn');
+        const ordersApplyButton = document.getElementById('ordersApplyBtn');
+        const ordersExecuteButton = document.getElementById('ordersExecuteBtn');
+        const ordersModeSelect = document.getElementById('orderControlModeSelect');
+        const ordersMovementSelect = document.getElementById('orderMovementSelect');
+        const ordersBuildSelect = document.getElementById('orderBuildSelect');
         const layoutButtons = [
             document.getElementById('layoutSplitBtn'),
             document.getElementById('layoutMapBtn'),
@@ -83,8 +90,13 @@
         const aiButton = document.getElementById('aiKillSwitchBtn');
 
         if (recruitButton) recruitButton.addEventListener('click', () => activateBattleBarTab('war'));
-    if (autoRecruitButton) autoRecruitButton.addEventListener('click', () => activateBattleBarTab('war'));
+        if (autoRecruitButton) autoRecruitButton.addEventListener('click', () => activateBattleBarTab('war'));
         if (garrisonButton) garrisonButton.addEventListener('click', () => activateBattleBarTab('war'));
+        if (ordersApplyButton) ordersApplyButton.addEventListener('click', () => activateBattleBarTab('war'));
+        if (ordersExecuteButton) ordersExecuteButton.addEventListener('click', () => activateBattleBarTab('war'));
+        if (ordersModeSelect) ordersModeSelect.addEventListener('change', () => activateBattleBarTab('war'));
+        if (ordersMovementSelect) ordersMovementSelect.addEventListener('change', () => activateBattleBarTab('war'));
+        if (ordersBuildSelect) ordersBuildSelect.addEventListener('change', () => activateBattleBarTab('war'));
         layoutButtons.forEach((btn) => {
             if (btn) btn.addEventListener('click', () => activateBattleBarTab('view'));
         });

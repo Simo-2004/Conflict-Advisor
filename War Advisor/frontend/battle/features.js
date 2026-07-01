@@ -602,6 +602,87 @@
             }
         }
 
+        function readPlayerOrdersFromUi() {
+            const controlModeSelect = document.getElementById('orderControlModeSelect');
+            const movementSelect = document.getElementById('orderMovementSelect');
+            const buildSelect = document.getElementById('orderBuildSelect');
+
+            return {
+                control_mode: controlModeSelect ? controlModeSelect.value : null,
+                movement_order: movementSelect ? movementSelect.value : null,
+                build_order: buildSelect ? buildSelect.value : null,
+            };
+        }
+
+        async function applyPlayerOrders() {
+            if (!currentBattleState || currentBattleState.state === 'game_over') {
+                document.getElementById('battleStatusHint').textContent = 'Partita terminata: ordini non modificabili.';
+                return;
+            }
+
+            try {
+                const payload = readPlayerOrdersFromUi();
+                const response = await fetch('http://127.0.0.1:8000/game/orders', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Errore aggiornamento ordini');
+                }
+
+                const result = await response.json();
+                transientLogLines = [];
+                const nextState = result.session || result;
+                renderBattleState(nextState);
+                document.getElementById('battleStatusHint').textContent = 'Ordini aggiornati.';
+            } catch (error) {
+                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
+                transientLogLines = [`Errore aggiornamento ordini: ${error.message}`];
+                renderBattleState(currentBattleState);
+            }
+        }
+
+        async function executeOrderTurn() {
+            if (!currentBattleState || currentBattleState.state === 'game_over') {
+                document.getElementById('battleStatusHint').textContent = 'Partita terminata: nessun turno ordine eseguibile.';
+                return;
+            }
+
+            try {
+                const payload = readPlayerOrdersFromUi();
+                payload.control_mode = 'orders';
+
+                const response = await fetch('http://127.0.0.1:8000/game/orders/execute-turn', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Errore esecuzione turno ordini');
+                }
+
+                const result = await response.json();
+                transientLogLines = [];
+                const nextState = result.session || result;
+                renderBattleState(nextState);
+
+                if (result && result.skipped) {
+                    document.getElementById('battleStatusHint').textContent = 'Ordini eseguiti: armata in attesa, turno avanzato.';
+                } else {
+                    document.getElementById('battleStatusHint').textContent = 'Turno ordini eseguito.';
+                }
+            } catch (error) {
+                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
+                transientLogLines = [`Errore turno ordini: ${error.message}`];
+                renderBattleState(currentBattleState);
+            }
+        }
+
         async function applyAiDifficulty() {
             if (!currentBattleState || currentBattleState.state === 'game_over') {
                 document.getElementById('battleStatusHint').textContent = 'Partita terminata: non puoi cambiare difficoltà IA.';

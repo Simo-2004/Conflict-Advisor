@@ -38,6 +38,28 @@ except Exception:
 PLAYER = Occupation.PLAYER
 AI = Occupation.AI
 
+PLAYER_CONTROL_MODE_OPTIONS = ["orders", "manual"]
+PLAYER_CONTROL_MODES = set(PLAYER_CONTROL_MODE_OPTIONS)
+PLAYER_MOVEMENT_ORDER_OPTIONS = [
+    "advance_castle",
+    "engage_ai",
+    "expand_front",
+    "defend_castle",
+    "hold",
+]
+PLAYER_MOVEMENT_ORDERS = set(PLAYER_MOVEMENT_ORDER_OPTIONS)
+PLAYER_BUILD_ORDER_OPTIONS = [
+    "balanced",
+    "economy",
+    "fortify",
+    "garrison",
+    "none",
+]
+PLAYER_BUILD_ORDERS = set(PLAYER_BUILD_ORDER_OPTIONS)
+
+CASTLE_BASE_HP = 220
+CASTLE_HP_PER_UNIT = 8
+
 
 class SessionState(str, Enum):
     ACTIVE    = "active"
@@ -153,6 +175,48 @@ class GameSession:
             "successful_recruits": 0,
             "last_result": "inactive",
         }
+        self.player_control_mode: str = "orders"
+        self.player_orders: Dict[str, str] = {
+            "movement_order": "advance_castle",
+            "build_order": "balanced",
+        }
+        self.player_order_memory: Dict[str, Any] = {
+            "last_direction": None,
+            "straight_streak": 0,
+        }
+        self.castle_hp_max: Dict[Occupation, int] = self._build_castle_hp_pool()
+        self.castle_hp: Dict[Occupation, int] = dict(self.castle_hp_max)
+
+    def _build_castle_hp_pool(self) -> Dict[Occupation, int]:
+        player_max = CASTLE_BASE_HP + (len(self.player_units) * CASTLE_HP_PER_UNIT)
+        ai_max = CASTLE_BASE_HP + (len(self.ai_units) * CASTLE_HP_PER_UNIT)
+        return {
+            PLAYER: player_max,
+            AI: ai_max,
+        }
+
+    def _mine_income_for_count(self, mine_count: int) -> int:
+        """Rendimento miniere a bande: pieno early, decrescente in late game."""
+        if mine_count <= 0:
+            return 0
+
+        tier_1 = min(mine_count, 4)
+        tier_2 = min(max(0, mine_count - 4), 4)
+        tier_3 = min(max(0, mine_count - 8), 4)
+        tier_4 = max(0, mine_count - 12)
+
+        return (
+            (tier_1 * MINE_YIELD_PER_ROUND)
+            + (tier_2 * int(round(MINE_YIELD_PER_ROUND * 0.8)))
+            + (tier_3 * int(round(MINE_YIELD_PER_ROUND * 0.6)))
+            + (tier_4 * int(round(MINE_YIELD_PER_ROUND * 0.4)))
+        )
+
+    def _compute_castle_damage(self, attacker_strength: float, defender_score: float) -> int:
+        """Danno inflitto al castello quando l'assalto supera la difesa statica."""
+        overflow = max(0.0, attacker_strength - defender_score)
+        raw_damage = (overflow * 0.12) + (attacker_strength * 0.02)
+        return max(8, min(65, int(round(raw_damage))))
 
     # ──────────────────────────────────────────────────────────
     # MOSSA GIOCATORE (entry-point principale)
@@ -526,12 +590,18 @@ class GameSession:
         player_pos = self.game_map.positions.get(PLAYER)
         enemy_castle = self.game_map.get_castle_position(PLAYER)
         own_castle = self.game_map.get_castle_position(AI)
+        ai_cell = self.game_map.get_cell(*ai_pos)
+        estimate_terrain = ai_cell.terrain if ai_cell is not None else "Pianura"
 
         strategic_targets = self.game_map.get_strategic_targets(
             entity=AI,
             army_vector=self.ai_army,
             terrain_modifiers=self.data["terrain"],
         )
+
+        ai_strength_est = self._strength_breakdown(AI, estimate_terrain)["effective_strength"]
+        player_strength_est = self._strength_breakdown(PLAYER, estimate_terrain)["effective_strength"]
+        ai_has_advantage = ai_strength_est >= (player_strength_est * 1.08)
 
         easy_target = self.ai_policy.choose_target(
             ai_pos=ai_pos,
@@ -551,7 +621,9 @@ class GameSession:
 
         if enemy_castle:
             dist_castle = abs(ai_pos[0] - enemy_castle[0]) + abs(ai_pos[1] - enemy_castle[1])
-            if dist_castle <= 4:
+            if dist_castle <= 2:
+                return enemy_castle
+            if dist_castle <= 4 and ai_has_advantage and not strategic_targets:
                 return enemy_castle
 
         targets = strategic_targets
@@ -563,13 +635,15 @@ class GameSession:
 
             if player_pos:
                 dist_player = abs(ai_pos[0] - player_pos[0]) + abs(ai_pos[1] - player_pos[1])
-                if dist_player <= 2 and dist_player <= dist_strat:
+                if dist_player <= 2 and dist_player <= dist_strat and ai_has_advantage:
                     return player_pos
 
             return strat_pos
 
         # Nessun target strategico: carica il castello o il giocatore
-        return enemy_castle or player_pos
+        if ai_has_advantage:
+            return enemy_castle or player_pos
+        return player_pos or enemy_castle
 
     def _should_ai_leave_garrison(self, from_pos: Tuple[int, int]) -> bool:
         """L'IA lascia guarnigioni su castelli e punti strategici quando possibile."""
@@ -595,10 +669,14 @@ class GameSession:
                 continue
             mine_count = self.game_map.count_mines(entity)
             if mine_count > 0:
-                income = mine_count * MINE_YIELD_PER_ROUND
+                linear_income = mine_count * MINE_YIELD_PER_ROUND
+                income = self._mine_income_for_count(mine_count)
                 self.grux_balance[entity] += income
+                diminishing_note = ""
+                if income < linear_income:
+                    diminishing_note = f" (rendimenti decrescenti: -{linear_income - income})"
                 logs.append(
-                    f"[Turno {self.game_map.turn}] ⛏ {entity.value.upper()} incassa {income} grux da {mine_count} miniere"
+                    f"[Turno {self.game_map.turn}] ⛏ {entity.value.upper()} incassa {income} grux da {mine_count} miniere{diminishing_note}"
                 )
 
         if not self.debug_ai_kill_switch:
@@ -703,6 +781,401 @@ class GameSession:
         """Unità distaccabili: sempre almeno una legione resta con l'armata principale."""
         units = self._entity_units(entity)
         return max(0, len(units) - 1)
+
+    def is_manual_control_enabled(self) -> bool:
+        return self.player_control_mode == "manual"
+
+    def set_player_orders(
+        self,
+        *,
+        movement_order: Optional[str] = None,
+        build_order: Optional[str] = None,
+        control_mode: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Aggiorna la configurazione ordini del player (modalità graduale manual/orders)."""
+        if self.state != SessionState.ACTIVE:
+            raise ValueError("La partita è terminata.")
+
+        changed: List[str] = []
+
+        if control_mode is not None:
+            if control_mode not in PLAYER_CONTROL_MODES:
+                raise ValueError(f"Modalità controllo non valida: {control_mode}")
+            if control_mode != self.player_control_mode:
+                self.player_control_mode = control_mode
+                changed.append(f"modalità={control_mode}")
+
+        if movement_order is not None:
+            if movement_order not in PLAYER_MOVEMENT_ORDERS:
+                raise ValueError(f"Ordine movimento non valido: {movement_order}")
+            if movement_order != self.player_orders.get("movement_order"):
+                self.player_orders["movement_order"] = movement_order
+                changed.append(f"movimento={movement_order}")
+
+        if build_order is not None:
+            if build_order not in PLAYER_BUILD_ORDERS:
+                raise ValueError(f"Ordine supporto non valido: {build_order}")
+            if build_order != self.player_orders.get("build_order"):
+                self.player_orders["build_order"] = build_order
+                changed.append(f"supporto={build_order}")
+
+        if changed:
+            log_entry = f"[Turno {self.game_map.turn}] 🧭 PLAYER aggiorna ordini: " + ", ".join(changed)
+            self.battle_log.append(log_entry)
+        else:
+            log_entry = f"[Turno {self.game_map.turn}] 🧭 Ordini PLAYER invariati"
+
+        return {
+            "ok": True,
+            "message": log_entry,
+            "state": self.state.value,
+            "map": self.game_map.to_dict(),
+            "session": self.to_dict(),
+        }
+
+    @staticmethod
+    def _order_distance(a: Tuple[int, int], b: Tuple[int, int]) -> int:
+        return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+    @staticmethod
+    def _order_direction(from_pos: Tuple[int, int], to_pos: Tuple[int, int]) -> Tuple[int, int]:
+        return (to_pos[0] - from_pos[0], to_pos[1] - from_pos[1])
+
+    def _adjacent_positions(self, origin: Tuple[int, int]) -> List[Tuple[int, int]]:
+        positions: List[Tuple[int, int]] = []
+        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            nr, nc = origin[0] + dr, origin[1] + dc
+            if 0 <= nr < self.game_map.rows and 0 <= nc < self.game_map.cols:
+                positions.append((nr, nc))
+        return positions
+
+    def _expand_direction_penalty(self, direction: Tuple[int, int]) -> float:
+        last_direction = self.player_order_memory.get("last_direction")
+        straight_streak = int(self.player_order_memory.get("straight_streak") or 0)
+        if not isinstance(last_direction, tuple):
+            return 0.0
+        if direction != last_direction:
+            return 0.0
+        return min(1.8, 0.35 * max(0, straight_streak - 1))
+
+    def _update_player_order_movement_memory(self, from_pos: Tuple[int, int], to_pos: Tuple[int, int]) -> None:
+        direction = self._order_direction(from_pos, to_pos)
+        last_direction = self.player_order_memory.get("last_direction")
+        if isinstance(last_direction, tuple) and direction == last_direction:
+            streak = int(self.player_order_memory.get("straight_streak") or 0) + 1
+        else:
+            streak = 1
+        self.player_order_memory["last_direction"] = direction
+        self.player_order_memory["straight_streak"] = streak
+
+    def _frontier_pressure_score(self, pos: Tuple[int, int]) -> float:
+        pressure = 0.0
+        for ar, ac in self._adjacent_positions(pos):
+            adjacent_cell = self.game_map.get_cell(ar, ac)
+            if adjacent_cell is None:
+                continue
+            if adjacent_cell.occupation != PLAYER:
+                pressure += 0.68
+                if adjacent_cell.is_strategic:
+                    pressure += 0.42
+        return pressure
+
+    def _select_player_expand_move(self) -> Optional[Tuple[int, int]]:
+        player_pos = self.game_map.positions.get(PLAYER)
+        if player_pos is None:
+            return None
+
+        own_castle = self.game_map.get_castle_position(PLAYER)
+        enemy_castle = self.game_map.get_castle_position(AI)
+        ai_pos = self.game_map.positions.get(AI)
+
+        current_enemy_castle_dist = self._order_distance(player_pos, enemy_castle) if enemy_castle else None
+        current_own_castle_dist = self._order_distance(player_pos, own_castle) if own_castle else None
+
+        candidates: List[Tuple[float, Tuple[int, int, int], Tuple[int, int]]] = []
+        for candidate in self._adjacent_positions(player_pos):
+            cell = self.game_map.get_cell(*candidate)
+            if cell is None:
+                continue
+
+            score = 0.0
+
+            if cell.occupation != PLAYER:
+                score += 2.6
+            else:
+                score -= 0.8
+
+            if cell.occupation == AI:
+                score += 1.35
+
+            if cell.is_strategic and cell.occupation != PLAYER:
+                score += 2.25
+
+            if cell.is_mine and cell.occupation != PLAYER:
+                score += 1.1
+
+            if cell.is_castle and cell.occupation == AI:
+                score += 3.0
+
+            score += self._frontier_pressure_score(candidate)
+
+            move_cost = self.movement_system.terrain_cost(cell.terrain)
+            if move_cost > self.movement_system.points_per_turn:
+                score -= (move_cost - self.movement_system.points_per_turn) / 60.0
+
+            if enemy_castle and current_enemy_castle_dist is not None:
+                next_enemy_castle_dist = self._order_distance(candidate, enemy_castle)
+                castle_delta = current_enemy_castle_dist - next_enemy_castle_dist
+                score += max(-0.8, min(0.8, castle_delta * 0.25))
+
+            if own_castle and current_own_castle_dist is not None:
+                next_own_castle_dist = self._order_distance(candidate, own_castle)
+                outward_delta = next_own_castle_dist - current_own_castle_dist
+                score += max(-0.4, min(0.6, outward_delta * 0.15))
+
+            if ai_pos is not None:
+                next_ai_dist = self._order_distance(candidate, ai_pos)
+                if next_ai_dist <= 1 and len(self.player_units) < len(self.ai_units):
+                    score -= 0.75
+                elif next_ai_dist <= 2:
+                    score += 0.15
+
+            direction = self._order_direction(player_pos, candidate)
+            score -= self._expand_direction_penalty(direction)
+
+            tie_rank = (
+                0 if cell.occupation != PLAYER else 1,
+                0 if (cell.is_strategic and cell.occupation != PLAYER) else 1,
+                move_cost,
+            )
+            candidates.append((score, tie_rank, candidate))
+
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda item: (-item[0], item[1]))
+        return candidates[0][2]
+
+    def _select_player_order_target(self) -> Optional[Tuple[int, int]]:
+        movement_order = self.player_orders.get("movement_order", "advance_castle")
+        player_pos = self.game_map.positions.get(PLAYER)
+        ai_pos = self.game_map.positions.get(AI)
+        own_castle = self.game_map.get_castle_position(PLAYER)
+        enemy_castle = self.game_map.get_castle_position(AI)
+
+        if movement_order == "hold":
+            return None
+
+        if movement_order == "engage_ai":
+            return ai_pos or enemy_castle
+
+        if movement_order == "defend_castle":
+            if ai_pos and own_castle and self._order_distance(ai_pos, own_castle) <= 4:
+                return ai_pos
+            return own_castle or ai_pos or enemy_castle
+
+        if movement_order == "expand_front":
+            targets = self.game_map.get_strategic_targets(
+                entity=PLAYER,
+                army_vector=self.player_army,
+                terrain_modifiers=self.data["terrain"],
+            )
+            if targets:
+                _, cell = targets[0]
+                return (cell.row, cell.col)
+            return enemy_castle or ai_pos
+
+        # default: advance_castle
+        if enemy_castle is not None:
+            return enemy_castle
+        return ai_pos
+
+    def _select_player_order_move(self) -> Optional[Tuple[int, int]]:
+        movement_order = self.player_orders.get("movement_order", "advance_castle")
+        if movement_order == "expand_front":
+            expand_move = self._select_player_expand_move()
+            if expand_move is not None:
+                return expand_move
+
+        target = self._select_player_order_target()
+        if target is None:
+            return None
+        return self.game_map.best_move_toward(PLAYER, target)
+
+    def _choose_player_order_mine_cell(self) -> Optional[Tuple[int, int]]:
+        if self._available_mine_slots(PLAYER) <= 0:
+            return None
+
+        player_pos = self.game_map.positions.get(PLAYER)
+        if player_pos is None:
+            return None
+
+        if not self._is_ability_unlocked(PLAYER, DOMAIN_ENGINEERING_ID):
+            cell = self.game_map.get_cell(*player_pos)
+            if cell and cell.occupation == PLAYER and not cell.is_castle and not cell.is_mine and cell.terrain != "Fiume":
+                return player_pos
+            return None
+
+        ai_pos = self.game_map.positions.get(AI)
+        best: Optional[Tuple[float, Tuple[int, int]]] = None
+        for row in self.game_map.grid:
+            for cell in row:
+                if cell.occupation != PLAYER or cell.is_castle or cell.is_mine or cell.terrain == "Fiume":
+                    continue
+                score = 0.0
+                if cell.is_strategic:
+                    score += 2.8
+                if cell.terrain in {"Pianura", "Montagna"}:
+                    score += 1.1
+                if ai_pos is not None:
+                    score -= self._order_distance((cell.row, cell.col), ai_pos) * 0.05
+                score -= self._order_distance((cell.row, cell.col), player_pos) * 0.02
+                if best is None or score > best[0]:
+                    best = (score, (cell.row, cell.col))
+
+        return best[1] if best else None
+
+    def _choose_player_order_fortification_cell(self) -> Optional[Tuple[int, int]]:
+        player_pos = self.game_map.positions.get(PLAYER)
+        if player_pos is None:
+            return None
+
+        if not self._is_ability_unlocked(PLAYER, DOMAIN_ENGINEERING_ID):
+            cell = self.game_map.get_cell(*player_pos)
+            if cell and cell.occupation == PLAYER and not cell.is_castle:
+                return player_pos
+            return None
+
+        best: Optional[Tuple[Tuple[int, int, int], Tuple[int, int]]] = None
+        for row in self.game_map.grid:
+            for cell in row:
+                if cell.occupation != PLAYER or cell.is_castle:
+                    continue
+                # Priorità: celle strategiche, poi livelli fortificazione più bassi.
+                rank = (
+                    0 if cell.is_strategic else 1,
+                    cell.fortification_level,
+                    self._order_distance((cell.row, cell.col), player_pos),
+                )
+                if best is None or rank < best[0]:
+                    best = (rank, (cell.row, cell.col))
+
+        return best[1] if best else None
+
+    def _run_player_order_build_phase(self) -> List[str]:
+        logs: List[str] = []
+        build_order = self.player_orders.get("build_order", "balanced")
+
+        if build_order == "none":
+            return logs
+
+        if build_order == "economy":
+            plan = ["mine"]
+        elif build_order == "fortify":
+            plan = ["fortify"]
+        elif build_order == "garrison":
+            plan = ["garrison"]
+        else:
+            plan = ["mine", "fortify", "garrison"]
+
+        for step in plan:
+            try:
+                if step == "mine":
+                    mine_target = self._choose_player_order_mine_cell()
+                    if mine_target is None:
+                        continue
+                    result = self.place_mine(mine_target[0], mine_target[1])
+                    logs.append(result["message"])
+                    break
+
+                if step == "fortify":
+                    fort_target = self._choose_player_order_fortification_cell()
+                    if fort_target is None:
+                        continue
+                    result = self.place_fortification(fort_target[0], fort_target[1])
+                    logs.append(result["message"])
+                    break
+
+                if step == "garrison":
+                    if self._available_garrisons(PLAYER) <= 0:
+                        continue
+                    result = self.place_garrison_here(unit_id=None)
+                    logs.append(result["message"])
+                    break
+            except ValueError:
+                continue
+
+        return logs
+
+    def _pass_turn_without_player_move(self, message: str, build_logs: Optional[List[str]] = None) -> Dict[str, Any]:
+        self.battle_log.append(message)
+
+        self.game_map.end_turn()
+        ai_result = self._ai_turn()
+
+        if self.state == SessionState.ACTIVE:
+            economy_logs = self._advance_round_economy()
+            if economy_logs:
+                self.battle_log.extend(economy_logs)
+
+        result: Dict[str, Any] = {
+            "ok": True,
+            "skipped": True,
+            "message": message,
+            "battle_result": None,
+            "ai_move_result": ai_result,
+            "game_over": self.state == SessionState.GAME_OVER,
+            "winner": self.winner,
+            "state": self.state.value,
+            "map": self.game_map.to_dict(),
+            "order_mode": True,
+            "session": self.to_dict(),
+        }
+        if build_logs:
+            result["build_logs"] = build_logs
+        return result
+
+    def resolve_player_order_turn(self) -> Dict[str, Any]:
+        """Esegue un turno completo secondo gli ordini impostati (player -> IA -> economia)."""
+        if self.state != SessionState.ACTIVE:
+            raise ValueError("La partita è terminata.")
+        if self.player_control_mode != "orders":
+            raise ValueError("Controllo manuale attivo: passa prima alla modalità ordini.")
+
+        build_logs = self._run_player_order_build_phase()
+        movement_order = self.player_orders.get("movement_order", "advance_castle")
+        next_move = self._select_player_order_move()
+
+        if next_move is None:
+            wait_message = (
+                f"[Turno {self.game_map.turn}] 🧭 PLAYER mantiene posizione "
+                f"(ordine movimento: {movement_order})"
+            )
+            return self._pass_turn_without_player_move(wait_message, build_logs=build_logs)
+
+        player_from_pos = self.game_map.positions.get(PLAYER)
+        move_result = self.player_move(
+            next_move[0],
+            next_move[1],
+            leave_garrison=False,
+            garrison_unit_id=None,
+        )
+
+        if not move_result.get("ok", False):
+            fallback_message = (
+                f"[Turno {self.game_map.turn}] 🧭 Ordine PLAYER non eseguibile: "
+                f"{move_result.get('message', 'mossa non valida')}"
+            )
+            return self._pass_turn_without_player_move(fallback_message, build_logs=build_logs)
+
+        if player_from_pos is not None and not move_result.get("skipped", False):
+            self._update_player_order_movement_memory(player_from_pos, next_move)
+
+        move_result["order_mode"] = True
+        move_result["session"] = self.to_dict()
+        if build_logs:
+            move_result["build_logs"] = build_logs
+        return move_result
 
     def _detach_unit_to_garrison(
         self,
@@ -820,21 +1293,46 @@ class GameSession:
         fortification_level: int = 0,
         garrison_strength: int = 0,
     ) -> int:
-        """Regola perdite condivisa: KO totale se in netto svantaggio, altrimenti perdite proporzionali."""
+        """Regola perdite condivisa: attrito progressivo, meno wipe istantanei."""
         if units_before <= 0:
             return 0
 
-        if own_strength <= enemy_strength:
+        if enemy_strength <= 0:
+            return 0
+
+        if own_strength <= 0:
             return units_before
 
-        pressure_ratio = min(1.0, enemy_strength / max(1.0, own_strength))
-        loss_ratio = 0.08 + (0.42 * pressure_ratio) + (0.04 * fortification_level) + (0.03 * garrison_strength)
-        loss_ratio = min(0.72, max(0.06, loss_ratio))
+        weaker_side = own_strength <= enemy_strength
+
+        if weaker_side:
+            disadvantage = 1.0 - min(1.0, own_strength / max(1.0, enemy_strength))
+            loss_ratio = (
+                0.30
+                + (0.34 * disadvantage)
+                + (0.03 * fortification_level)
+                + (0.02 * garrison_strength)
+            )
+            loss_ratio = min(0.88, max(0.24, loss_ratio))
+        else:
+            pressure_ratio = min(1.0, enemy_strength / max(1.0, own_strength))
+            loss_ratio = (
+                0.05
+                + (0.24 * pressure_ratio)
+                + (0.02 * fortification_level)
+                + (0.015 * garrison_strength)
+            )
+            loss_ratio = min(0.52, max(0.03, loss_ratio))
 
         losses = int(round(units_before * loss_ratio))
-        if units_before > 1 and enemy_strength > 0:
+
+        catastrophic_gap = own_strength < (enemy_strength * 0.32)
+        if units_before > 1:
             losses = max(1, losses)
-            losses = min(units_before - 1, losses)
+            if catastrophic_gap and weaker_side:
+                losses = min(units_before, losses)
+            else:
+                losses = min(units_before - 1, losses)
         else:
             losses = min(units_before, losses)
         return losses
@@ -1447,8 +1945,9 @@ class GameSession:
         for unit_id, count in composition.items():
             value = self._unit_battle_value(unit_id)
             base_part = value * count
-            # Bonus forte se accumuli lo stesso tipo (effetto massa/specializzazione)
-            stack_bonus = value * 0.34 * ((count - 1) ** 1.22) if count > 1 else 0.0
+            # Bonus stack controllato: utile ma meno esplosivo in late game.
+            stack_bonus = value * 0.22 * ((count - 1) ** 1.08) if count > 1 else 0.0
+            stack_bonus = min(stack_bonus, base_part * 0.55)
             unit_power_rows.append(
                 {
                     "unit_id": unit_id,
@@ -1773,19 +2272,40 @@ class GameSession:
             fortification_level=fortification_level,
             garrison_strength=garrison_strength,
         )
+        castle_damage = 0
+        castle_hp_before = None
+        castle_hp_after = None
 
         if attacker_strength > defender_score:
             winner = attacker
             loser = defender
-            if dest_cell is not None:
-                dest_cell.garrison_strength = 0
-                dest_cell.garrison_unit_ids = []
-                dest_cell.fortification_level = 0
-                dest_cell.occupation = attacker
-            self.game_map.positions[attacker] = to_pos
-            if dest_cell and dest_cell.is_castle:
-                self.state = SessionState.GAME_OVER
-                self.winner = attacker.value
+            if dest_cell is not None and dest_cell.is_castle:
+                castle_hp_before = self.castle_hp.get(defender, self.castle_hp_max.get(defender, CASTLE_BASE_HP))
+                castle_damage = self._compute_castle_damage(attacker_strength, defender_score)
+                castle_hp_after = max(0, castle_hp_before - castle_damage)
+                self.castle_hp[defender] = castle_hp_after
+
+                if castle_hp_after <= 0:
+                    dest_cell.garrison_strength = 0
+                    dest_cell.garrison_unit_ids = []
+                    dest_cell.fortification_level = 0
+                    dest_cell.occupation = attacker
+                    self.game_map.positions[attacker] = to_pos
+                    self.state = SessionState.GAME_OVER
+                    self.winner = attacker.value
+                else:
+                    # Il castello regge l'assalto: l'armata attaccante viene respinta.
+                    self._retreat_to_castle(attacker)
+                    dest_cell.occupation = defender
+                    winner = defender
+                    loser = attacker
+            else:
+                if dest_cell is not None:
+                    dest_cell.garrison_strength = 0
+                    dest_cell.garrison_unit_ids = []
+                    dest_cell.fortification_level = 0
+                    dest_cell.occupation = attacker
+                self.game_map.positions[attacker] = to_pos
         else:
             winner = defender
             loser = attacker
@@ -1818,6 +2338,11 @@ class GameSession:
         )
         if loss_result["losses"] > 0:
             log_entry += f" | Perdite {attacker.value.upper()}: {loss_result['losses']}"
+        if castle_hp_before is not None and castle_hp_after is not None:
+            log_entry += (
+                f" | Danno castello: {castle_damage} "
+                f"(HP {castle_hp_before}->{castle_hp_after})"
+            )
         self.battle_log.append(log_entry)
         if loss_result["losses"] > 0 and loss_result["removed_text"]:
             self.battle_log.append(
@@ -1843,6 +2368,9 @@ class GameSession:
                     "garrison_unit_ids": garrison_units,
                     "terrain_bonus": terrain_bonus,
                     "castle_bonus": castle_bonus,
+                    "castle_hp_before": castle_hp_before,
+                    "castle_hp_after": castle_hp_after,
+                    "castle_damage": castle_damage,
                     "defender_score": round(defender_score, 4),
                     "attacker_units_before": attacker_units_before,
                     "attacker_losses": loss_result["losses"],
@@ -1880,6 +2408,20 @@ class GameSession:
                 "army":          self.player_army,
                 "modified":      self.player_modified,
                 "troop_status":  self.player_troop_status,
+                "control_mode": self.player_control_mode,
+                "castle": {
+                    "hp": self.castle_hp.get(PLAYER, self.castle_hp_max.get(PLAYER, CASTLE_BASE_HP)),
+                    "max_hp": self.castle_hp_max.get(PLAYER, CASTLE_BASE_HP),
+                },
+                "orders": {
+                    "movement_order": self.player_orders.get("movement_order", "advance_castle"),
+                    "build_order": self.player_orders.get("build_order", "balanced"),
+                    "options": {
+                        "control_modes": PLAYER_CONTROL_MODE_OPTIONS,
+                        "movement_orders": PLAYER_MOVEMENT_ORDER_OPTIONS,
+                        "build_orders": PLAYER_BUILD_ORDER_OPTIONS,
+                    },
+                },
                 "auto_recruit": {
                     "enabled": bool(self.player_auto_recruit.get("enabled")),
                     "unit_id": self.player_auto_recruit.get("unit_id"),
@@ -1908,6 +2450,10 @@ class GameSession:
                 "strategy_name": self.ai_strategy_name,
                 "difficulty":    self.ai_difficulty,
                 "difficulty_labels": get_ai_difficulty_labels(),
+                "castle": {
+                    "hp": self.castle_hp.get(AI, self.castle_hp_max.get(AI, CASTLE_BASE_HP)),
+                    "max_hp": self.castle_hp_max.get(AI, CASTLE_BASE_HP),
+                },
                 "army":          self.ai_army,
                 "modified":      self.ai_modified,
                 "troop_status":  self.ai_troop_status,
