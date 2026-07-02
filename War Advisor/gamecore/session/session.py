@@ -416,6 +416,14 @@ class GameSession:
         if not (0 <= to_row < self.game_map.rows and 0 <= to_col < self.game_map.cols):
             return {"ok": False, "message": "Destinazione fuori dalla mappa."}
 
+        own_castle = self.game_map.get_castle_position(PLAYER)
+        enemy_castle = self.game_map.get_castle_position(AI)
+        if to_pos == own_castle or to_pos == enemy_castle:
+            return {
+                "ok": False,
+                "message": "La casella del castello è proibita al movimento.",
+            }
+
         enemy_pos = self.game_map.positions.get(AI)
         if enemy_pos == to_pos:
             return {
@@ -1993,7 +2001,7 @@ class GameSession:
         }
 
     def _retreat_to_castle(self, entity: Occupation) -> None:
-        """Ritira un'armata al proprio castello, se ancora controllato."""
+        """Ritira un'armata sulla linea davanti al castello, se ancora controllato."""
         castle_pos = self.game_map.get_castle_position(entity)
         if castle_pos is None:
             self.state = SessionState.GAME_OVER
@@ -2006,8 +2014,44 @@ class GameSession:
             self.winner = entity.opposite().value
             return
 
-        self.game_map.positions[entity] = castle_pos
-        castle_cell.occupation = entity
+        rally_cells: List[Tuple[int, int]] = []
+        for neighbor in self.game_map.get_neighbors(*castle_pos):
+            if neighbor.is_castle:
+                continue
+            if neighbor.occupation == entity:
+                rally_cells.append((neighbor.row, neighbor.col))
+
+        if not rally_cells:
+            for neighbor in self.game_map.get_neighbors(*castle_pos):
+                if neighbor.is_castle:
+                    continue
+                if neighbor.occupation == Occupation.NEUTRAL:
+                    rally_cells.append((neighbor.row, neighbor.col))
+
+        if not rally_cells:
+            for neighbor in self.game_map.get_neighbors(*castle_pos):
+                if not neighbor.is_castle:
+                    rally_cells.append((neighbor.row, neighbor.col))
+
+        if not rally_cells:
+            self.state = SessionState.GAME_OVER
+            self.winner = entity.opposite().value
+            return
+
+        if entity == PLAYER:
+            rally_cells.sort(key=lambda pos: (-pos[0], abs(pos[1] - castle_pos[1])))
+        else:
+            rally_cells.sort(key=lambda pos: (pos[0], abs(pos[1] - castle_pos[1])))
+
+        rally_pos = rally_cells[0]
+        rally_cell = self.game_map.get_cell(*rally_pos)
+        if rally_cell is None:
+            self.state = SessionState.GAME_OVER
+            self.winner = entity.opposite().value
+            return
+
+        rally_cell.occupation = entity
+        self.game_map.positions[entity] = rally_pos
 
     def _resolve_field_battle(self, move_result: Dict[str, Any], attacker: Occupation) -> Dict[str, Any]:
         """Scontro tra le due armate principali. Il perdente si ritira al castello."""
@@ -2206,6 +2250,7 @@ class GameSession:
         """Risoluzione di guarnigioni e castelli."""
         defender = attacker.opposite()
         terrain = move_result["terrain"]
+        from_pos = tuple(move_result.get("from_pos", self.game_map.positions.get(attacker, (0, 0))))
         to_pos = tuple(move_result["to_pos"])
         dest_cell = self.game_map.get_cell(*to_pos)
         encounter_type = move_result["encounter_type"]
@@ -2290,12 +2335,11 @@ class GameSession:
                     dest_cell.garrison_unit_ids = []
                     dest_cell.fortification_level = 0
                     dest_cell.occupation = attacker
-                    self.game_map.positions[attacker] = to_pos
                     self.state = SessionState.GAME_OVER
                     self.winner = attacker.value
                 else:
-                    # Il castello regge l'assalto: l'armata attaccante viene respinta.
-                    self._retreat_to_castle(attacker)
+                    # Il castello regge l'assalto: l'armata attaccante resta in adiacenza.
+                    self.game_map.positions[attacker] = from_pos
                     dest_cell.occupation = defender
                     winner = defender
                     loser = attacker
@@ -2309,7 +2353,11 @@ class GameSession:
         else:
             winner = defender
             loser = attacker
-            self._retreat_to_castle(attacker)
+            if encounter_type == "castle":
+                # Assalto respinto: non si entra in castello, resta la posizione precedente.
+                self.game_map.positions[attacker] = from_pos
+            else:
+                self._retreat_to_castle(attacker)
             if dest_cell is not None:
                 dest_cell.occupation = defender
 

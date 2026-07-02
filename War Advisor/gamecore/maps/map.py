@@ -421,28 +421,37 @@ class GameMap:
                 I castelli partono senza guarnigioni fittizie: i presidi sono solo
                 quelli realmente distaccati dalle legioni durante la partita.
         """
-        player_pos: Tuple[int, int] = (self.rows - 1, self.cols // 2)
-        ai_pos:     Tuple[int, int] = (0,             self.cols // 2)
+        player_castle_pos: Tuple[int, int] = (self.rows - 1, self.cols // 2)
+        ai_castle_pos:     Tuple[int, int] = (0,             self.cols // 2)
+        player_pos: Tuple[int, int] = (self.rows - 2, self.cols // 2)
+        ai_pos:     Tuple[int, int] = (1,             self.cols // 2)
 
         # Forza la cella di partenza a Pianura (non si inizia mai su un ostacolo)
+        self.grid[player_castle_pos[0]][player_castle_pos[1]].terrain = "Pianura"
+        self.grid[ai_castle_pos[0]][ai_castle_pos[1]].terrain = "Pianura"
         self.grid[player_pos[0]][player_pos[1]].terrain = "Pianura"
         self.grid[ai_pos[0]][ai_pos[1]].terrain = "Pianura"
 
+        player_castle_cell = self.grid[player_castle_pos[0]][player_castle_pos[1]]
+        ai_castle_cell = self.grid[ai_castle_pos[0]][ai_castle_pos[1]]
         player_cell = self.grid[player_pos[0]][player_pos[1]]
         ai_cell = self.grid[ai_pos[0]][ai_pos[1]]
 
-        player_cell.occupation = PLAYER
-        player_cell.is_castle = True
-        player_cell.garrison_strength = 0
+        player_castle_cell.occupation = PLAYER
+        player_castle_cell.is_castle = True
+        player_castle_cell.garrison_strength = 0
 
+        ai_castle_cell.occupation = AI
+        ai_castle_cell.is_castle = True
+        ai_castle_cell.garrison_strength = 0
+
+        player_cell.occupation = PLAYER
         ai_cell.occupation = AI
-        ai_cell.is_castle = True
-        ai_cell.garrison_strength = 0
 
         self.positions[PLAYER] = player_pos
         self.positions[AI]     = ai_pos
-        self.castle_positions[PLAYER] = player_pos
-        self.castle_positions[AI] = ai_pos
+        self.castle_positions[PLAYER] = player_castle_pos
+        self.castle_positions[AI] = ai_castle_pos
 
     # ──────────────────────────────────────────────────────────
     # ACCESSO ALLA GRIGLIA
@@ -548,11 +557,16 @@ class GameMap:
         dest_cell = self.grid[to_row][to_col]
         from_cell = self.grid[from_pos[0]][from_pos[1]]
         enemy_pos = self.positions.get(entity.opposite())
+        own_castle_pos = self.castle_positions.get(entity)
+        enemy_castle_pos = self.castle_positions.get(entity.opposite())
+
+        if own_castle_pos == to_pos:
+            return {"ok": False, "message": "La casella del castello è proibita al movimento."}
 
         encounter_type = "none"
         if enemy_pos == to_pos:
             encounter_type = "field_army"
-        elif dest_cell.is_castle and dest_cell.occupation == entity.opposite():
+        elif enemy_castle_pos == to_pos and dest_cell.is_castle and dest_cell.occupation == entity.opposite():
             encounter_type = "castle"
         elif dest_cell.garrison_strength > 0 and dest_cell.occupation == entity.opposite():
             encounter_type = "garrison"
@@ -562,23 +576,26 @@ class GameMap:
         battle = encounter_type != "none"
         garrison_left = leave_garrison
 
-        if garrison_left:
+        if garrison_left and encounter_type != "castle":
             from_cell.garrison_strength += 1
 
         # La cella di partenza resta sotto controllo dell'entità.
         from_cell.occupation = entity
 
-        # Occupa la destinazione
-        captured           = dest_cell.occupation != entity
-        strategic_captured = captured and dest_cell.is_strategic
-        dest_cell.occupation = entity
-        self.positions[entity] = to_pos
+        captured = False
+        strategic_captured = False
+        if encounter_type != "castle":
+            # Occupa la destinazione (mai per assalto castello: tile non attraversabile)
+            captured = dest_cell.occupation != entity
+            strategic_captured = captured and dest_cell.is_strategic
+            dest_cell.occupation = entity
+            self.positions[entity] = to_pos
 
         msg = (
             f"[Turno {self.turn}] {side_label} -> ({to_row},{to_col}) "
             f"[{dest_cell.terrain}]"
         )
-        if garrison_left:
+        if garrison_left and encounter_type != "castle":
             msg += " — Guarnigione lasciata alle spalle"
         if encounter_type == "field_army":
             msg += " — ⚔ Scontro tra armate!"
@@ -587,7 +604,7 @@ class GameMap:
         elif encounter_type == "fortified":
             msg += " — 🧱 Assalto a territorio fortificato!"
         elif encounter_type == "castle":
-            msg += " — 🏰 Assalto al castello!"
+            msg += " — 🏰 Assalto al castello (da adiacenza)!"
         elif strategic_captured:
             msg += " — ★ Punto strategico conquistato!"
 
