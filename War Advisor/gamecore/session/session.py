@@ -417,8 +417,7 @@ class GameSession:
             return {"ok": False, "message": "Destinazione fuori dalla mappa."}
 
         own_castle = self.game_map.get_castle_position(PLAYER)
-        enemy_castle = self.game_map.get_castle_position(AI)
-        if to_pos == own_castle or to_pos == enemy_castle:
+        if to_pos == own_castle:
             return {
                 "ok": False,
                 "message": "La casella del castello è proibita al movimento.",
@@ -2338,8 +2337,8 @@ class GameSession:
                     self.state = SessionState.GAME_OVER
                     self.winner = attacker.value
                 else:
-                    # Il castello regge l'assalto: l'armata attaccante resta in adiacenza.
-                    self.game_map.positions[attacker] = from_pos
+                    # Il castello regge l'assalto: l'attaccante viene respinto alla linea di partenza.
+                    self._retreat_to_castle(attacker)
                     dest_cell.occupation = defender
                     winner = defender
                     loser = attacker
@@ -2354,8 +2353,8 @@ class GameSession:
             winner = defender
             loser = attacker
             if encounter_type == "castle":
-                # Assalto respinto: non si entra in castello, resta la posizione precedente.
-                self.game_map.positions[attacker] = from_pos
+                # Assalto respinto: niente spam in adiacenza, rientro alla linea di partenza.
+                self._retreat_to_castle(attacker)
             else:
                 self._retreat_to_castle(attacker)
             if dest_cell is not None:

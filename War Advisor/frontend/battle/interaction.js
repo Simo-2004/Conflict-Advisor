@@ -176,7 +176,7 @@
                 return;
             }
 
-            if (event.altKey && canMine) {
+            if (event.altKey) {
                 placeMine(row, col);
                 return;
             }
@@ -187,19 +187,12 @@
             }
 
             if (currentAction === 'place_mine') {
-                if (canMine) {
-                    placeMine(row, col);
-                } else {
-                    if (!currentBattleState || !targetCell) {
-                        document.getElementById('battleStatusHint').textContent = 'Stato partita non disponibile: aggiorna la sessione.';
-                    } else if (targetCell.occupation !== 'player') {
-                        document.getElementById('battleStatusHint').textContent = 'Miniera non valida: puoi costruire solo su celle PLAYER.';
-                    } else if (!playerCanBuildAnywhere()) {
-                        document.getElementById('battleStatusHint').textContent = 'Senza Abilità puoi costruire solo sulla cella dove si trova la tua armata.';
-                    } else {
-                        document.getElementById('battleStatusHint').textContent = 'Miniera non valida su questa cella.';
-                    }
+                if (!currentBattleState || !targetCell) {
+                    document.getElementById('battleStatusHint').textContent = 'Stato partita non disponibile: aggiorna la sessione.';
+                    return;
                 }
+                // Validazione autorevole lato backend per evitare falsi negativi da stato locale stale.
+                placeMine(row, col);
                 return;
             }
 
@@ -399,7 +392,21 @@
             }
         }
 
-        async function placeMine(row, col) {
+        async function refreshStateFromServer() {
+            try {
+                const stateResponse = await fetch('http://127.0.0.1:8000/game/state');
+                if (!stateResponse.ok) {
+                    return null;
+                }
+                const stateData = await stateResponse.json();
+                renderBattleState(stateData);
+                return stateData;
+            } catch (_error) {
+                return null;
+            }
+        }
+
+        async function placeMine(row, col, retryAfterSync = true) {
             if (!isManualControlMode()) {
                 showOrderModeHint('piazzare miniere manualmente');
                 return;
@@ -418,11 +425,28 @@
 
                 await response.json();
                 transientLogLines = [];
-                const stateResponse = await fetch('http://127.0.0.1:8000/game/state');
-                const stateData = await stateResponse.json();
-                renderBattleState(stateData);
+                await refreshStateFromServer();
                 resetActionToDefault();
             } catch (error) {
+                const refreshedState = await refreshStateFromServer();
+                const isDomainOrBuildValidationError =
+                    typeof error.message === 'string' &&
+                    (
+                        error.message.includes('celle che controlli')
+                        || error.message.includes('Costruzione non consentita su questa cella')
+                        || error.message.includes('celle PLAYER')
+                    );
+
+                if (retryAfterSync && refreshedState && isDomainOrBuildValidationError) {
+                    const mapData = refreshedState.map;
+                    const refreshedCell = mapData?.grid?.[row]?.[col];
+                    const refreshedPlayerPos = mapData?.positions?.player;
+                    if (refreshedCell && canPlaceMineOnCell(refreshedCell, row, col, refreshedPlayerPos)) {
+                        await placeMine(row, col, false);
+                        return;
+                    }
+                }
+
                 document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
                 transientLogLines = [`Errore PLAYER miniera: ${error.message}`];
                 renderBattleState(currentBattleState);
@@ -490,7 +514,7 @@
             return null;
         }
 
-        function autoPlaceMine() {
+        async function autoPlaceMine() {
             if (!isManualControlMode()) {
                 showOrderModeHint('piazzare miniere manualmente');
                 return;
@@ -507,7 +531,11 @@
                 return;
             }
 
-            const target = findAutoMineTarget();
+            let target = findAutoMineTarget();
+            if (!target) {
+                await refreshStateFromServer();
+                target = findAutoMineTarget();
+            }
             if (!target) {
                 if (!playerCanBuildAnywhere()) {
                     document.getElementById('battleStatusHint').textContent = 'Senza Abilità puoi costruire miniere solo sulla cella della tua armata.';
@@ -520,7 +548,7 @@
                 return;
             }
 
-            placeMine(target[0], target[1]);
+            await placeMine(target[0], target[1]);
         }
 
         function findAutoFortificationTarget() {

@@ -582,14 +582,11 @@ class GameMap:
         # La cella di partenza resta sotto controllo dell'entità.
         from_cell.occupation = entity
 
-        captured = False
-        strategic_captured = False
-        if encounter_type != "castle":
-            # Occupa la destinazione (mai per assalto castello: tile non attraversabile)
-            captured = dest_cell.occupation != entity
-            strategic_captured = captured and dest_cell.is_strategic
-            dest_cell.occupation = entity
-            self.positions[entity] = to_pos
+        captured = dest_cell.occupation != entity
+        strategic_captured = captured and dest_cell.is_strategic
+        # Il castello avversario e occupabile per permettere l'assalto.
+        dest_cell.occupation = entity
+        self.positions[entity] = to_pos
 
         msg = (
             f"[Turno {self.turn}] {side_label} -> ({to_row},{to_col}) "
