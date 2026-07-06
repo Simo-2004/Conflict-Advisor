@@ -1,4 +1,4 @@
-﻿        :root {
+        :root {
             --primary: #1a1a2e;
             --accent: #e94560;
             --success: #16a34a;
@@ -1461,7 +1461,7 @@
         }
 
         body.battle-has-dock {
-            padding-left: 340px;
+            padding-left: calc(var(--dock-width, 360px) + 28px);
             padding-bottom: 20px;
         }
 
@@ -1470,7 +1470,7 @@
             left: 14px;
             top: 14px;
             bottom: 14px;
-            width: min(320px, calc(100vw - 28px));
+            width: min(var(--dock-width, 360px), calc(100vw - 28px));
             background: #ffffff;
             border: 1px solid #dbe3ef;
             border-radius: 14px;
@@ -1478,7 +1478,48 @@
             z-index: 220;
             overflow: visible;
             display: grid;
-            grid-template-columns: 110px minmax(0, 1fr);
+            grid-template-columns: 100px minmax(0, 1fr);
+        }
+
+        /* ── Resize handle ───────────────────────────────────── */
+        .dock-resize-handle {
+            position: absolute;
+            right: -6px;
+            top: 20px;
+            bottom: 20px;
+            width: 12px;
+            cursor: col-resize;
+            z-index: 230;
+            border-radius: 6px;
+            background: transparent;
+            transition: background 0.18s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .dock-resize-handle::after {
+            content: '';
+            width: 4px;
+            height: 40px;
+            border-radius: 999px;
+            background: #cbd5e1;
+            transition: background 0.18s, height 0.18s;
+        }
+
+        .dock-resize-handle:hover::after,
+        body.dock-resizing .dock-resize-handle::after {
+            background: #e94560;
+            height: 60px;
+        }
+
+        body.dock-resizing {
+            cursor: col-resize !important;
+            user-select: none;
+        }
+
+        body.dock-resizing * {
+            cursor: col-resize !important;
         }
 
         .bar-tabs {
@@ -1786,11 +1827,15 @@
             .battle_bar {
                 left: 6px;
                 right: 6px;
-                width: auto;
+                width: auto !important;
                 top: auto;
                 bottom: 6px;
                 max-height: 240px;
                 grid-template-columns: 1fr;
+            }
+
+            .dock-resize-handle {
+                display: none;
             }
 
             .bar-tabs {

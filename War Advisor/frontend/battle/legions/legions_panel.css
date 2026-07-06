@@ -1,0 +1,589 @@
+/* ============================================================
+   legions_panel.css
+   Stili per il pannello Legioni (sotto-tab Esercito + Legioni)
+   Importato da battle.html
+   ============================================================ */
+
+/* ─── Contenitore pane legioni ─────────────────────────────── */
+.dock-pane[data-pane="legions"].active {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+    align-items: stretch;
+    height: 100%;
+}
+
+/* ─── Sotto-tab header ──────────────────────────────────────── */
+.legions-sub-tabs {
+    display: flex;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+    flex-shrink: 0;
+}
+
+.legions-sub-tab {
+    flex: 1;
+    border: none;
+    background: transparent;
+    color: #64748b;
+    font-size: 0.74em;
+    font-weight: 800;
+    padding: 9px 6px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.legions-sub-tab.active {
+    color: #1a1a2e;
+    border-bottom-color: #e94560;
+    background: transparent;
+}
+
+.legions-sub-tab:hover:not(.active) {
+    color: #334155;
+    background: rgba(0, 0, 0, 0.03);
+}
+
+/* ─── Corpo sotto-pane ──────────────────────────────────────── */
+.legions-sub-pane {
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 10px;
+    flex: 1;
+}
+
+.legions-sub-pane.active {
+    display: flex;
+}
+
+/* ─── Sezione "Esercito" ────────────────────────────────────── */
+.army-header {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 8px;
+}
+
+.army-title {
+    font-size: 0.74em;
+    font-weight: 800;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 0;
+}
+
+.army-total-badge {
+    font-size: 0.72em;
+    font-weight: 800;
+    background: #1a1a2e;
+    color: #e2e8f0;
+    border-radius: 999px;
+    padding: 3px 10px;
+    white-space: nowrap;
+}
+
+.army-kpi-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+
+.army-kpi-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 8px 10px;
+}
+
+.army-kpi-card-label {
+    font-size: 0.68em;
+    font-weight: 800;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.army-kpi-card-value {
+    font-size: 1.05em;
+    font-weight: 800;
+    color: #0f172a;
+    margin-top: 2px;
+}
+
+.army-kpi-card-value.accent {
+    color: #e94560;
+}
+
+.army-composition-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.army-composition-title {
+    font-size: 0.72em;
+    font-weight: 800;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 0 0 4px;
+}
+
+.army-unit-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 6px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 6px 8px;
+    position: relative;
+    overflow: hidden;
+}
+
+.army-unit-bar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    background: rgba(22, 163, 74, 0.09);
+    border-radius: 8px 0 0 8px;
+    transition: width 0.4s ease;
+    pointer-events: none;
+}
+
+.army-unit-name {
+    font-size: 0.82em;
+    font-weight: 700;
+    color: #1e293b;
+    position: relative;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.army-unit-count {
+    font-size: 0.78em;
+    font-weight: 800;
+    color: #16a34a;
+    background: #dcfce7;
+    border-radius: 999px;
+    padding: 2px 7px;
+    position: relative;
+    white-space: nowrap;
+}
+
+.army-empty-msg {
+    font-size: 0.84em;
+    color: #94a3b8;
+    text-align: center;
+    padding: 20px 0;
+    font-style: italic;
+}
+
+.army-strategy-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: linear-gradient(135deg, #1a1a2e 0%, #2d2d4a 100%);
+    border-radius: 10px;
+    padding: 8px 10px;
+    border: 1px solid #374151;
+}
+
+.army-strategy-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #22c55e;
+    flex-shrink: 0;
+    animation: stratDot 2s ease-in-out infinite;
+}
+
+@keyframes stratDot {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.4; }
+}
+
+.army-strategy-text {
+    font-size: 0.78em;
+    color: #cbd5e1;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ─── Sezione "Legioni" ─────────────────────────────────────── */
+.legions-create-section {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.legions-section-title {
+    font-size: 0.72em;
+    font-weight: 800;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 0;
+}
+
+.legions-input {
+    width: 100%;
+    padding: 7px 9px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 0.83em;
+    font-weight: 600;
+    color: #1e293b;
+    background: #fff;
+    outline: none;
+    transition: border-color 0.15s;
+    box-sizing: border-box;
+}
+
+.legions-input:focus {
+    border-color: #1a1a2e;
+}
+
+.legions-input::placeholder {
+    color: #94a3b8;
+    font-weight: 500;
+}
+
+/* Composizione legione — riga unità selezionabile */
+.legion-unit-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 140px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 2px;
+}
+
+.legion-unit-picker-label {
+    font-size: 0.70em;
+    font-weight: 800;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 0;
+}
+
+.legion-unit-pick-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    align-items: center;
+    gap: 6px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 5px 7px;
+    transition: border-color 0.15s;
+}
+
+.legion-unit-pick-row.selected {
+    border-color: #16a34a;
+    background: #f0fdf4;
+}
+
+.legion-unit-cb {
+    width: 14px;
+    height: 14px;
+    accent-color: #16a34a;
+    cursor: pointer;
+}
+
+.legion-unit-pick-name {
+    font-size: 0.80em;
+    font-weight: 700;
+    color: #1e293b;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.legion-unit-pick-available {
+    font-size: 0.72em;
+    color: #64748b;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.legion-unit-pick-qty {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.legion-qty-btn {
+    width: 20px;
+    height: 20px;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    border-radius: 4px;
+    font-size: 0.9em;
+    font-weight: 800;
+    color: #334155;
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+.legion-qty-btn:hover {
+    background: #f1f5f9;
+}
+
+.legion-qty-val {
+    font-size: 0.78em;
+    font-weight: 800;
+    color: #1e293b;
+    min-width: 16px;
+    text-align: center;
+}
+
+/* Destinazione */
+.legions-target-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 6px;
+}
+
+.legions-target-display {
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 6px 9px;
+    font-size: 0.80em;
+    color: #64748b;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+}
+
+.legions-target-display.picked {
+    color: #1e293b;
+    border-color: #16a34a;
+    background: #f0fdf4;
+}
+
+.legions-pick-btn {
+    padding: 6px 10px;
+    font-size: 0.76em;
+    font-weight: 800;
+    border-radius: 8px;
+    background: #1a1a2e;
+    color: #f1f5f9;
+    border: 1px solid #374151;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s, transform 0.1s;
+}
+
+.legions-pick-btn:hover {
+    background: #2d2d4a;
+}
+
+.legions-pick-btn.picking {
+    background: #e94560;
+    border-color: #c73652;
+    animation: pickBtnPulse 0.8s ease-in-out infinite;
+}
+
+@keyframes pickBtnPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(233, 69, 96, 0.4); }
+    50%       { box-shadow: 0 0 0 5px rgba(233, 69, 96, 0); }
+}
+
+.legions-send-btn {
+    width: 100%;
+    padding: 9px 14px;
+    font-size: 0.84em;
+    font-weight: 800;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #1a1a2e 0%, #2d2d4a 100%);
+    color: #f1f5f9;
+    border: 1px solid #374151;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.1s;
+}
+
+.legions-send-btn:hover:not(:disabled) {
+    opacity: 0.9;
+    transform: translateY(-1px);
+}
+
+.legions-send-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* Lista legioni attive */
+.legions-list-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.legions-list-empty {
+    font-size: 0.82em;
+    color: #94a3b8;
+    text-align: center;
+    padding: 14px 0;
+    font-style: italic;
+}
+
+.legion-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid #1a1a2e;
+    border-radius: 10px;
+    padding: 9px 10px;
+    display: grid;
+    gap: 4px;
+    animation: cardIn 0.25s ease;
+}
+
+@keyframes cardIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.legion-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 6px;
+}
+
+.legion-card-name {
+    font-size: 0.88em;
+    font-weight: 800;
+    color: #1e293b;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.legion-card-recall {
+    padding: 3px 8px;
+    font-size: 0.70em;
+    font-weight: 800;
+    border-radius: 6px;
+    background: #fef2f2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.legion-card-recall:hover {
+    background: #fee2e2;
+}
+
+.legion-card-dest {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.74em;
+    color: #64748b;
+    font-weight: 600;
+}
+
+.legion-card-dest-pin {
+    color: #e94560;
+    font-size: 0.9em;
+}
+
+.legion-card-comp {
+    font-size: 0.74em;
+    color: #334155;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+/* ─── LegionPickMode — overlay cursore mappa ────────────────── */
+body.legion-pick-mode #mapBoard {
+    cursor: crosshair;
+    outline: 2px dashed #e94560;
+    outline-offset: 3px;
+    border-radius: 12px;
+}
+
+body.legion-pick-mode .map-cell {
+    cursor: crosshair !important;
+    transition: box-shadow 0.12s, filter 0.12s;
+}
+
+body.legion-pick-mode .map-cell:not(:disabled):hover {
+    box-shadow: 0 0 0 2px #e94560, 0 3px 10px rgba(233, 69, 96, 0.28) !important;
+    filter: brightness(1.06);
+    z-index: 2;
+}
+
+.legion-pick-toast {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #e94560;
+    color: #fff;
+    font-size: 0.84em;
+    font-weight: 800;
+    border-radius: 999px;
+    padding: 8px 18px;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 999;
+    box-shadow: 0 4px 16px rgba(233, 69, 96, 0.45);
+    animation: toastIn 0.2s ease;
+}
+
+@keyframes toastIn {
+    from { opacity: 0; transform: translate(-50%, calc(-50% + 4px)); }
+    to   { opacity: 1; transform: translate(-50%, -50%); }
+}
+
+/* ─── Scrollbar sottile ──────────────────────────────────────── */
+.legions-sub-pane::-webkit-scrollbar,
+.legion-unit-picker::-webkit-scrollbar {
+    width: 4px;
+}
+
+.legions-sub-pane::-webkit-scrollbar-track,
+.legion-unit-picker::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.legions-sub-pane::-webkit-scrollbar-thumb,
+.legion-unit-picker::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 999px;
+}

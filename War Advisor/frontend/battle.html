@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="it">
 <head>
     <meta charset="UTF-8">
@@ -6,6 +6,7 @@
     <title>War Advisor - Battaglia</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
     <link rel="stylesheet" href="/static/battle/battle.css">
+    <link rel="stylesheet" href="/static/battle/legions/legions_panel.css">
 </head>
 <body>
     <div class="page">
@@ -298,7 +299,23 @@
     <script src="/static/battle/render.js"></script>
     <script src="/static/battle/interaction.js"></script>
     <script src="/static/battle/features.js"></script>
+    <script src="/static/battle/legions/legions_panel.js"></script>
     <script src="/static/battle_bar.js"></script>
+    <script>
+        // Hook: ogni volta che renderBattleState aggiorna la UI,
+        // propaga lo stato anche al pannello Legioni (se visibile)
+        (function () {
+            const _orig = window.renderBattleState;
+            if (typeof _orig === 'function') {
+                window.renderBattleState = function (sessionData) {
+                    _orig(sessionData);
+                    if (window.LegionsPanel) {
+                        window.LegionsPanel.update(sessionData);
+                    }
+                };
+            }
+        })();
+    </script>
 </body>
 </html>
 
