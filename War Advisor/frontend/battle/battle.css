@@ -311,9 +311,7 @@
             opacity: 0.95;
         }
 
-        .map-cell.cell-orders-locked {
-            filter: saturate(0.82) contrast(0.96);
-        }
+
 
         .terrain-pianura { background: #e9dfc8; }
         .terrain-foresta { background: #c9e4b5; }
@@ -401,6 +399,29 @@
             50% {
                 filter: saturate(1.2) brightness(0.95);
             }
+        }
+
+        /* ── Legion map markers ─────────────────────────────────── */
+        .legion-map-marker {
+            position: absolute;
+            z-index: 36;
+            border-radius: 6px;
+            border: 1.5px solid rgba(255, 255, 255, 0.55);
+            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.4);
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            white-space: nowrap;
+            font-size: 0.6em;
+            font-weight: 800;
+            padding: 2px 5px;
+            color: #fff;
+            letter-spacing: 0.02em;
+            animation: legionMarkerPulse 1.8s ease-in-out infinite;
+        }
+
+        @keyframes legionMarkerPulse {
+            0%, 100% { box-shadow: 0 2px 8px rgba(15,23,42,0.4); }
+            50%       { box-shadow: 0 3px 14px rgba(15,23,42,0.6), 0 0 0 3px rgba(255,255,255,0.18); }
         }
 
         .cell-strategic::after {
@@ -637,70 +658,6 @@
             background: #0f766e;
         }
 
-        .orders-panel {
-            margin-top: 8px;
-            display: grid;
-            gap: 8px;
-            max-width: 780px;
-            padding: 10px;
-            border-radius: 10px;
-            border: 1px solid #dbe3ef;
-            background: #f8fafc;
-        }
-
-        .orders-grid {
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 8px;
-        }
-
-        .orders-field {
-            display: grid;
-            gap: 5px;
-            min-width: 0;
-        }
-
-        .orders-field label {
-            margin: 0;
-            font-size: 0.74em;
-            font-weight: 800;
-            color: #334155;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-        }
-
-        .orders-field select {
-            width: 100%;
-            min-width: 0;
-            border: 1px solid #cbd5e1;
-            border-radius: 8px;
-            background: #fff;
-            color: #111827;
-            font-size: 0.83em;
-            font-weight: 700;
-            padding: 7px 8px;
-        }
-
-        .orders-actions {
-            display: flex;
-            gap: 8px;
-            flex-wrap: wrap;
-        }
-
-        .orders-actions button {
-            padding: 8px 10px;
-            border-radius: 8px;
-            font-size: 0.81em;
-            font-weight: 800;
-        }
-
-        .orders-apply-btn {
-            background: #1f2937;
-        }
-
-        .orders-execute-btn {
-            background: #0f766e;
-        }
 
         .recruit-row select {
             flex: 1;
@@ -1598,8 +1555,7 @@
         .dock-pane .button-row,
         .dock-pane .layout-mode-row,
         .dock-pane .toolbar-recruit,
-        .dock-pane .toolbar-strategy,
-        .dock-pane .orders-panel {
+        .dock-pane .toolbar-strategy {
             margin-top: 0;
             width: 100%;
             max-width: none;
@@ -1621,8 +1577,7 @@
         .dock-pane[data-pane="war"] .action-row,
         .dock-pane[data-pane="war"] .garrison-defense-preview,
         .dock-pane[data-pane="war"] .toolbar-recruit,
-        .dock-pane[data-pane="war"] .toolbar-strategy,
-        .dock-pane[data-pane="war"] .orders-panel {
+        .dock-pane[data-pane="war"] .toolbar-strategy {
             background: #f8fafc;
             border: 1px solid #dbe3ef;
             border-radius: 12px;
@@ -1682,21 +1637,6 @@
             align-items: stretch;
         }
 
-        .dock-pane[data-pane="war"] .orders-panel {
-            border-left: 4px solid #0f766e;
-            gap: 7px;
-            padding: 9px;
-        }
-
-        .dock-pane[data-pane="war"] .orders-grid {
-            grid-template-columns: 1fr;
-        }
-
-        .dock-pane[data-pane="war"] .orders-actions {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 6px;
-        }
 
         .dock-pane[data-pane="war"] .toolbar-recruit-actions {
             justify-content: stretch;
@@ -1713,8 +1653,7 @@
         }
 
         .dock-pane[data-pane="war"] .toolbar-recruit::before,
-        .dock-pane[data-pane="war"] .toolbar-strategy::before,
-        .dock-pane[data-pane="war"] .orders-panel::before {
+        .dock-pane[data-pane="war"] .toolbar-strategy::before {
             grid-column: 1 / -1;
             font-size: 0.74em;
             letter-spacing: 0.03em;
@@ -1732,13 +1671,8 @@
             content: 'Strategia';
         }
 
-        .dock-pane[data-pane="war"] .orders-panel::before {
-            content: 'Ordini Operativi';
-        }
-
         .dock-pane[data-pane="war"] .toolbar-recruit button,
-        .dock-pane[data-pane="war"] .toolbar-strategy button,
-        .dock-pane[data-pane="war"] .orders-panel button {
+        .dock-pane[data-pane="war"] .toolbar-strategy button {
             width: 100%;
             justify-self: stretch;
         }
@@ -1746,7 +1680,6 @@
         .battle-toolbar.toolbar-condensed .action-row,
         .battle-toolbar.toolbar-condensed .toolbar-recruit,
         .battle-toolbar.toolbar-condensed .toolbar-strategy,
-        .battle-toolbar.toolbar-condensed .orders-panel,
         .battle-toolbar.toolbar-condensed .button-row,
         .battle-toolbar.toolbar-condensed .layout-mode-row,
         .battle-toolbar.toolbar-condensed .garrison-defense-preview {
@@ -1858,10 +1791,6 @@
                 grid-template-columns: 1fr;
             }
 
-            .orders-grid {
-                grid-template-columns: 1fr;
-            }
-
             .auto-recruit-form {
                 grid-template-columns: 1fr;
             }
@@ -1869,5 +1798,6 @@
             .dock-pane[data-pane="war"] .action-row {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
             }
+
         }
 

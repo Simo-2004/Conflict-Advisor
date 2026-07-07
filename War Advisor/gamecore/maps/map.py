@@ -414,28 +414,20 @@ class GameMap:
 
     def _place_armies(self) -> None:
         """
-                Posiziona gli eserciti e i castelli sulle celle di partenza:
-                    - PLAYER: castello/armata su riga rows-1 (sud), colonna cols//2
-                    - AI:     castello/armata su riga 0     (nord), colonna cols//2
-
-                I castelli partono senza guarnigioni fittizie: i presidi sono solo
-                quelli realmente distaccati dalle legioni durante la partita.
+        Posiziona i castelli sulle celle di partenza:
+            - PLAYER: castello su riga rows-1 (sud), colonna cols//2
+            - AI:     castello su riga 0     (nord), colonna cols//2
+        Le legioni verranno spawnate successivamente dal gioco.
         """
         player_castle_pos: Tuple[int, int] = (self.rows - 1, self.cols // 2)
         ai_castle_pos:     Tuple[int, int] = (0,             self.cols // 2)
-        player_pos: Tuple[int, int] = (self.rows - 2, self.cols // 2)
-        ai_pos:     Tuple[int, int] = (1,             self.cols // 2)
 
-        # Forza la cella di partenza a Pianura (non si inizia mai su un ostacolo)
+        # Forza la cella di partenza a Pianura
         self.grid[player_castle_pos[0]][player_castle_pos[1]].terrain = "Pianura"
         self.grid[ai_castle_pos[0]][ai_castle_pos[1]].terrain = "Pianura"
-        self.grid[player_pos[0]][player_pos[1]].terrain = "Pianura"
-        self.grid[ai_pos[0]][ai_pos[1]].terrain = "Pianura"
 
         player_castle_cell = self.grid[player_castle_pos[0]][player_castle_pos[1]]
         ai_castle_cell = self.grid[ai_castle_pos[0]][ai_castle_pos[1]]
-        player_cell = self.grid[player_pos[0]][player_pos[1]]
-        ai_cell = self.grid[ai_pos[0]][ai_pos[1]]
 
         player_castle_cell.occupation = PLAYER
         player_castle_cell.is_castle = True
@@ -445,11 +437,6 @@ class GameMap:
         ai_castle_cell.is_castle = True
         ai_castle_cell.garrison_strength = 0
 
-        player_cell.occupation = PLAYER
-        ai_cell.occupation = AI
-
-        self.positions[PLAYER] = player_pos
-        self.positions[AI]     = ai_pos
         self.castle_positions[PLAYER] = player_castle_pos
         self.castle_positions[AI] = ai_castle_pos
 

@@ -1,22 +1,13 @@
-﻿        function playerCanBuildAnywhere() {
+        let turnRequestInFlight = false;
+
+        function playerCanBuildAnywhere() {
             const abilityState = currentBattleState?.player?.abilities?.domain_engineering;
             return Boolean(abilityState && abilityState.unlocked);
         }
 
-        function isManualControlMode() {
-            const mode = currentBattleState?.player?.control_mode;
-            return !mode || mode === 'manual';
-        }
-
-        function showOrderModeHint(actionLabel = 'questa azione') {
-            const hint = document.getElementById('battleStatusHint');
-            if (!hint) return;
-            hint.textContent = `Modalità Ordini attiva: passa a Manuale per ${actionLabel}.`;
-        }
 
         function canPlaceMineOnCell(cell, row, col, playerPos) {
             if (!currentBattleState) return false;
-            if (!isManualControlMode()) return false;
             if (cell.occupation !== 'player' || cell.is_castle || cell.is_mine || cell.terrain === 'Fiume') return false;
             if (currentBattleState.player.available_mine_slots <= 0) return false;
             if (playerCanBuildAnywhere()) return true;
@@ -25,17 +16,12 @@
 
         function canPlaceFortificationOnCell(cell, row, col, playerPos) {
             if (!currentBattleState) return false;
-            if (!isManualControlMode()) return false;
             if (cell.occupation !== 'player' || cell.is_castle) return false;
             if (playerCanBuildAnywhere()) return true;
             return Array.isArray(playerPos) && playerPos[0] === row && playerPos[1] === col;
         }
 
         function setAction(action) {
-            if (!isManualControlMode()) {
-                showOrderModeHint('le azioni tattiche manuali');
-                return;
-            }
             currentAction = action;
             document.getElementById('actionMoveBtn').classList.toggle('active', action === 'move');
             document.getElementById('actionGarrisonBtn').classList.toggle('active', action === 'move_garrison');
@@ -171,11 +157,6 @@
                 return;
             }
 
-            if (!isManualControlMode()) {
-                showOrderModeHint('il movimento manuale sulla mappa');
-                return;
-            }
-
             if (event.altKey) {
                 placeMine(row, col);
                 return;
@@ -227,19 +208,6 @@
             const typing = activeTag === 'INPUT' || activeTag === 'TEXTAREA';
             if (typing) return;
 
-            if (event.key.toLowerCase() === 'e') {
-                event.preventDefault();
-                executeOrderTurn();
-                return;
-            }
-
-            const isManualShortcutKey = ['1', '2', '3', '4', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key);
-            if (isManualShortcutKey && !isManualControlMode()) {
-                event.preventDefault();
-                showOrderModeHint('i comandi manuali');
-                return;
-            }
-
             if (event.key === '1') {
                 event.preventDefault();
                 setAction('move');
@@ -285,6 +253,11 @@
                 toggleShortcuts();
                 return;
             }
+            if (event.key.toLowerCase() === 'e') {
+                event.preventDefault();
+                executeTurn();
+                return;
+            }
 
             if (event.key.toLowerCase() === 'v') {
                 event.preventDefault();
@@ -312,9 +285,6 @@
         }
 
         function moveByDelta(dr, dc, leaveGarrison) {
-            if (!isManualControlMode()) {
-                return;
-            }
             if (!currentBattleState || !currentBattleState.map || !currentBattleState.map.positions.player) {
                 return;
             }
@@ -354,6 +324,38 @@
                 'Palude': 'PAL'
             };
             return mapping[terrain] || terrain.slice(0, 3).toUpperCase();
+        }
+
+        async function executeTurn() {
+            if (turnRequestInFlight) {
+                return;
+            }
+
+            turnRequestInFlight = true;
+            try {
+                const response = await fetch('http://127.0.0.1:8000/game/execute-turn', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Errore turno');
+                }
+
+                const result = await response.json();
+
+                // result.session.battle_log include già i log del turno (persistiti
+                // lato server in execute_turn()): non vanno ripetuti qui, altrimenti
+                // si duplicano ad ogni turno.
+                transientLogLines = [];
+                renderBattleState(result.session);
+            } catch (error) {
+                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
+            } finally {
+                turnRequestInFlight = false;
+            }
         }
 
         async function movePlayer(row, col, leaveGarrisonOverride = null) {
@@ -407,10 +409,6 @@
         }
 
         async function placeMine(row, col, retryAfterSync = true) {
-            if (!isManualControlMode()) {
-                showOrderModeHint('piazzare miniere manualmente');
-                return;
-            }
             try {
                 const response = await fetch('http://127.0.0.1:8000/game/place-mine', {
                     method: 'POST',
@@ -454,10 +452,6 @@
         }
 
         async function placeGarrisonHere() {
-            if (!isManualControlMode()) {
-                showOrderModeHint('piazzare presidi manualmente');
-                return;
-            }
             try {
                 const selectedGarrisonUnitId = getSelectedGarrisonUnitId();
                 const response = await fetch('http://127.0.0.1:8000/game/place-garrison-here', {
@@ -515,10 +509,6 @@
         }
 
         async function autoPlaceMine() {
-            if (!isManualControlMode()) {
-                showOrderModeHint('piazzare miniere manualmente');
-                return;
-            }
             if (!currentBattleState) {
                 document.getElementById('battleStatusHint').textContent = 'Partita non disponibile.';
                 return;
@@ -586,10 +576,6 @@
         }
 
         function autoPlaceFortification() {
-            if (!isManualControlMode()) {
-                showOrderModeHint('fortificare manualmente');
-                return;
-            }
             if (!currentBattleState) {
                 document.getElementById('battleStatusHint').textContent = 'Partita non disponibile.';
                 return;
@@ -607,10 +593,6 @@
         }
 
         async function placeFortification(row, col) {
-            if (!isManualControlMode()) {
-                showOrderModeHint('fortificare manualmente');
-                return;
-            }
             try {
                 const response = await fetch('http://127.0.0.1:8000/game/place-fortification', {
                     method: 'POST',

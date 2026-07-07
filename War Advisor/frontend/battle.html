@@ -53,41 +53,6 @@
                         <button type="button" onclick="applyBattleStrategy()">Applica Strategia</button>
                         <button id="strategyInfoBtn" type="button" onclick="openInGameAdvisorMenu()">Info Strategie</button>
                     </div>
-                    <div class="orders-panel" id="ordersPanel">
-                        <div class="orders-grid">
-                            <div class="orders-field">
-                                <label for="orderControlModeSelect">Controllo</label>
-                                <select id="orderControlModeSelect">
-                                    <option value="orders">Ordini</option>
-                                    <option value="manual">Manuale</option>
-                                </select>
-                            </div>
-                            <div class="orders-field">
-                                <label for="orderMovementSelect">Obiettivo</label>
-                                <select id="orderMovementSelect">
-                                    <option value="advance_castle">Assalto castello</option>
-                                    <option value="engage_ai">Ingaggia IA</option>
-                                    <option value="expand_front">Espansione fronte</option>
-                                    <option value="defend_castle">Difesa castello</option>
-                                    <option value="hold">Mantieni posizione</option>
-                                </select>
-                            </div>
-                            <div class="orders-field">
-                                <label for="orderBuildSelect">Supporto</label>
-                                <select id="orderBuildSelect">
-                                    <option value="balanced">Bilanciato</option>
-                                    <option value="economy">Economia (miniere)</option>
-                                    <option value="fortify">Fortificazioni</option>
-                                    <option value="garrison">Presidi</option>
-                                    <option value="none">Nessun supporto</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="orders-actions">
-                            <button id="ordersApplyBtn" class="orders-apply-btn" type="button" onclick="applyPlayerOrders()">Salva ordini</button>
-                            <button id="ordersExecuteBtn" class="orders-execute-btn" type="button" onclick="executeOrderTurn()">Esegui turno ordini [E]</button>
-                        </div>
-                    </div>
                 </div>
                 <div class="button-row">
                     <button class="debug-switch-btn" id="aiKillSwitchBtn" type="button" onclick="toggleAiKillSwitch()">🧪 IA ON</button>
@@ -295,12 +260,12 @@
         </div>
     </div>
 
-    <script src="/static/battle/bootstrap.js"></script>
-    <script src="/static/battle/render.js"></script>
-    <script src="/static/battle/interaction.js"></script>
-    <script src="/static/battle/features.js"></script>
-    <script src="/static/battle/legions/legions_panel.js"></script>
-    <script src="/static/battle_bar.js"></script>
+    <script src="/static/battle/bootstrap.js?v=2"></script>
+    <script src="/static/battle/render.js?v=2"></script>
+    <script src="/static/battle/interaction.js?v=2"></script>
+    <script src="/static/battle/features.js?v=2"></script>
+    <script src="/static/battle/legions/legions_panel.js?v=2"></script>
+    <script src="/static/battle_bar.js?v=2"></script>
     <script>
         // Hook: ogni volta che renderBattleState aggiorna la UI,
         // propaga lo stato anche al pannello Legioni (se visibile)

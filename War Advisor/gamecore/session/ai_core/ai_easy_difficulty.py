@@ -36,11 +36,17 @@ class EasyAIDifficultyPolicy:
         own_castle: Optional[Tuple[int, int]],
         enemy_castle: Optional[Tuple[int, int]],
         strategic_targets: List[Tuple[float, Any]],
+        economic_targets: Optional[List[Tuple[int, int]]] = None,
     ) -> Optional[Tuple[int, int]]:
         if player_pos and own_castle:
             player_to_own_castle = abs(player_pos[0] - own_castle[0]) + abs(player_pos[1] - own_castle[1])
             if player_to_own_castle <= 2:
                 return player_pos
+
+        economic_targets = economic_targets or []
+        if economic_targets and self.rng.random() < 0.64:
+            top_k = economic_targets[: min(3, len(economic_targets))]
+            return self.rng.choice(top_k)
 
         if strategic_targets and self.rng.random() < 0.78:
             top_k = strategic_targets[: min(3, len(strategic_targets))]

@@ -1,114 +1,14 @@
-﻿        const ORDER_MODE_LABELS = {
-            manual: 'Manuale',
-            orders: 'Ordini',
-        };
-
-        const MOVEMENT_ORDER_LABELS = {
-            advance_castle: 'Assalto castello',
-            engage_ai: 'Ingaggia IA',
-            expand_front: 'Espansione fronte',
-            defend_castle: 'Difesa castello',
-            hold: 'Mantieni posizione',
-        };
-
-        const BUILD_ORDER_LABELS = {
-            balanced: 'Bilanciato',
-            economy: 'Economia',
-            fortify: 'Fortificazioni',
-            garrison: 'Presidi',
-            none: 'Nessun supporto',
-        };
-
-        function renderOrderSelectOptions(select, values, labelsByValue) {
-            if (!select || !Array.isArray(values) || values.length === 0) {
-                return;
-            }
-            const currentValue = select.value;
-            select.innerHTML = values
-                .map(value => `<option value="${value}">${labelsByValue[value] || value}</option>`)
-                .join('');
-            if (values.includes(currentValue)) {
-                select.value = currentValue;
-            }
-        }
-
-        function renderOrderControls(sessionData, gameOver) {
-            const player = sessionData.player || {};
-            const orders = player.orders || {};
-            const options = orders.options || {};
-            const controlMode = player.control_mode || 'manual';
-
-            const controlModeSelect = document.getElementById('orderControlModeSelect');
-            const movementSelect = document.getElementById('orderMovementSelect');
-            const buildSelect = document.getElementById('orderBuildSelect');
-            const applyBtn = document.getElementById('ordersApplyBtn');
-            const executeBtn = document.getElementById('ordersExecuteBtn');
-
-            if (controlModeSelect) {
-                renderOrderSelectOptions(
-                    controlModeSelect,
-                    options.control_modes || ['orders', 'manual'],
-                    ORDER_MODE_LABELS,
-                );
-                controlModeSelect.value = controlMode;
-                controlModeSelect.disabled = gameOver;
-            }
-
-            if (movementSelect) {
-                renderOrderSelectOptions(
-                    movementSelect,
-                    options.movement_orders || Object.keys(MOVEMENT_ORDER_LABELS),
-                    MOVEMENT_ORDER_LABELS,
-                );
-                movementSelect.value = orders.movement_order || 'advance_castle';
-                movementSelect.disabled = gameOver;
-            }
-
-            if (buildSelect) {
-                renderOrderSelectOptions(
-                    buildSelect,
-                    options.build_orders || Object.keys(BUILD_ORDER_LABELS),
-                    BUILD_ORDER_LABELS,
-                );
-                buildSelect.value = orders.build_order || 'balanced';
-                buildSelect.disabled = gameOver;
-            }
-
-            if (applyBtn) {
-                applyBtn.disabled = gameOver;
-            }
-
-            if (executeBtn) {
-                const orderModeActive = controlMode === 'orders';
-                executeBtn.disabled = gameOver;
-                executeBtn.title = orderModeActive
-                    ? 'Esegui un turno completo secondo gli ordini attivi'
-                    : 'Esegue il turno e passa automaticamente alla modalità Ordini';
-            }
-        }
 
         function renderBattleState(sessionData) {
             currentBattleState = sessionData;
 
-            const controlMode = sessionData.player?.control_mode || 'manual';
-            const manualControl = controlMode === 'manual';
-            const movementOrder = sessionData.player?.orders?.movement_order || 'advance_castle';
-            const buildOrder = sessionData.player?.orders?.build_order || 'balanced';
-
-            document.getElementById('battleStatusMode').textContent = manualControl
-                ? `Azione: ${actionLabel(currentAction)}`
-                : `Controllo: ${ORDER_MODE_LABELS[controlMode] || controlMode}`;
+            document.getElementById('battleStatusMode').textContent = `Azione: ${actionLabel(currentAction)}`;
             if (sessionData.state === 'game_over') {
                 document.getElementById('battleStatusRound').textContent = `Fine partita: ${sessionData.winner}`;
                 document.getElementById('battleStatusHint').textContent = 'Il registro mostra il riepilogo completo della battaglia.';
             } else {
                 document.getElementById('battleStatusRound').textContent = `Turno ${sessionData.map.turn}`;
-                if (!manualControl) {
-                    const moveLabel = MOVEMENT_ORDER_LABELS[movementOrder] || movementOrder;
-                    const buildLabel = BUILD_ORDER_LABELS[buildOrder] || buildOrder;
-                    document.getElementById('battleStatusHint').textContent =
-                        `Modalità Ordini: ${moveLabel} + ${buildLabel}. Premi "Esegui turno ordini" o tasto E.`;
-                } else if (currentAction === 'move_garrison' && sessionData.player.available_garrisons <= 0) {
+                if (currentAction === 'move_garrison' && sessionData.player.available_garrisons <= 0) {
                     document.getElementById('battleStatusHint').textContent = 'Nessun presidio disponibile: recluta unità o cambia azione.';
                 } else if (currentAction === 'place_mine' && sessionData.player.available_mine_slots <= 0) {
                     document.getElementById('battleStatusHint').textContent = 'Nessuno slot miniera: conquista più territorio per costruirne altre.';
@@ -164,7 +64,6 @@
             }
 
             const gameOver = sessionData.state === 'game_over';
-            renderOrderControls(sessionData, gameOver);
 
             const actionButtons = [
                 document.getElementById('actionMoveBtn'),
@@ -173,11 +72,11 @@
                 document.getElementById('actionFortifyBtn'),
             ];
             actionButtons.forEach((btn) => {
-                if (btn) btn.disabled = gameOver || !manualControl;
+                if (btn) btn.disabled = gameOver;
             });
 
             const garrisonUnitSelect = document.getElementById('garrisonUnitSelect');
-            if (garrisonUnitSelect && (gameOver || !manualControl)) {
+            if (garrisonUnitSelect && gameOver) {
                 garrisonUnitSelect.disabled = true;
             }
 
@@ -230,6 +129,7 @@
             }
 
             renderMapBoard(sessionData.map);
+            renderLegionMarkersOnMap(sessionData.map, sessionData);
 
             const logLines = [...(sessionData.battle_log || []), ...transientLogLines];
             renderLog(logLines);
@@ -529,16 +429,12 @@
                     const mineMode = currentAction === 'place_mine';
                     const fortifyMode = currentAction === 'place_fortification';
 
-                    if (currentBattleState && currentBattleState.state !== 'game_over' && manualControl) {
+                    if (currentBattleState && currentBattleState.state !== 'game_over') {
                         if (isAdjacent || (mineMode && canMine) || (fortifyMode && canFortify)) {
                             button.classList.add('cell-adjacent');
                         }
                         button.onclick = (event) => handleCellAction(event, rowIndex, colIndex, isAdjacent, canMine, canFortify);
                     } else {
-                        if (currentBattleState && currentBattleState.state !== 'game_over' && !manualControl) {
-                            button.classList.add('cell-orders-locked');
-                            button.title += ' · Movimento manuale disattivato (modalità ordini)';
-                        }
                         button.disabled = true;
                     }
 
@@ -640,8 +536,8 @@
         }
 
         function buildCellLabel(cell, rowIndex, colIndex, mapData, playerTransit = null, aiTransit = null) {
-            const isPlayerArmy = mapData.positions.player && mapData.positions.player[0] === rowIndex && mapData.positions.player[1] === colIndex;
-            const isAiArmy = mapData.positions.ai && mapData.positions.ai[0] === rowIndex && mapData.positions.ai[1] === colIndex;
+            const isPlayerArmy = false;
+            const isAiArmy = false;
 
             if (isPlayerArmy) {
                 if (playerTransit) return '';
@@ -673,4 +569,163 @@
             return label;
         }
 
+        /* ══════════════════════════════════════════════════════════
+         *  LEGION MAP SYSTEM
+         *  Le legioni si muovono autonomamente sulla mappa passo-passo.
+         *  Ogni volta che renderBattleState() viene chiamato (= ogni turno
+         *  o ogni refresh) la legione avanza di 1 step lungo il path BFS
+         *  verso la destinazione, a meno che non ci sia già arrivata.
+         * ══════════════════════════════════════════════════════════ */
+
+        /* BFS per trovare il percorso più breve tra due celle.
+         * Tratta i fiumi come non attraversabili (opzione conservativa).
+         * Restituisce un array di [row, col] dal nodo START (escluso) a END (incluso),
+         * o null se non raggiungibile. */
+        function bfsPath(grid, rows, cols, startRow, startCol, endRow, endCol) {
+            if (startRow === endRow && startCol === endCol) return [];
+
+            const visited = Array.from({ length: rows }, () => new Array(cols).fill(false));
+            const parent = Array.from({ length: rows }, () => new Array(cols).fill(null));
+            visited[startRow][startCol] = true;
+            const queue = [[startRow, startCol]];
+
+            const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
+
+            while (queue.length > 0) {
+                const [r, c] = queue.shift();
+                for (const [dr, dc] of dirs) {
+                    const nr = r + dr;
+                    const nc = c + dc;
+                    if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+                    if (visited[nr][nc]) continue;
+                    // Le legioni evitano i fiumi (come il player)
+                    if (grid[nr][nc].terrain === 'Fiume') continue;
+                    visited[nr][nc] = true;
+                    parent[nr][nc] = [r, c];
+                    if (nr === endRow && nc === endCol) {
+                        // Ricostruisci il percorso
+                        const path = [];
+                        let cur = [nr, nc];
+                        while (cur[0] !== startRow || cur[1] !== startCol) {
+                            path.unshift(cur);
+                            cur = parent[cur[0]][cur[1]];
+                        }
+                        return path;
+                    }
+                    queue.push([nr, nc]);
+                }
+            }
+            return null; // Irraggiungibile
+        }
+
+        /* Colore distintivo per la pedina di una legione PLAYER, in base al suo indice. */
+        const LEGION_MARKER_COLORS = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#0891b2', '#db2777'];
+        function getLegionColor(idx) {
+            return LEGION_MARKER_COLORS[idx % LEGION_MARKER_COLORS.length];
+        }
+
+        /* Estrae le tre iniziali (le prime 3 lettere) del nome legione,
+         * usate come etichetta compatta sulla pedina in mappa. */
+        function getLegionInitials(name) {
+            const clean = (name || '').trim();
+            if (!clean) return '???';
+            return clean.slice(0, 3).toUpperCase();
+        }
+
+        /* Avanza le legioni attive di 1 passo verso la destinazione.
+         * Chiamato prima del render per aggiornare currentPos. */
+        function renderLegionMarkersOnMap(mapData, sessionData) {
+            const board = document.getElementById('mapBoard');
+            if (!board) return;
+
+            // Rimuovi tutti i marker legione precedenti
+            board.querySelectorAll('.legion-map-marker').forEach(m => m.remove());
+
+            if (!sessionData) return;
+            const playerLegions = sessionData.player?.legions ? Object.values(sessionData.player.legions) : [];
+            const aiLegions = sessionData.ai?.legions ? Object.values(sessionData.ai.legions) : [];
+            const allLegions = [...playerLegions.map(l => ({...l, isAi: false})), ...aiLegions.map(l => ({...l, isAi: true}))];
+
+            if (allLegions.length === 0) return;
+
+            allLegions.forEach((leg, idx) => {
+                if (!leg.pos) return;
+                const [r, c] = leg.pos;
+                const cellBtn = board.querySelector(`[data-row="${r}"][data-col="${c}"]`);
+                if (!cellBtn) return;
+
+                const color = leg.isAi ? '#c0392b' : getLegionColor(idx);
+                const atDest = leg.target && leg.pos[0] === leg.target[0] && leg.pos[1] === leg.target[1];
+
+                const marker = document.createElement('div');
+                marker.className = 'legion-map-marker';
+                marker.dataset.legionId = String(leg.id);
+
+                const boardRect = board.getBoundingClientRect();
+                const cellRect = cellBtn.getBoundingClientRect();
+                const x = (cellRect.left - boardRect.left) + board.scrollLeft + (cellRect.width / 2);
+                const y = (cellRect.top  - boardRect.top)  + board.scrollTop  + (cellRect.height / 2) + (leg.isAi ? -10 : 10);
+
+                marker.style.cssText = [
+                    `position:absolute`,
+                    `left:${x}px`,
+                    `top:${y}px`,
+                    `transform:translate(-50%,-50%)`,
+                    `background:${color}`,
+                    `color:#fff`,
+                    `font-size:0.6em`,
+                    `font-weight:800`,
+                    `padding:2px 5px`,
+                    `border-radius:6px`,
+                    `z-index:40`,
+                    `pointer-events:none`,
+                    `white-space:nowrap`,
+                    `box-shadow:0 2px 6px rgba(0,0,0,0.35)`,
+                    `letter-spacing:0.01em`,
+                    atDest ? 'outline:2px solid #fff' : '',
+                ].filter(Boolean).join(';');
+
+                const initials = getLegionInitials(leg.name);
+                marker.textContent = leg.isAi ? `🤖${initials}` : initials;
+                marker.title = `${leg.name}${atDest ? ' · ARRIVATA' : ' · in marcia'}`;
+
+                board.appendChild(marker);
+            });
+        }
+        function updateLegionStatusHint(sessionData) {
+            const hint = document.getElementById('battleStatusHint');
+            if (!hint) return;
+
+            const legions = (window.LegionsPanel && window.LegionsPanel.getActiveLegions)
+                ? window.LegionsPanel.getActiveLegions()
+                : [];
+
+            if (!legions || legions.length === 0) return;
+
+            const inMarcia = legions.filter(l => {
+                if (!l.currentPos || !l.target) return false;
+                return l.currentPos[0] !== l.target[0] || l.currentPos[1] !== l.target[1];
+            });
+            const arrivate = legions.filter(l => {
+                if (!l.currentPos || !l.target) return false;
+                return l.currentPos[0] === l.target[0] && l.currentPos[1] === l.target[1];
+            });
+
+            const parts = [];
+            if (inMarcia.length > 0) {
+                const nomi = inMarcia.map(l => {
+                    const passiRim = l.path ? l.path.length - (l.pathStep || 0) : '?';
+                    return `${l.name} (${passiRim} passi)`;
+                }).join(', ');
+                parts.push(`&#9658; In marcia: ${nomi}`);
+            }
+            if (arrivate.length > 0) {
+                const nomi = arrivate.map(l => l.name).join(', ');
+                parts.push(`&#10003; Arrivate: ${nomi}`);
+            }
+
+            if (parts.length > 0) {
+                hint.innerHTML = parts.join(' · ');
+            }
+        }
 

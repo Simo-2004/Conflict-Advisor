@@ -45,6 +45,27 @@
         return `${n.toLocaleString('it-IT')} grux`;
     }
 
+    function countUnits(unitIds) {
+        const counts = {};
+        for (const uid of unitIds || []) {
+            counts[uid] = (counts[uid] || 0) + 1;
+        }
+        return counts;
+    }
+
+    function syncActiveLegionsFromSession(sessionData) {
+        const source = Object.values(sessionData?.player?.legions || {});
+        activeLegions = source.map((legion) => ({
+            id: legion.id,
+            name: legion.name || String(legion.id || 'Legione'),
+            units: Array.isArray(legion.units) ? countUnits(legion.units) : (legion.units || {}),
+            target: Array.isArray(legion.target) ? legion.target : null,
+            currentPos: Array.isArray(legion.pos) ? legion.pos : null,
+            path: Array.isArray(legion.path) ? legion.path : [],
+            pathStep: Number(legion.path_step || 0),
+        }));
+    }
+
     /* ── Tab switching (sotto-tab) ─────────────────────────── */
     function activateLegionsSubTab(key) {
         activeLegionsSubTab = key;
@@ -353,10 +374,32 @@
         }).join('');
 
         list.querySelectorAll('.legion-card-recall').forEach(btn => {
-            btn.addEventListener('click', () => {
+            btn.addEventListener('click', async () => {
                 const idx = parseInt(btn.dataset.idx, 10);
-                activeLegions.splice(idx, 1);
-                renderLegionsList();
+                const legion = activeLegions[idx];
+                if (!legion || !legion.id) return;
+
+                btn.disabled = true;
+                try {
+                    const response = await fetch('http://127.0.0.1:8000/game/legions/recall', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ legion_id: legion.id })
+                    });
+
+                    if (!response.ok) {
+                        const err = await response.json();
+                        throw new Error(err.detail || 'Errore nel richiamo della legione');
+                    }
+
+                    const result = await response.json();
+                    if (window.renderBattleState) {
+                        window.renderBattleState(result.session);
+                    }
+                } catch (error) {
+                    alert(`Errore: ${error.message}`);
+                    btn.disabled = false;
+                }
             });
         });
     }
@@ -436,28 +479,42 @@
         // Send button
         const sendBtn = document.getElementById('legionSendBtn');
         if (sendBtn) {
-            sendBtn.addEventListener('click', () => {
+            sendBtn.addEventListener('click', async () => {
                 const name = (legionDraft.name || '').trim();
                 if (!name) return;
 
-                const newLegion = {
-                    id: Date.now(),
-                    name,
-                    units: { ...legionDraft.units },
-                    target: legionDraft.target ? [...legionDraft.target] : null,
-                    createdAt: new Date().toLocaleTimeString('it-IT'),
-                };
-                activeLegions.push(newLegion);
+                try {
+                    const response = await fetch('http://127.0.0.1:8000/game/legions/create', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            name,
+                            units: legionDraft.units,
+                            target: legionDraft.target
+                        })
+                    });
 
-                // Reset draft
-                legionDraft = { name: '', units: {}, target: null };
-                if (nameInput) nameInput.value = '';
+                    if (!response.ok) {
+                        const err = await response.json();
+                        throw new Error(err.detail || 'Errore creazione legione');
+                    }
 
-                // Re-render
-                renderLegionUnitPicker(sessionData);
-                updateTargetDisplay();
-                updateSendButton();
-                renderLegionsList();
+                    const result = await response.json();
+                    if (window.renderBattleState) {
+                        window.renderBattleState(result.session);
+                    }
+
+                    // Reset draft form
+                    legionDraft.name = '';
+                    legionDraft.units = {};
+                    legionDraft.target = null;
+                    if (nameInput) nameInput.value = '';
+
+                    // Trigger render manually
+                    refreshLegionsPane(result.session);
+                } catch (error) {
+                    alert(`Errore: ${error.message}`);
+                }
 
                 // Flash sul tab legioni
                 const legTab = qs(document.getElementById('legionsPane'), '[data-subtab="legions"]');
@@ -475,6 +532,8 @@
     function refreshLegionsPane(sessionData) {
         const pane = document.getElementById('legionsPane');
         if (!pane) return;
+
+        syncActiveLegionsFromSession(sessionData);
 
         if (activeLegionsSubTab === 'army') {
             renderArmyTab(sessionData);
@@ -543,6 +602,15 @@
          */
         exitPickMode() {
             if (legionPickModeActive) exitLegionPickMode();
+        },
+
+        /**
+         * Restituisce l'array delle legioni attive (con currentPos, path ecc.)
+         * Usato da render.js per renderizzare i marker sulla mappa.
+         * @returns {Array}
+         */
+        getActiveLegions() {
+            return activeLegions;
         }
     };
 
