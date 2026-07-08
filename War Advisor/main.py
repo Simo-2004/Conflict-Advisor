@@ -309,6 +309,12 @@ class RecallLegionRequest(BaseModel):
     legion_id: str = Field(..., description="ID della legione da richiamare")
 
 
+class RetargetLegionRequest(BaseModel):
+    """Richiesta per assegnare una nuova destinazione a una legione del player."""
+    legion_id: str = Field(..., description="ID della legione da ridirigere")
+    target: tuple[int, int] = Field(..., description="Nuova destinazione [row, col]")
+
+
 
 # ==================== ENDPOINT GIOCO ====================
 
@@ -427,6 +433,20 @@ async def game_recall_legion(request: RecallLegionRequest):
 
     try:
         return _active_session.recall_player_legion(request.legion_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/game/legions/retarget")
+async def game_retarget_legion(request: RetargetLegionRequest):
+    """Assegna una nuova destinazione a una legione del player già in campo."""
+    if _active_session is None:
+        raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
+
+    try:
+        return _active_session.retarget_player_legion(request.legion_id, request.target)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

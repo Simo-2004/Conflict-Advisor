@@ -491,21 +491,49 @@
     white-space: nowrap;
 }
 
-.legion-card-recall {
+.legion-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+}
+
+.legion-card-recall,
+.legion-card-retarget {
     padding: 3px 8px;
     font-size: 0.70em;
     font-weight: 800;
     border-radius: 6px;
-    background: #fef2f2;
-    color: #b91c1c;
-    border: 1px solid #fecaca;
     cursor: pointer;
     white-space: nowrap;
     flex-shrink: 0;
 }
 
+.legion-card-recall {
+    background: #fef2f2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+}
+
 .legion-card-recall:hover {
     background: #fee2e2;
+}
+
+.legion-card-retarget {
+    background: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+}
+
+.legion-card-retarget:hover {
+    background: #dbeafe;
+}
+
+.legion-card-retarget.picking {
+    background: #e94560;
+    color: #fff;
+    border-color: #c73652;
+    animation: pickBtnPulse 0.8s ease-in-out infinite;
 }
 
 .legion-card-dest {

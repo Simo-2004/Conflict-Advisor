@@ -363,7 +363,10 @@
                 <div class="legion-card" data-idx="${idx}">
                     <div class="legion-card-header">
                         <p class="legion-card-name">&#9816; ${leg.name}</p>
-                        <button class="legion-card-recall" type="button" data-idx="${idx}">Richiama</button>
+                        <div class="legion-card-actions">
+                            <button class="legion-card-retarget" type="button" data-idx="${idx}">Nuova Dest.</button>
+                            <button class="legion-card-recall" type="button" data-idx="${idx}">Richiama</button>
+                        </div>
                     </div>
                     <div class="legion-card-dest">
                         <span class="legion-card-dest-pin">&#9654;</span>
@@ -400,6 +403,49 @@
                     alert(`Errore: ${error.message}`);
                     btn.disabled = false;
                 }
+            });
+        });
+
+        list.querySelectorAll('.legion-card-retarget').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const idx = parseInt(btn.dataset.idx, 10);
+                const legion = activeLegions[idx];
+                if (!legion || !legion.id) return;
+
+                if (legionPickModeActive) {
+                    exitLegionPickMode();
+                    return;
+                }
+
+                btn.classList.add('picking');
+                btn.textContent = '× Annulla';
+
+                enterLegionPickMode(async (row, col) => {
+                    btn.classList.remove('picking');
+                    btn.textContent = 'Nuova Dest.';
+                    btn.disabled = true;
+                    try {
+                        const response = await fetch('http://127.0.0.1:8000/game/legions/retarget', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ legion_id: legion.id, target: [row, col] })
+                        });
+
+                        if (!response.ok) {
+                            const err = await response.json();
+                            throw new Error(err.detail || 'Errore nella nuova destinazione');
+                        }
+
+                        const result = await response.json();
+                        if (window.renderBattleState) {
+                            window.renderBattleState(result.session);
+                        }
+                    } catch (error) {
+                        alert(`Errore: ${error.message}`);
+                    } finally {
+                        btn.disabled = false;
+                    }
+                });
             });
         });
     }

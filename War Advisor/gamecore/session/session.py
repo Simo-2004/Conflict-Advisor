@@ -8,7 +8,7 @@ quando perdono uno scontro, si ritirano al proprio castello invece di sparire.
 
 import random
 from enum import Enum
-from collections import Counter
+from collections import Counter, deque
 from typing import Any, Dict, List, Optional, Tuple
 
 from engine import aggregate_army, apply_modifiers, euclidean_distance
@@ -347,6 +347,33 @@ class GameSession:
             "session": self.to_dict()
         }
 
+    def retarget_player_legion(self, legion_id: str, target: Tuple[int, int]) -> Dict[str, Any]:
+        """Assegna una nuova destinazione a una legione PLAYER già in campo."""
+        if self.state != SessionState.ACTIVE:
+            raise ValueError("Partita terminata.")
+
+        legion = self.player_legions.get(legion_id)
+        if legion is None:
+            raise ValueError(f"Legione non trovata: {legion_id}")
+
+        target = (int(target[0]), int(target[1]))
+        if self.game_map.get_cell(*target) is None:
+            raise ValueError("Cella di destinazione fuori dai limiti della mappa.")
+
+        legion["target"] = target
+        name = legion.get("name", legion_id)
+
+        log_entry = (
+            f"[Turno {self.game_map.turn}] 🧭 PLAYER: Legione '{name}' ridiretta verso {target}."
+        )
+        self.battle_log.append(log_entry)
+
+        return {
+            "ok": True,
+            "message": log_entry,
+            "session": self.to_dict()
+        }
+
     def _ensure_ai_legions_initialized(self) -> None:
         """Spawna una legione IA se assente, con cooldown dopo annientamento."""
         if self.ai_legions or not self.ai_units:
@@ -454,6 +481,70 @@ class GameSession:
             col -= 1
         return row, col
 
+    def _bfs_next_step(
+        self,
+        start: Tuple[int, int],
+        goal: Tuple[int, int],
+        blocked: set,
+    ) -> Optional[Tuple[int, int]]:
+        """Primo passo del percorso più breve start->goal, evitando le celle in `blocked`."""
+        start = tuple(start)
+        goal = tuple(goal)
+        if start == goal:
+            return start
+
+        rows, cols = self.game_map.rows, self.game_map.cols
+        visited = {start}
+        parent: Dict[Tuple[int, int], Tuple[int, int]] = {}
+        queue = deque([start])
+        while queue:
+            current = queue.popleft()
+            if current == goal:
+                break
+            r, c = current
+            for neighbor in ((r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)):
+                nr, nc = neighbor
+                if not (0 <= nr < rows and 0 <= nc < cols):
+                    continue
+                if neighbor in visited:
+                    continue
+                if neighbor in blocked and neighbor != goal:
+                    continue
+                visited.add(neighbor)
+                parent[neighbor] = current
+                queue.append(neighbor)
+
+        if goal not in visited:
+            return None
+
+        step = goal
+        while step in parent and parent[step] != start:
+            step = parent[step]
+        return step if step != start else None
+
+    def _next_legion_step(
+        self,
+        current_pos: Tuple[int, int],
+        target_pos: Tuple[int, int],
+        mover: Occupation,
+    ) -> Tuple[int, int]:
+        """Passo verso il target evitando di attraversare il castello nemico come ostacolo,
+        a meno che il castello non sia esso stesso la destinazione scelta (assalto esplicito)."""
+        current_pos = tuple(current_pos)
+        target_pos = tuple(target_pos)
+        if current_pos == target_pos:
+            return current_pos
+
+        defender_castle = self.game_map.castle_positions.get(mover.opposite())
+        blocked: set = set()
+        if defender_castle is not None and tuple(defender_castle) != target_pos:
+            blocked.add(tuple(defender_castle))
+
+        next_step = self._bfs_next_step(current_pos, target_pos, blocked)
+        if next_step is None:
+            return current_pos
+        return next_step
+
     def _pick_ai_legion_target(self, ai_legion: Dict[str, Any]) -> Optional[Tuple[int, int]]:
         """Target IA: insegui legioni player, altrimenti espandi su obiettivi strategici e solo poi castello."""
         ai_pos = tuple(ai_legion.get("pos", ()))
@@ -540,8 +631,8 @@ class GameSession:
             return
 
         hp_before = self.castle_hp.get(defender, self.castle_hp_max.get(defender, CASTLE_BASE_HP))
-        legion_units = max(1, len(legion.get("units", [])))
-        attacker_strength = max(20.0, legion_units * 22.0)
+        legion_unit_ids = legion.get("units", [])
+        attacker_strength = max(20.0, sum(self._unit_battle_value(uid) for uid in legion_unit_ids))
         defender_score = 44.0 + (len(self._entity_units(defender)) * 1.2)
         damage = self._compute_castle_damage(attacker_strength, defender_score)
         hp_after = max(0, hp_before - damage)
@@ -559,8 +650,11 @@ class GameSession:
             )
             return
 
-        # Castello non distrutto: assalto respinto, la legione torna alla cella precedente.
-        legion["pos"] = from_pos
+        # Castello non distrutto: assalto respinto, le truppe rientrano subito al castello d'origine
+        # (niente spam di assalti: il target viene azzerato, serve un nuovo ordine del giocatore/IA).
+        own_castle = self.game_map.castle_positions.get(attacker)
+        legion["pos"] = own_castle if own_castle is not None else from_pos
+        legion["target"] = None
         if castle_cell is not None:
             castle_cell.occupation = defender
         from_cell = self.game_map.get_cell(*from_pos)
@@ -569,7 +663,7 @@ class GameSession:
 
         logs.append(
             f"🏰 Assalto respinto: {attacker.value.upper()} infligge {damage} danni "
-            f"al castello (HP {hp_before}->{hp_after}) e ripiega su {from_pos}."
+            f"al castello (HP {hp_before}->{hp_after}) e le truppe rientrano al castello d'origine."
         )
 
     def _resolve_legion_clash_if_any(self, pos: Tuple[int, int], logs: List[str]) -> None:
@@ -1563,7 +1657,9 @@ class GameSession:
             if current_pos == target_pos:
                 continue
 
-            next_pos = self._step_toward(current_pos, target_pos)
+            next_pos = self._next_legion_step(current_pos, target_pos, PLAYER)
+            if next_pos == current_pos:
+                continue
             legion["pos"] = next_pos
 
             row, col = next_pos
@@ -1610,7 +1706,7 @@ class GameSession:
                         legion["target"] = target_pos
                         legion["target_lock_until"] = self.game_map.turn + self._ai_legion_target_lock_turns()
 
-                    next_pos = self._step_toward(current_pos, target_pos)
+                    next_pos = self._next_legion_step(current_pos, target_pos, AI)
                     if next_pos == current_pos:
                         continue
 
