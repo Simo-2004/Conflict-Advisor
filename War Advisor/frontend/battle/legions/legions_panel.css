@@ -361,6 +361,61 @@
     text-align: center;
 }
 
+/* Tipo legione */
+.legion-type-picker {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+}
+
+.legion-type-btn {
+    padding: 7px 6px;
+    font-size: 0.74em;
+    font-weight: 800;
+    border-radius: 8px;
+    background: #fff;
+    color: #475569;
+    border: 1px solid #cbd5e1;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.legion-type-btn:hover {
+    background: #f1f5f9;
+}
+
+.legion-type-btn.active {
+    background: #1a1a2e;
+    color: #fff;
+    border-color: #1a1a2e;
+}
+
+.legion-card-type-badge {
+    display: inline-block;
+    margin: 4px 0;
+    padding: 2px 7px;
+    font-size: 0.68em;
+    font-weight: 800;
+    border-radius: 5px;
+    background: #f1f5f9;
+    color: #475569;
+    border: 1px solid #cbd5e1;
+}
+
+.legion-type-mining {
+    background: #fffbeb;
+    color: #92400e;
+    border-color: #fde68a;
+}
+
+.legion-type-construction {
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-color: #bfdbfe;
+}
+
 /* Destinazione */
 .legions-target-row {
     display: grid;

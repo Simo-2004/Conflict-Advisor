@@ -13,11 +13,23 @@
     let activeLegions = [];            // lista legioni create
     let legionDraft = {
         name: '',
-        units: {},    // { unitId: qty }
-        target: null  // [row, col] | null
+        units: {},        // { unitId: qty }
+        target: null,     // [row, col] | null
+        legionType: 'army'  // 'army' | 'mining' | 'construction'
     };
     let legionPickModeActive = false;
     let legionPickListeners = [];  // cleanup pick listeners
+
+    const LEGION_TYPE_LABELS = {
+        army: 'Esercito',
+        mining: 'Mineraria',
+        construction: 'Costruzione'
+    };
+    const LEGION_TYPE_ICONS = {
+        army: '⚔',
+        mining: '⛏',
+        construction: '🧱'
+    };
 
     /* ── Helpers ───────────────────────────────────────────── */
     function qs(root, sel) {
@@ -63,6 +75,7 @@
             currentPos: Array.isArray(legion.pos) ? legion.pos : null,
             path: Array.isArray(legion.path) ? legion.path : [],
             pathStep: Number(legion.path_step || 0),
+            legionType: legion.legion_type || 'army',
         }));
     }
 
@@ -359,6 +372,9 @@
                 ? `Riga ${leg.target[0] + 1}, Col ${leg.target[1] + 1}`
                 : 'Destinazione non impostata';
 
+            const typeLabel = LEGION_TYPE_LABELS[leg.legionType] || leg.legionType;
+            const typeIcon = LEGION_TYPE_ICONS[leg.legionType] || '⚔';
+
             return `
                 <div class="legion-card" data-idx="${idx}">
                     <div class="legion-card-header">
@@ -368,6 +384,7 @@
                             <button class="legion-card-recall" type="button" data-idx="${idx}">Richiama</button>
                         </div>
                     </div>
+                    <div class="legion-card-type-badge legion-type-${leg.legionType}">${typeIcon} ${typeLabel}</div>
                     <div class="legion-card-dest">
                         <span class="legion-card-dest-pin">&#9654;</span>
                         ${dest}
@@ -462,6 +479,13 @@
                 <input class="legions-input" id="legionNameInput" type="text"
                        placeholder="Nome legione (es. Legione Alpha)" maxlength="40">
 
+                <p class="legion-unit-picker-label">Tipo legione</p>
+                <div class="legion-type-picker" id="legionTypePicker">
+                    <button class="legion-type-btn" type="button" data-type="army">&#9876; Esercito</button>
+                    <button class="legion-type-btn" type="button" data-type="mining">&#9935; Mineraria</button>
+                    <button class="legion-type-btn" type="button" data-type="construction">&#129521; Costruzione</button>
+                </div>
+
                 <p class="legion-unit-picker-label">Composizione</p>
                 <div class="legion-unit-picker" id="legionUnitPicker"></div>
 
@@ -489,6 +513,23 @@
             nameInput.addEventListener('input', () => {
                 legionDraft.name = nameInput.value;
                 updateSendButton();
+            });
+        }
+
+        // Type picker
+        const typePicker = document.getElementById('legionTypePicker');
+        if (typePicker) {
+            const syncTypeButtons = () => {
+                typePicker.querySelectorAll('.legion-type-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.type === legionDraft.legionType);
+                });
+            };
+            syncTypeButtons();
+            typePicker.querySelectorAll('.legion-type-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    legionDraft.legionType = btn.dataset.type;
+                    syncTypeButtons();
+                });
             });
         }
 
@@ -536,7 +577,8 @@
                         body: JSON.stringify({
                             name,
                             units: legionDraft.units,
-                            target: legionDraft.target
+                            target: legionDraft.target,
+                            legion_type: legionDraft.legionType
                         })
                     });
 
@@ -554,6 +596,7 @@
                     legionDraft.name = '';
                     legionDraft.units = {};
                     legionDraft.target = null;
+                    legionDraft.legionType = 'army';
                     if (nameInput) nameInput.value = '';
 
                     // Trigger render manually

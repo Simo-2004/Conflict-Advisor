@@ -393,6 +393,7 @@
             const adjacentMoves = getAdjacentMoves(playerPos, mapData.rows, mapData.cols);
             const playerTransit = getEntityTransitState('player', mapData);
             const aiTransit = getEntityTransitState('ai', mapData);
+            const legionPositions = getActivePlayerLegionPositions();
             const cellRefs = new Map();
 
             mapData.grid.forEach((row, rowIndex) => {
@@ -424,8 +425,8 @@
                     }
 
                     const isAdjacent = adjacentMoves.some(move => move[0] === rowIndex && move[1] === colIndex);
-                    const canMine = canPlaceMineOnCell(cell, rowIndex, colIndex, mapData.positions.player);
-                    const canFortify = canPlaceFortificationOnCell(cell, rowIndex, colIndex, mapData.positions.player);
+                    const canMine = canPlaceMineOnCell(cell, rowIndex, colIndex, legionPositions);
+                    const canFortify = canPlaceFortificationOnCell(cell, rowIndex, colIndex, legionPositions);
                     const mineMode = currentAction === 'place_mine';
                     const fortifyMode = currentAction === 'place_fortification';
 

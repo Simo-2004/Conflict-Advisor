@@ -12,7 +12,13 @@ from collections import Counter, deque
 from typing import Any, Dict, List, Optional, Tuple
 
 from engine import aggregate_army, apply_modifiers, euclidean_distance
-from gamecore.economy import MINE_YIELD_PER_ROUND, STARTING_GRUX, available_mine_slots, get_unit_costs
+from gamecore.economy import (
+    MINE_TILES_PER_SLOT,
+    MINE_YIELD_PER_ROUND,
+    STARTING_GRUX,
+    available_mine_slots,
+    get_unit_costs,
+)
 from gamecore.maps import GameMap, Occupation
 from gamecore.session.abilities import DOMAIN_ENGINEERING_ID, build_default_ability_states
 from gamecore.session.ai_core.ai_builder import (
@@ -79,6 +85,16 @@ PLAYER_BUILD_ORDERS = set(PLAYER_BUILD_ORDER_OPTIONS)
 
 CASTLE_BASE_HP = 220
 CASTLE_HP_PER_UNIT = 8
+
+LEGION_TYPE_ARMY = "army"
+LEGION_TYPE_MINING = "mining"
+LEGION_TYPE_CONSTRUCTION = "construction"
+LEGION_TYPES = (LEGION_TYPE_ARMY, LEGION_TYPE_MINING, LEGION_TYPE_CONSTRUCTION)
+LEGION_TYPE_LABELS = {
+    LEGION_TYPE_ARMY: "Esercito",
+    LEGION_TYPE_MINING: "Mineraria",
+    LEGION_TYPE_CONSTRUCTION: "Costruzione",
+}
 
 
 class SessionState(str, Enum):
@@ -269,10 +285,19 @@ class GameSession:
                     return (nr, nc)
         return None
 
-    def create_player_legion(self, name: str, units_dict: Dict[str, int], target: Optional[Tuple[int, int]]) -> Dict[str, Any]:
+    def create_player_legion(
+        self,
+        name: str,
+        units_dict: Dict[str, int],
+        target: Optional[Tuple[int, int]],
+        legion_type: str = LEGION_TYPE_ARMY,
+    ) -> Dict[str, Any]:
         if self.state != SessionState.ACTIVE:
             raise ValueError("Partita terminata.")
-            
+
+        if legion_type not in LEGION_TYPES:
+            raise ValueError(f"Tipo legione non valido: {legion_type}")
+
         # Verifica disponibilità truppe nella riserva
         from collections import Counter
         reserve_counts = Counter(self.player_units)
@@ -304,11 +329,16 @@ class GameSession:
             "units": legion_units,
             "pos": spawn_pos,
             "target": target,
+            "legion_type": legion_type,
             "path": [],
             "path_step": 0
         }
-        
-        self.battle_log.append(f"⚔️ PLAYER addestra la legione '{name}' e la invia verso {target if target else 'attesa'}.")
+
+        type_label = LEGION_TYPE_LABELS[legion_type]
+        self.battle_log.append(
+            f"⚔️ PLAYER addestra la legione '{name}' ({type_label}) e la invia verso "
+            f"{target if target else 'attesa'}."
+        )
         
         # Aggiorna controllo mappa
         cell = self.game_map.get_cell(*spawn_pos)
@@ -399,6 +429,7 @@ class GameSession:
             "units": list(self.ai_units),
             "pos": spawn_pos,
             "target": None,
+            "legion_type": LEGION_TYPE_ARMY,
             "path": [],
             "path_step": 0,
         }
@@ -2170,7 +2201,7 @@ class GameSession:
         }
 
     def _can_build_on_cell(self, entity: Occupation, row: int, col: int) -> bool:
-        """Prima dello sblocco abilità, costruzione consentita solo sulla cella armata."""
+        """Prima dello sblocco abilità, costruzione consentita solo dove è presente una legione/armata."""
         cell = self.game_map.get_cell(row, col)
         if cell is None or cell.occupation != entity:
             return False
@@ -2178,17 +2209,45 @@ class GameSession:
         if self._is_ability_unlocked(entity, DOMAIN_ENGINEERING_ID):
             return True
 
-        army_pos = self.game_map.positions.get(entity)
-        return army_pos == (row, col)
+        return (row, col) in self._active_legion_positions(entity)
+
+    def _check_legion_type_for_build(
+        self,
+        entity: Occupation,
+        row: int,
+        col: int,
+        required_type: str,
+        action_label: str,
+    ) -> None:
+        """Se una legione occupa la cella, deve essere del tipo richiesto per eseguire la costruzione."""
+        legion_entry = self._find_legion_at(entity, (row, col))
+        if legion_entry is None:
+            return
+
+        _, legion = legion_entry
+        legion_type = legion.get("legion_type", LEGION_TYPE_ARMY)
+        if legion_type == required_type:
+            return
+
+        legion_name = legion.get("name", "legione")
+        raise ValueError(
+            f"Non puoi costruire {action_label}: la legione '{legion_name}' è di tipo "
+            f"'{LEGION_TYPE_LABELS.get(legion_type, legion_type)}'. Serve una legione "
+            f"'{LEGION_TYPE_LABELS[required_type]}'."
+        )
 
     def place_mine(self, row: int, col: int) -> Dict[str, Any]:
         """Piazza una miniera del giocatore su una casella controllata."""
         if self.state != SessionState.ACTIVE:
             raise ValueError("La partita è terminata.")
+        self._check_legion_type_for_build(PLAYER, row, col, LEGION_TYPE_MINING, "una Miniera")
         if self._available_mine_slots(PLAYER) <= 0:
-            raise ValueError("Non hai slot miniera disponibili. Serve più territorio controllato.")
+            raise ValueError(
+                f"Non hai slot miniera disponibili. Serve più territorio controllato "
+                f"(1 slot ogni {MINE_TILES_PER_SLOT} celle)."
+            )
         if not self._can_build_on_cell(PLAYER, row, col):
-            raise ValueError("Costruzione non consentita su questa cella: senza Abilità puoi costruire solo sulla tua armata.")
+            raise ValueError("Costruzione non consentita su questa cella: senza Abilità puoi costruire solo dove hai una legione.")
 
         cell = self.game_map.place_mine(PLAYER, row, col)
         log_entry = f"[Turno {self.game_map.turn}] ⛏ PLAYER costruisce una miniera su ({row},{col})"
@@ -2210,6 +2269,9 @@ class GameSession:
             raise ValueError("Non hai unità sufficienti: devi mantenere almeno una legione attiva con l'armata.")
 
         player_pos = self.game_map.positions.get(PLAYER)
+        if player_pos is None:
+            legion_positions = self._active_legion_positions(PLAYER)
+            player_pos = legion_positions[0] if legion_positions else None
         if player_pos is None:
             raise ValueError("Posizione PLAYER non disponibile.")
 
@@ -2253,8 +2315,9 @@ class GameSession:
             raise ValueError("Cella fuori dalla mappa.")
         if cell.occupation != PLAYER:
             raise ValueError("Puoi fortificare solo celle controllate dal PLAYER.")
+        self._check_legion_type_for_build(PLAYER, row, col, LEGION_TYPE_CONSTRUCTION, "una Fortificazione")
         if not self._can_build_on_cell(PLAYER, row, col):
-            raise ValueError("Costruzione non consentita su questa cella: senza Abilità puoi costruire solo sulla tua armata.")
+            raise ValueError("Costruzione non consentita su questa cella: senza Abilità puoi costruire solo dove hai una legione.")
         if cell.is_castle:
             raise ValueError("Il castello centrale non è fortificabile.")
 

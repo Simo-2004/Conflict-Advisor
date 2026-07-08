@@ -5,20 +5,32 @@
             return Boolean(abilityState && abilityState.unlocked);
         }
 
+        // Posizioni "costruibili" del PLAYER: quelle di tutte le legioni attive, con fallback
+        // alla posizione armata legacy se non ci sono legioni (evita il bug delle celle stale).
+        function getActivePlayerLegionPositions() {
+            const legions = currentBattleState?.player?.legions || {};
+            const positions = Object.values(legions)
+                .map(legion => Array.isArray(legion.pos) ? legion.pos : null)
+                .filter(Boolean);
+            if (positions.length > 0) return positions;
 
-        function canPlaceMineOnCell(cell, row, col, playerPos) {
+            const fallback = currentBattleState?.map?.positions?.player;
+            return fallback ? [fallback] : [];
+        }
+
+        function canPlaceMineOnCell(cell, row, col, legionPositions) {
             if (!currentBattleState) return false;
             if (cell.occupation !== 'player' || cell.is_castle || cell.is_mine || cell.terrain === 'Fiume') return false;
             if (currentBattleState.player.available_mine_slots <= 0) return false;
             if (playerCanBuildAnywhere()) return true;
-            return Array.isArray(playerPos) && playerPos[0] === row && playerPos[1] === col;
+            return Array.isArray(legionPositions) && legionPositions.some(p => p[0] === row && p[1] === col);
         }
 
-        function canPlaceFortificationOnCell(cell, row, col, playerPos) {
+        function canPlaceFortificationOnCell(cell, row, col, legionPositions) {
             if (!currentBattleState) return false;
             if (cell.occupation !== 'player' || cell.is_castle) return false;
             if (playerCanBuildAnywhere()) return true;
-            return Array.isArray(playerPos) && playerPos[0] === row && playerPos[1] === col;
+            return Array.isArray(legionPositions) && legionPositions.some(p => p[0] === row && p[1] === col);
         }
 
         function setAction(action) {
@@ -438,8 +450,8 @@
                 if (retryAfterSync && refreshedState && isDomainOrBuildValidationError) {
                     const mapData = refreshedState.map;
                     const refreshedCell = mapData?.grid?.[row]?.[col];
-                    const refreshedPlayerPos = mapData?.positions?.player;
-                    if (refreshedCell && canPlaceMineOnCell(refreshedCell, row, col, refreshedPlayerPos)) {
+                    const refreshedLegionPositions = getActivePlayerLegionPositions();
+                    if (refreshedCell && canPlaceMineOnCell(refreshedCell, row, col, refreshedLegionPositions)) {
                         await placeMine(row, col, false);
                         return;
                     }
@@ -479,17 +491,19 @@
         }
 
         function findAutoMineTarget() {
-            if (!currentBattleState || !currentBattleState.map || !currentBattleState.map.positions.player) {
+            if (!currentBattleState || !currentBattleState.map) {
                 return null;
             }
 
             const mapData = currentBattleState.map;
-            const [pr, pc] = mapData.positions.player;
+            const legionPositions = getActivePlayerLegionPositions();
             const candidates = [];
 
-            candidates.push([pr, pc]);
-            for (const [r, c] of getAdjacentMoves([pr, pc], mapData.rows, mapData.cols)) {
-                candidates.push([r, c]);
+            for (const [pr, pc] of legionPositions) {
+                candidates.push([pr, pc]);
+                for (const [r, c] of getAdjacentMoves([pr, pc], mapData.rows, mapData.cols)) {
+                    candidates.push([r, c]);
+                }
             }
 
             for (let r = 0; r < mapData.rows; r += 1) {
@@ -500,7 +514,7 @@
 
             for (const [r, c] of candidates) {
                 const cell = mapData.grid[r][c];
-                if (canPlaceMineOnCell(cell, r, c, mapData.positions.player)) {
+                if (canPlaceMineOnCell(cell, r, c, legionPositions)) {
                     return [r, c];
                 }
             }
@@ -542,17 +556,19 @@
         }
 
         function findAutoFortificationTarget() {
-            if (!currentBattleState || !currentBattleState.map || !currentBattleState.map.positions.player) {
+            if (!currentBattleState || !currentBattleState.map) {
                 return null;
             }
 
             const mapData = currentBattleState.map;
-            const [pr, pc] = mapData.positions.player;
+            const legionPositions = getActivePlayerLegionPositions();
             const candidates = [];
 
-            candidates.push([pr, pc]);
-            for (const [r, c] of getAdjacentMoves([pr, pc], mapData.rows, mapData.cols)) {
-                candidates.push([r, c]);
+            for (const [pr, pc] of legionPositions) {
+                candidates.push([pr, pc]);
+                for (const [r, c] of getAdjacentMoves([pr, pc], mapData.rows, mapData.cols)) {
+                    candidates.push([r, c]);
+                }
             }
 
             for (let r = 0; r < mapData.rows; r += 1) {
@@ -564,7 +580,7 @@
             let best = null;
             for (const [r, c] of candidates) {
                 const cell = mapData.grid[r][c];
-                if (!canPlaceFortificationOnCell(cell, r, c, mapData.positions.player)) {
+                if (!canPlaceFortificationOnCell(cell, r, c, legionPositions)) {
                     continue;
                 }
                 if (!best || cell.fortification_level < best[2]) {

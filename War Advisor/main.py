@@ -302,6 +302,9 @@ class CreateLegionRequest(BaseModel):
     name: str = Field(..., description="Nome della legione")
     units: Dict[str, int] = Field(..., description="Dizionario di id_unità -> quantità da prelevare")
     target: Optional[tuple[int, int]] = Field(None, description="Destinazione opzionale [row, col]")
+    legion_type: str = Field(
+        "army", description="Tipo legione: 'army' (Esercito), 'mining' (Mineraria) o 'construction' (Costruzione)"
+    )
 
 
 class RecallLegionRequest(BaseModel):
@@ -417,7 +420,8 @@ async def game_create_legion(request: CreateLegionRequest):
         return _active_session.create_player_legion(
             name=request.name,
             units_dict=request.units,
-            target=request.target
+            target=request.target,
+            legion_type=request.legion_type,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
