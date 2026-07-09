@@ -261,14 +261,14 @@ class MoveRequest(BaseModel):
 
 
 class GarrisonRequest(BaseModel):
-    """Richiesta per piazzare presidio con scelta unità."""
+    """Richiesta per piazzare presidio con una legione (che deve avere almeno 2 truppe)."""
+    legion_id: str = Field(..., description="ID della legione che lascia il presidio")
     unit_id: Optional[str] = Field(None, description="ID unità da distaccare")
 
 
-class MineRequest(BaseModel):
-    """Richiesta per piazzare una miniera."""
-    row: int = Field(..., description="Riga della cella")
-    col: int = Field(..., description="Colonna della cella")
+class LegionBuildRequest(BaseModel):
+    """Richiesta per costruire (miniera/fortificazione) con una legione specifica, sulla sua cella attuale."""
+    legion_id: str = Field(..., description="ID della legione che esegue la costruzione")
 
 
 class RecruitRequest(BaseModel):
@@ -485,13 +485,13 @@ async def game_in_game_advisor():
 
 
 @app.post("/game/place-mine")
-async def game_place_mine(request: MineRequest):
-    """Piazza una miniera di grux su una cella controllata dal giocatore."""
+async def game_place_mine(request: LegionBuildRequest):
+    """Piazza una miniera con una legione Mineraria, sulla cella dove si trova."""
     if _active_session is None:
         raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
 
     try:
-        return _active_session.place_mine(request.row, request.col)
+        return _active_session.place_mine(request.legion_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -499,14 +499,13 @@ async def game_place_mine(request: MineRequest):
 
 
 @app.post("/game/place-garrison-here")
-async def game_place_garrison_here(request: Optional[GarrisonRequest] = None):
-    """Piazza subito un presidio sulla casella corrente del player."""
+async def game_place_garrison_here(request: GarrisonRequest):
+    """Stacca una truppa dalla legione indicata (min. 2 truppe) per presidiare la sua cella attuale."""
     if _active_session is None:
         raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
 
     try:
-        unit_id = request.unit_id if request is not None else None
-        return _active_session.place_garrison_here(unit_id=unit_id)
+        return _active_session.place_garrison(request.legion_id, unit_id=request.unit_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -514,13 +513,13 @@ async def game_place_garrison_here(request: Optional[GarrisonRequest] = None):
 
 
 @app.post("/game/place-fortification")
-async def game_place_fortification(request: MineRequest):
-    """Piazza una fortificazione su una cella controllata dal giocatore."""
+async def game_place_fortification(request: LegionBuildRequest):
+    """Piazza una fortificazione con una legione Costruzione, sulla cella dove si trova."""
     if _active_session is None:
         raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
 
     try:
-        return _active_session.place_fortification(request.row, request.col)
+        return _active_session.place_fortification(request.legion_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

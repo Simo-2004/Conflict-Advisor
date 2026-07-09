@@ -38,6 +38,7 @@
         if (!battlePanel || !battleToolbar) return;
         if (document.getElementById('battle_bar')) return;
 
+        const tacticalLegionSelectWrap = qs(battleToolbar, '.tactical-legion-select-wrap');
         const actionRow = qs(battleToolbar, '.action-row');
         const garrisonPreview = document.getElementById('garrisonDefensePreview');
         const toolbarRecruit = qs(battleToolbar, '.toolbar-recruit');
@@ -73,6 +74,7 @@
         const viewPane = qs(bar, '[data-pane="view"]');
         const systemPane = qs(bar, '[data-pane="system"]');
 
+        moveIfPresent(tacticalLegionSelectWrap, warPane);
         moveIfPresent(actionRow, warPane);
         moveIfPresent(garrisonPreview, warPane);
         moveIfPresent(toolbarRecruit, warPane);

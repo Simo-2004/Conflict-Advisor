@@ -2,27 +2,22 @@
         function renderBattleState(sessionData) {
             currentBattleState = sessionData;
 
-            document.getElementById('battleStatusMode').textContent = `Azione: ${actionLabel(currentAction)}`;
             if (sessionData.state === 'game_over') {
                 document.getElementById('battleStatusRound').textContent = `Fine partita: ${sessionData.winner}`;
                 document.getElementById('battleStatusHint').textContent = 'Il registro mostra il riepilogo completo della battaglia.';
             } else {
                 document.getElementById('battleStatusRound').textContent = `Turno ${sessionData.map.turn}`;
-                if (currentAction === 'move_garrison' && sessionData.player.available_garrisons <= 0) {
-                    document.getElementById('battleStatusHint').textContent = 'Nessun presidio disponibile: recluta unità o cambia azione.';
-                } else if (currentAction === 'place_mine' && sessionData.player.available_mine_slots <= 0) {
-                    document.getElementById('battleStatusHint').textContent = 'Nessuno slot miniera: conquista più territorio per costruirne altre.';
-                } else if (currentAction === 'place_fortification') {
-                    document.getElementById('battleStatusHint').textContent = 'Seleziona una cella PLAYER per fortificarla (costo crescente sulla stessa casella).';
-                } else {
-                    document.getElementById('battleStatusHint').textContent = 'Usa i pulsanti azione o premi H per i comandi rapidi.';
-                }
+                document.getElementById('battleStatusHint').textContent = 'Seleziona una legione e usa Presidio/Miniera/Fortifica, o premi H per i comandi rapidi.';
             }
+
+            renderTacticalLegionSelect(sessionData);
+            updateBattleStatusModePill(sessionData);
+            updateTacticalActionButtons(sessionData);
 
             const playerLegion = buildLegionInfo(sessionData.player.units || []);
             const aiLegion = buildLegionInfo(sessionData.ai.units || []);
-            renderGarrisonUnitSelector(sessionData.player.units || []);
-            updateGarrisonDefensePreview();
+            renderGarrisonUnitSelector(sessionData);
+            updateGarrisonDefensePreview(sessionData);
 
             document.getElementById('playerGruxValue').textContent = formatGrux(sessionData.player.grux_balance);
             document.getElementById('playerGruxSub').textContent = `Costo legione: ${formatGrux(sessionData.player.army_cost)}`;
@@ -64,16 +59,6 @@
             }
 
             const gameOver = sessionData.state === 'game_over';
-
-            const actionButtons = [
-                document.getElementById('actionMoveBtn'),
-                document.getElementById('actionGarrisonBtn'),
-                document.getElementById('actionMineBtn'),
-                document.getElementById('actionFortifyBtn'),
-            ];
-            actionButtons.forEach((btn) => {
-                if (btn) btn.disabled = gameOver;
-            });
 
             const garrisonUnitSelect = document.getElementById('garrisonUnitSelect');
             if (garrisonUnitSelect && gameOver) {
@@ -179,12 +164,80 @@
             };
         }
 
+        const TACTICAL_LEGION_TYPE_LABELS = {
+            army: 'Esercito',
+            mining: 'Mineraria',
+            construction: 'Costruzione',
+        };
+
         function getSelectedGarrisonUnitId() {
             const selector = document.getElementById('garrisonUnitSelect');
             if (!selector || selector.disabled) {
                 return null;
             }
             return selector.value || null;
+        }
+
+        function getSelectedTacticalLegionId() {
+            const selector = document.getElementById('tacticalLegionSelect');
+            return selector && selector.value ? selector.value : null;
+        }
+
+        function getSelectedTacticalLegion(sessionData) {
+            const legionId = getSelectedTacticalLegionId();
+            if (!legionId) return null;
+            return (sessionData?.player?.legions || {})[legionId] || null;
+        }
+
+        function renderTacticalLegionSelect(sessionData) {
+            const selector = document.getElementById('tacticalLegionSelect');
+            if (!selector) return;
+
+            const legions = Object.values(sessionData?.player?.legions || {});
+            const previousValue = selector.value;
+
+            if (legions.length === 0) {
+                selector.innerHTML = '<option value="">Nessuna legione attiva</option>';
+                selector.disabled = true;
+                return;
+            }
+
+            selector.disabled = sessionData.state === 'game_over';
+            selector.innerHTML = legions.map((legion) => {
+                const typeLabel = TACTICAL_LEGION_TYPE_LABELS[legion.legion_type] || 'Esercito';
+                return `<option value="${legion.id}">${legion.name} (${typeLabel})</option>`;
+            }).join('');
+
+            if (previousValue && legions.some((legion) => legion.id === previousValue)) {
+                selector.value = previousValue;
+            }
+        }
+
+        function updateBattleStatusModePill(sessionData) {
+            const pill = document.getElementById('battleStatusMode');
+            if (!pill) return;
+
+            const legion = getSelectedTacticalLegion(sessionData);
+            if (!legion) {
+                pill.textContent = 'Legione: nessuna';
+                return;
+            }
+            const typeLabel = TACTICAL_LEGION_TYPE_LABELS[legion.legion_type] || 'Esercito';
+            pill.textContent = `Legione: ${legion.name} (${typeLabel})`;
+        }
+
+        function updateTacticalActionButtons(sessionData) {
+            const gameOver = sessionData.state === 'game_over';
+            const legion = getSelectedTacticalLegion(sessionData);
+            const unitsCount = legion ? (legion.units || []).length : 0;
+
+            const garrisonBtn = document.getElementById('actionGarrisonBtn');
+            const mineBtn = document.getElementById('actionMineBtn');
+            const fortifyBtn = document.getElementById('actionFortifyBtn');
+
+            if (garrisonBtn) garrisonBtn.disabled = gameOver || !legion || unitsCount < 2;
+            if (mineBtn) mineBtn.disabled = gameOver || !legion || legion.legion_type !== 'mining';
+            if (fortifyBtn) fortifyBtn.disabled = gameOver || !legion || legion.legion_type !== 'construction';
         }
 
         function evaluateUnitBattleValue(unitId, terrainName) {
@@ -220,12 +273,18 @@
             return baseValue * terrainFactor;
         }
 
-        function updateGarrisonDefensePreview() {
+        function updateGarrisonDefensePreview(sessionData) {
             const preview = document.getElementById('garrisonDefensePreview');
             if (!preview) return;
 
-            if (!currentBattleState || !currentBattleState.map || !currentBattleState.map.positions?.player) {
-                preview.textContent = 'Difesa presidio stimata: stato mappa non disponibile.';
+            const state = sessionData || currentBattleState;
+            const legion = getSelectedTacticalLegion(state);
+            if (!legion) {
+                preview.textContent = 'Difesa presidio stimata: seleziona una legione.';
+                return;
+            }
+            if ((legion.units || []).length < 2) {
+                preview.textContent = 'Difesa presidio stimata: la legione deve avere almeno 2 truppe.';
                 return;
             }
 
@@ -235,8 +294,8 @@
                 return;
             }
 
-            const [row, col] = currentBattleState.map.positions.player;
-            const cell = currentBattleState.map.grid?.[row]?.[col];
+            const [row, col] = legion.pos;
+            const cell = state?.map?.grid?.[row]?.[col];
             if (!cell) {
                 preview.textContent = 'Difesa presidio stimata: cella non disponibile.';
                 return;
@@ -264,9 +323,12 @@
                 `terreno +${terrainBonus}, fortificazioni +${Math.round(fortificationBase + synergyBase)}).`;
         }
 
-        function renderGarrisonUnitSelector(unitIds) {
+        function renderGarrisonUnitSelector(sessionData) {
             const selector = document.getElementById('garrisonUnitSelect');
             if (!selector) return;
+
+            const legion = getSelectedTacticalLegion(sessionData);
+            const unitIds = legion ? (legion.units || []) : [];
 
             const previousValue = selector.value;
             const namesById = new Map(recruitableUnits.map(unit => [unit.id, unit.name || unit.id]));
@@ -286,23 +348,25 @@
             }
 
             options.sort((a, b) => a.name.localeCompare(b.name, 'it'));
+
+            const hasDetachableUnit = unitIds.length >= 2 && options.length > 0;
+            if (!hasDetachableUnit) {
+                selector.innerHTML = '<option value="">Nessuna unità distaccabile</option>';
+                selector.disabled = true;
+                updateGarrisonDefensePreview(sessionData);
+                return;
+            }
+
+            selector.disabled = sessionData.state === 'game_over';
             selector.innerHTML = options
                 .map(item => `<option value="${item.id}">${item.name} (${item.count})</option>`)
                 .join('');
-
-            const hasDetachableUnit = unitIds.length > 1 && options.length > 0;
-            selector.disabled = !hasDetachableUnit;
-            if (!hasDetachableUnit) {
-                selector.innerHTML = '<option value="">Nessuna unità distaccabile</option>';
-                updateGarrisonDefensePreview();
-                return;
-            }
 
             if (previousValue && options.some(item => item.id === previousValue)) {
                 selector.value = previousValue;
             }
 
-            updateGarrisonDefensePreview();
+            updateGarrisonDefensePreview(sessionData);
         }
 
         function initHintToneObserver() {
@@ -388,12 +452,8 @@
             board.innerHTML = '';
             board.style.gridTemplateColumns = `repeat(${mapData.cols}, minmax(42px, 1fr))`;
 
-            const manualControl = (currentBattleState?.player?.control_mode || 'manual') === 'manual';
-            const playerPos = mapData.positions.player || null;
-            const adjacentMoves = getAdjacentMoves(playerPos, mapData.rows, mapData.cols);
             const playerTransit = getEntityTransitState('player', mapData);
             const aiTransit = getEntityTransitState('ai', mapData);
-            const legionPositions = getActivePlayerLegionPositions();
             const cellRefs = new Map();
 
             mapData.grid.forEach((row, rowIndex) => {
@@ -404,6 +464,7 @@
                     button.dataset.row = String(rowIndex);
                     button.dataset.col = String(colIndex);
                     button.title = `${cell.terrain} (${rowIndex}, ${colIndex})`;
+                    button.disabled = true;
 
                     if (cell.is_strategic) button.classList.add('cell-strategic');
                     if (cell.occupation === 'player') button.classList.add('cell-player');
@@ -422,21 +483,6 @@
                             button.classList.add('cell-army-in-transit');
                             button.title += buildTransitTitleSuffix(aiTransit);
                         }
-                    }
-
-                    const isAdjacent = adjacentMoves.some(move => move[0] === rowIndex && move[1] === colIndex);
-                    const canMine = canPlaceMineOnCell(cell, rowIndex, colIndex, legionPositions);
-                    const canFortify = canPlaceFortificationOnCell(cell, rowIndex, colIndex, legionPositions);
-                    const mineMode = currentAction === 'place_mine';
-                    const fortifyMode = currentAction === 'place_fortification';
-
-                    if (currentBattleState && currentBattleState.state !== 'game_over') {
-                        if (isAdjacent || (mineMode && canMine) || (fortifyMode && canFortify)) {
-                            button.classList.add('cell-adjacent');
-                        }
-                        button.onclick = (event) => handleCellAction(event, rowIndex, colIndex, isAdjacent, canMine, canFortify);
-                    } else {
-                        button.disabled = true;
                     }
 
                     button.innerHTML = buildCellLabel(cell, rowIndex, colIndex, mapData, playerTransit, aiTransit);

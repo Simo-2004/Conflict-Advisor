@@ -18,7 +18,6 @@
                 const result = await response.json();
                 transientLogLines = [];
                 renderBattleState(result.session);
-                resetActionToDefault();
                 renderSkillTree(result.session);
             } catch (error) {
                 document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;

@@ -1617,25 +1617,26 @@ class GameSession:
         for step in plan:
             try:
                 if step == "mine":
-                    mine_target = self._choose_player_order_mine_cell()
-                    if mine_target is None:
+                    legion_id = self._find_first_legion_of_type(PLAYER, LEGION_TYPE_MINING)
+                    if legion_id is None:
                         continue
-                    result = self.place_mine(mine_target[0], mine_target[1])
+                    result = self.place_mine(legion_id)
                     logs.append(result["message"])
                     break
 
                 if step == "fortify":
-                    fort_target = self._choose_player_order_fortification_cell()
-                    if fort_target is None:
+                    legion_id = self._find_first_legion_of_type(PLAYER, LEGION_TYPE_CONSTRUCTION)
+                    if legion_id is None:
                         continue
-                    result = self.place_fortification(fort_target[0], fort_target[1])
+                    result = self.place_fortification(legion_id)
                     logs.append(result["message"])
                     break
 
                 if step == "garrison":
-                    if self._available_garrisons(PLAYER) <= 0:
+                    legion_id = self._find_first_legion_with_spare_units(PLAYER)
+                    if legion_id is None:
                         continue
-                    result = self.place_garrison_here(unit_id=None)
+                    result = self.place_garrison(legion_id)
                     logs.append(result["message"])
                     break
             except ValueError:
@@ -2200,31 +2201,14 @@ class GameSession:
             "session": self.to_dict(),
         }
 
-    def _can_build_on_cell(self, entity: Occupation, row: int, col: int) -> bool:
-        """Prima dello sblocco abilità, costruzione consentita solo dove è presente una legione/armata."""
-        cell = self.game_map.get_cell(row, col)
-        if cell is None or cell.occupation != entity:
-            return False
+    def _get_player_legion_or_raise(self, legion_id: str) -> Dict[str, Any]:
+        legion = self.player_legions.get(legion_id)
+        if legion is None:
+            raise ValueError(f"Legione non trovata: {legion_id}")
+        return legion
 
-        if self._is_ability_unlocked(entity, DOMAIN_ENGINEERING_ID):
-            return True
-
-        return (row, col) in self._active_legion_positions(entity)
-
-    def _check_legion_type_for_build(
-        self,
-        entity: Occupation,
-        row: int,
-        col: int,
-        required_type: str,
-        action_label: str,
-    ) -> None:
-        """Se una legione occupa la cella, deve essere del tipo richiesto per eseguire la costruzione."""
-        legion_entry = self._find_legion_at(entity, (row, col))
-        if legion_entry is None:
-            return
-
-        _, legion = legion_entry
+    def _require_legion_type(self, legion: Dict[str, Any], required_type: str, action_label: str) -> None:
+        """La legione deve essere del tipo richiesto per eseguire questa costruzione."""
         legion_type = legion.get("legion_type", LEGION_TYPE_ARMY)
         if legion_type == required_type:
             return
@@ -2236,21 +2220,41 @@ class GameSession:
             f"'{LEGION_TYPE_LABELS[required_type]}'."
         )
 
-    def place_mine(self, row: int, col: int) -> Dict[str, Any]:
-        """Piazza una miniera del giocatore su una casella controllata."""
+    def _find_first_legion_of_type(self, entity: Occupation, legion_type: str) -> Optional[str]:
+        """Prima legione dell'entità con il tipo richiesto, se presente."""
+        source = self.player_legions if entity == PLAYER else self.ai_legions
+        for legion_id, legion in source.items():
+            if legion.get("legion_type", LEGION_TYPE_ARMY) == legion_type:
+                return legion_id
+        return None
+
+    def _find_first_legion_with_spare_units(self, entity: Occupation) -> Optional[str]:
+        """Prima legione dell'entità con almeno 2 truppe (può lasciarne una a presidio)."""
+        source = self.player_legions if entity == PLAYER else self.ai_legions
+        for legion_id, legion in source.items():
+            if len(legion.get("units", [])) >= 2:
+                return legion_id
+        return None
+
+    def place_mine(self, legion_id: str) -> Dict[str, Any]:
+        """Piazza una miniera con una legione Mineraria, sulla cella dove si trova attualmente."""
         if self.state != SessionState.ACTIVE:
             raise ValueError("La partita è terminata.")
-        self._check_legion_type_for_build(PLAYER, row, col, LEGION_TYPE_MINING, "una Miniera")
+
+        legion = self._get_player_legion_or_raise(legion_id)
+        self._require_legion_type(legion, LEGION_TYPE_MINING, "una Miniera")
         if self._available_mine_slots(PLAYER) <= 0:
             raise ValueError(
                 f"Non hai slot miniera disponibili. Serve più territorio controllato "
                 f"(1 slot ogni {MINE_TILES_PER_SLOT} celle)."
             )
-        if not self._can_build_on_cell(PLAYER, row, col):
-            raise ValueError("Costruzione non consentita su questa cella: senza Abilità puoi costruire solo dove hai una legione.")
 
+        row, col = tuple(legion["pos"])
         cell = self.game_map.place_mine(PLAYER, row, col)
-        log_entry = f"[Turno {self.game_map.turn}] ⛏ PLAYER costruisce una miniera su ({row},{col})"
+        log_entry = (
+            f"[Turno {self.game_map.turn}] ⛏ PLAYER costruisce una miniera su ({row},{col}) "
+            f"con la legione '{legion['name']}'"
+        )
         self.battle_log.append(log_entry)
         return {
             "ok": True,
@@ -2261,36 +2265,55 @@ class GameSession:
             "player_grux": self.grux_balance[PLAYER],
         }
 
-    def place_garrison_here(self, unit_id: Optional[str] = None) -> Dict[str, Any]:
-        """Piazza immediatamente un presidio sulla casella corrente dell'armata player."""
-        if self.state != SessionState.ACTIVE:
-            raise ValueError("La partita è terminata.")
-        if self._available_garrisons(PLAYER) <= 0:
-            raise ValueError("Non hai unità sufficienti: devi mantenere almeno una legione attiva con l'armata.")
+    def _detach_unit_from_legion_to_garrison(
+        self,
+        legion: Dict[str, Any],
+        cell_pos: Tuple[int, int],
+        unit_id: Optional[str],
+    ) -> Dict[str, Any]:
+        """Distacca una truppa dalla legione stessa (non dalla riserva) per presidiare la cella."""
+        units = legion.get("units", [])
+        if len(units) < 2:
+            raise ValueError(
+                "Non puoi lasciare un presidio: la legione deve avere almeno 2 truppe "
+                "(ne resta sempre almeno 1 attiva)."
+            )
 
-        player_pos = self.game_map.positions.get(PLAYER)
-        if player_pos is None:
-            legion_positions = self._active_legion_positions(PLAYER)
-            player_pos = legion_positions[0] if legion_positions else None
-        if player_pos is None:
-            raise ValueError("Posizione PLAYER non disponibile.")
+        selected_unit_id = unit_id
+        if selected_unit_id is None:
+            sorted_units = sorted(units, key=lambda uid: self._unit_battle_value(uid))
+            selected_unit_id = sorted_units[0]
+        if selected_unit_id not in units:
+            raise ValueError("La truppa selezionata non è presente in questa legione.")
 
-        cell = self.game_map.get_cell(*player_pos)
-        if cell is None or cell.occupation != PLAYER:
-            raise ValueError("La cella corrente non è controllata dal PLAYER.")
+        cell = self.game_map.get_cell(*cell_pos)
+        if cell is None:
+            raise ValueError("Cella presidio non valida.")
 
-        detach_result = self._detach_unit_to_garrison(
-            entity=PLAYER,
-            cell_pos=player_pos,
-            unit_id=unit_id,
-            auto=False,
-        )
+        units.remove(selected_unit_id)
+        cell.garrison_unit_ids.append(selected_unit_id)
         cell.garrison_strength = max(cell.garrison_strength, len(cell.garrison_unit_ids))
 
-        row, col = player_pos
+        unit_name = self.units_map.get(selected_unit_id, {}).get("name", selected_unit_id)
+        return {"unit_id": selected_unit_id, "unit_name": unit_name}
+
+    def place_garrison(self, legion_id: str, unit_id: Optional[str] = None) -> Dict[str, Any]:
+        """Stacca una truppa dalla legione (che deve averne almeno 2) per presidiare la cella dove si trova."""
+        if self.state != SessionState.ACTIVE:
+            raise ValueError("La partita è terminata.")
+
+        legion = self._get_player_legion_or_raise(legion_id)
+        pos = tuple(legion["pos"])
+        cell = self.game_map.get_cell(*pos)
+        if cell is None or cell.occupation != PLAYER:
+            raise ValueError("La cella della legione non è controllata dal PLAYER.")
+
+        detach_result = self._detach_unit_from_legion_to_garrison(legion, pos, unit_id)
+
+        row, col = pos
         log_entry = (
             f"[Turno {self.game_map.turn}] 🛡 PLAYER piazza un presidio su ({row},{col}) "
-            f"— Distaccata: {detach_result['unit_name']}"
+            f"con la legione '{legion['name']}' — Distaccata: {detach_result['unit_name']}"
         )
         self.battle_log.append(log_entry)
         return {
@@ -2305,19 +2328,20 @@ class GameSession:
         """Costo fortificazione con crescita forte sullo stack della stessa cella."""
         return int(round(self.base_fortification_cost * (1 + (current_level * 1.7))))
 
-    def place_fortification(self, row: int, col: int) -> Dict[str, Any]:
-        """Piazza una fortificazione PLAYER su una cella controllata, con costo crescente."""
+    def place_fortification(self, legion_id: str) -> Dict[str, Any]:
+        """Piazza una fortificazione con una legione Costruzione, con costo crescente."""
         if self.state != SessionState.ACTIVE:
             raise ValueError("La partita è terminata.")
 
+        legion = self._get_player_legion_or_raise(legion_id)
+        self._require_legion_type(legion, LEGION_TYPE_CONSTRUCTION, "una Fortificazione")
+
+        row, col = tuple(legion["pos"])
         cell = self.game_map.get_cell(row, col)
         if cell is None:
             raise ValueError("Cella fuori dalla mappa.")
         if cell.occupation != PLAYER:
             raise ValueError("Puoi fortificare solo celle controllate dal PLAYER.")
-        self._check_legion_type_for_build(PLAYER, row, col, LEGION_TYPE_CONSTRUCTION, "una Fortificazione")
-        if not self._can_build_on_cell(PLAYER, row, col):
-            raise ValueError("Costruzione non consentita su questa cella: senza Abilità puoi costruire solo dove hai una legione.")
         if cell.is_castle:
             raise ValueError("Il castello centrale non è fortificabile.")
 
@@ -2331,8 +2355,8 @@ class GameSession:
         next_cost = self._fortification_cost(cell.fortification_level)
 
         log_entry = (
-            f"[Turno {self.game_map.turn}] 🧱 PLAYER fortifica ({row},{col}) "
-            f"→ livello {cell.fortification_level} (costo {cost} grux)"
+            f"[Turno {self.game_map.turn}] 🧱 PLAYER fortifica ({row},{col}) con la legione "
+            f"'{legion['name']}' → livello {cell.fortification_level} (costo {cost} grux)"
         )
         self.battle_log.append(log_entry)
         return {

@@ -2,7 +2,6 @@
         let transientLogLines = [];
         let recruitableUnits = [];
         let availableStrategies = [];
-        let currentAction = 'move';
         let currentLayoutMode = 'split';
         let layoutSplitRatio = 0.7;
         let splitterDragging = false;
@@ -33,7 +32,6 @@
         window.addEventListener('DOMContentLoaded', initBattlePage);
 
         async function initBattlePage() {
-            setAction('move');
             document.addEventListener('keydown', handleKeyboardShortcuts);
             document.addEventListener('click', handleOutsideMenuClick);
             initHintToneObserver();
@@ -42,7 +40,17 @@
 
             const garrisonSelector = document.getElementById('garrisonUnitSelect');
             if (garrisonSelector) {
-                garrisonSelector.addEventListener('change', () => updateGarrisonDefensePreview());
+                garrisonSelector.addEventListener('change', () => updateGarrisonDefensePreview(currentBattleState));
+            }
+
+            const tacticalLegionSelect = document.getElementById('tacticalLegionSelect');
+            if (tacticalLegionSelect) {
+                tacticalLegionSelect.addEventListener('change', () => {
+                    if (!currentBattleState) return;
+                    updateBattleStatusModePill(currentBattleState);
+                    updateTacticalActionButtons(currentBattleState);
+                    renderGarrisonUnitSelector(currentBattleState);
+                });
             }
 
             const autoRecruitUnitSelect = document.getElementById('autoRecruitUnitSelect');

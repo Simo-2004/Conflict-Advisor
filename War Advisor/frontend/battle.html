@@ -22,15 +22,18 @@
             <div class="battle-toolbar">
                 <div class="battle-status" id="battleStatus">
                     <div class="status-line">
-                        <span class="status-pill" id="battleStatusMode">Azione: Mossa</span>
+                        <span class="status-pill" id="battleStatusMode">Legione: nessuna</span>
                         <span class="status-pill" id="battleStatusRound">Partita attiva</span>
                     </div>
                     <div class="status-muted status-hint-info" id="battleStatusHint">Premi H per vedere i comandi rapidi.</div>
+                    <div class="tactical-legion-select-wrap">
+                        <label for="tacticalLegionSelect">Legione attiva</label>
+                        <select id="tacticalLegionSelect"></select>
+                    </div>
                     <div class="action-row">
-                        <button class="action-btn" id="actionMoveBtn" type="button" onclick="setAction('move')">Mossa [1]</button>
-                        <button class="action-btn" id="actionGarrisonBtn" type="button" onclick="setAction('move_garrison')">Mossa+Presidio [2]</button>
-                        <button class="action-btn" id="actionMineBtn" type="button" onclick="setAction('place_mine')">Piazza Miniera [3]</button>
-                        <button class="action-btn" id="actionFortifyBtn" type="button" onclick="setAction('place_fortification')">Fortifica [4]</button>
+                        <button class="action-btn" id="actionGarrisonBtn" type="button" onclick="placeGarrisonWithSelectedLegion()">Presidio [1]</button>
+                        <button class="action-btn" id="actionMineBtn" type="button" onclick="placeMineWithSelectedLegion()">Miniera [2]</button>
+                        <button class="action-btn" id="actionFortifyBtn" type="button" onclick="placeFortificationWithSelectedLegion()">Fortifica [3]</button>
                         <div class="garrison-select-wrap">
                             <label for="garrisonUnitSelect">Unità presidio</label>
                             <select id="garrisonUnitSelect"></select>
@@ -86,7 +89,7 @@
             </div>
 
             <div class="shortcuts-panel" id="shortcutsPanel">
-                1: Modalita Mossa | 2: Presidio immediato | 3: Miniera immediata | 4: Fortifica | A: Ricerca Abilità | V: Cambia vista layout | Shift+Click: Presidio su mossa | Alt+Click: Miniera sulla cella | Frecce: Muovi | Shift+Frecce: Presidio su mossa | R: Recluta
+                1: Presidio (legione attiva) | 2: Miniera (legione attiva) | 3: Fortifica (legione attiva) | A: Ricerca Abilità | V: Cambia vista layout | E: Esegui turno | R: Recluta
             </div>
 
             <div class="battle-layout layout-with-divider" id="battleLayoutRoot">

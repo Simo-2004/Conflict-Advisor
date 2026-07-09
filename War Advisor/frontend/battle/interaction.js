@@ -1,62 +1,5 @@
         let turnRequestInFlight = false;
 
-        function playerCanBuildAnywhere() {
-            const abilityState = currentBattleState?.player?.abilities?.domain_engineering;
-            return Boolean(abilityState && abilityState.unlocked);
-        }
-
-        // Posizioni "costruibili" del PLAYER: quelle di tutte le legioni attive, con fallback
-        // alla posizione armata legacy se non ci sono legioni (evita il bug delle celle stale).
-        function getActivePlayerLegionPositions() {
-            const legions = currentBattleState?.player?.legions || {};
-            const positions = Object.values(legions)
-                .map(legion => Array.isArray(legion.pos) ? legion.pos : null)
-                .filter(Boolean);
-            if (positions.length > 0) return positions;
-
-            const fallback = currentBattleState?.map?.positions?.player;
-            return fallback ? [fallback] : [];
-        }
-
-        function canPlaceMineOnCell(cell, row, col, legionPositions) {
-            if (!currentBattleState) return false;
-            if (cell.occupation !== 'player' || cell.is_castle || cell.is_mine || cell.terrain === 'Fiume') return false;
-            if (currentBattleState.player.available_mine_slots <= 0) return false;
-            if (playerCanBuildAnywhere()) return true;
-            return Array.isArray(legionPositions) && legionPositions.some(p => p[0] === row && p[1] === col);
-        }
-
-        function canPlaceFortificationOnCell(cell, row, col, legionPositions) {
-            if (!currentBattleState) return false;
-            if (cell.occupation !== 'player' || cell.is_castle) return false;
-            if (playerCanBuildAnywhere()) return true;
-            return Array.isArray(legionPositions) && legionPositions.some(p => p[0] === row && p[1] === col);
-        }
-
-        function setAction(action) {
-            currentAction = action;
-            document.getElementById('actionMoveBtn').classList.toggle('active', action === 'move');
-            document.getElementById('actionGarrisonBtn').classList.toggle('active', action === 'move_garrison');
-            document.getElementById('actionMineBtn').classList.toggle('active', action === 'place_mine');
-            document.getElementById('actionFortifyBtn').classList.toggle('active', action === 'place_fortification');
-
-            if (currentBattleState) {
-                renderBattleState(currentBattleState);
-            }
-        }
-
-        function actionLabel(action) {
-            if (action === 'move_garrison') return 'Mossa + Presidio';
-            if (action === 'place_mine') return 'Piazza Miniera';
-            if (action === 'place_fortification') return 'Fortifica';
-            return 'Mossa';
-        }
-
-        function resetActionToDefault() {
-            if (currentAction !== 'move') {
-                setAction('move');
-            }
-        }
 
         function toggleShortcuts(forceState = null) {
             const panel = document.getElementById('shortcutsPanel');
@@ -161,70 +104,10 @@
             }
         }
 
-        function handleCellAction(event, row, col, isAdjacent, canMine, canFortify) {
-            const targetCell = currentBattleState?.map?.grid?.[row]?.[col];
-
-            if (!currentBattleState || currentBattleState.state === 'game_over') {
-                document.getElementById('battleStatusHint').textContent = 'Partita terminata: nessuna azione disponibile.';
-                return;
-            }
-
-            if (event.altKey) {
-                placeMine(row, col);
-                return;
-            }
-
-            if (event.shiftKey && isAdjacent) {
-                movePlayer(row, col, true);
-                return;
-            }
-
-            if (currentAction === 'place_mine') {
-                if (!currentBattleState || !targetCell) {
-                    document.getElementById('battleStatusHint').textContent = 'Stato partita non disponibile: aggiorna la sessione.';
-                    return;
-                }
-                // Validazione autorevole lato backend per evitare falsi negativi da stato locale stale.
-                placeMine(row, col);
-                return;
-            }
-
-            if (currentAction === 'place_fortification') {
-                if (canFortify) {
-                    placeFortification(row, col);
-                } else {
-                    if (!playerCanBuildAnywhere()) {
-                        document.getElementById('battleStatusHint').textContent = 'Senza Abilità puoi fortificare solo la cella della tua armata.';
-                    } else {
-                        document.getElementById('battleStatusHint').textContent = 'Fortificazione non valida: seleziona una cella PLAYER non castello.';
-                    }
-                }
-                return;
-            }
-
-            if (isAdjacent) {
-                movePlayer(row, col, currentAction === 'move_garrison');
-            } else if (currentAction === 'move_garrison') {
-                if (currentBattleState && currentBattleState.player.available_garrisons <= 0) {
-                    document.getElementById('battleStatusHint').textContent = 'Presidio non disponibile: nessuna guarnigione residua.';
-                } else {
-                    document.getElementById('battleStatusHint').textContent = 'Presidio valido solo su celle adiacenti alla tua armata.';
-                }
-            } else {
-                document.getElementById('battleStatusHint').textContent = 'Mossa valida solo su celle adiacenti alla tua armata.';
-            }
-        }
-
         function handleKeyboardShortcuts(event) {
             const activeTag = document.activeElement ? document.activeElement.tagName : '';
             const typing = activeTag === 'INPUT' || activeTag === 'TEXTAREA';
             if (typing) return;
-
-            if (event.key === '1') {
-                event.preventDefault();
-                setAction('move');
-                return;
-            }
 
             if (event.key === 'Escape') {
                 closeSkillTree();
@@ -233,19 +116,19 @@
                 toggleSettingsMenu(false);
             }
 
+            if (event.key === '1') {
+                event.preventDefault();
+                placeGarrisonWithSelectedLegion();
+                return;
+            }
             if (event.key === '2') {
                 event.preventDefault();
-                placeGarrisonHere();
+                placeMineWithSelectedLegion();
                 return;
             }
             if (event.key === '3') {
                 event.preventDefault();
-                autoPlaceMine();
-                return;
-            }
-            if (event.key === '4') {
-                event.preventDefault();
-                setAction('place_fortification');
+                placeFortificationWithSelectedLegion();
                 return;
             }
             if (event.key.toLowerCase() === 'r') {
@@ -309,17 +192,6 @@
             movePlayer(toRow, toCol, leaveGarrison);
         }
 
-        function getAdjacentMoves(playerPos, rows, cols) {
-            if (!playerPos) return [];
-            const [row, col] = playerPos;
-            return [
-                [row - 1, col],
-                [row + 1, col],
-                [row, col - 1],
-                [row, col + 1]
-            ].filter(([r, c]) => r >= 0 && r < rows && c >= 0 && c < cols);
-        }
-
         function terrainClass(terrain) {
             return `terrain-${terrain.toLowerCase()}`
                 .normalize('NFD')
@@ -370,12 +242,8 @@
             }
         }
 
-        async function movePlayer(row, col, leaveGarrisonOverride = null) {
+        async function movePlayer(row, col, leaveGarrison = false) {
             try {
-                const leaveGarrison = (leaveGarrisonOverride !== null)
-                    ? leaveGarrisonOverride
-                    : (currentAction === 'move_garrison');
-                const selectedGarrisonUnitId = leaveGarrison ? getSelectedGarrisonUnitId() : null;
                 const response = await fetch('http://127.0.0.1:8000/game/move', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -383,7 +251,7 @@
                         to_row: row,
                         to_col: col,
                         leave_garrison: leaveGarrison,
-                        garrison_unit_id: selectedGarrisonUnitId
+                        garrison_unit_id: null
                     })
                 });
 
@@ -398,7 +266,6 @@
                 const stateResponse = await fetch('http://127.0.0.1:8000/game/state');
                 const stateData = await stateResponse.json();
                 renderBattleState(stateData);
-                resetActionToDefault();
             } catch (error) {
                 document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
                 transientLogLines = [`Errore PLAYER mossa: ${error.message}`];
@@ -420,12 +287,17 @@
             }
         }
 
-        async function placeMine(row, col, retryAfterSync = true) {
+        async function placeMineWithSelectedLegion() {
+            const legionId = getSelectedTacticalLegionId();
+            if (!legionId) {
+                document.getElementById('battleStatusHint').textContent = 'Seleziona prima una legione Mineraria.';
+                return;
+            }
             try {
                 const response = await fetch('http://127.0.0.1:8000/game/place-mine', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ row: row, col: col })
+                    body: JSON.stringify({ legion_id: legionId })
                 });
 
                 if (!response.ok) {
@@ -436,184 +308,24 @@
                 await response.json();
                 transientLogLines = [];
                 await refreshStateFromServer();
-                resetActionToDefault();
             } catch (error) {
-                const refreshedState = await refreshStateFromServer();
-                const isDomainOrBuildValidationError =
-                    typeof error.message === 'string' &&
-                    (
-                        error.message.includes('celle che controlli')
-                        || error.message.includes('Costruzione non consentita su questa cella')
-                        || error.message.includes('celle PLAYER')
-                    );
-
-                if (retryAfterSync && refreshedState && isDomainOrBuildValidationError) {
-                    const mapData = refreshedState.map;
-                    const refreshedCell = mapData?.grid?.[row]?.[col];
-                    const refreshedLegionPositions = getActivePlayerLegionPositions();
-                    if (refreshedCell && canPlaceMineOnCell(refreshedCell, row, col, refreshedLegionPositions)) {
-                        await placeMine(row, col, false);
-                        return;
-                    }
-                }
-
                 document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
                 transientLogLines = [`Errore PLAYER miniera: ${error.message}`];
                 renderBattleState(currentBattleState);
             }
         }
 
-        async function placeGarrisonHere() {
-            try {
-                const selectedGarrisonUnitId = getSelectedGarrisonUnitId();
-                const response = await fetch('http://127.0.0.1:8000/game/place-garrison-here', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ unit_id: selectedGarrisonUnitId })
-                });
-
-                if (!response.ok) {
-                    const err = await response.json();
-                    throw new Error(err.detail || 'Errore nel piazzare il presidio');
-                }
-
-                await response.json();
-                transientLogLines = [];
-                const stateResponse = await fetch('http://127.0.0.1:8000/game/state');
-                const stateData = await stateResponse.json();
-                renderBattleState(stateData);
-                setAction('move');
-            } catch (error) {
-                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
-                transientLogLines = [`Errore PLAYER presidio: ${error.message}`];
-                renderBattleState(currentBattleState);
-            }
-        }
-
-        function findAutoMineTarget() {
-            if (!currentBattleState || !currentBattleState.map) {
-                return null;
-            }
-
-            const mapData = currentBattleState.map;
-            const legionPositions = getActivePlayerLegionPositions();
-            const candidates = [];
-
-            for (const [pr, pc] of legionPositions) {
-                candidates.push([pr, pc]);
-                for (const [r, c] of getAdjacentMoves([pr, pc], mapData.rows, mapData.cols)) {
-                    candidates.push([r, c]);
-                }
-            }
-
-            for (let r = 0; r < mapData.rows; r += 1) {
-                for (let c = 0; c < mapData.cols; c += 1) {
-                    candidates.push([r, c]);
-                }
-            }
-
-            for (const [r, c] of candidates) {
-                const cell = mapData.grid[r][c];
-                if (canPlaceMineOnCell(cell, r, c, legionPositions)) {
-                    return [r, c];
-                }
-            }
-
-            return null;
-        }
-
-        async function autoPlaceMine() {
-            if (!currentBattleState) {
-                document.getElementById('battleStatusHint').textContent = 'Partita non disponibile.';
+        async function placeFortificationWithSelectedLegion() {
+            const legionId = getSelectedTacticalLegionId();
+            if (!legionId) {
+                document.getElementById('battleStatusHint').textContent = 'Seleziona prima una legione Costruzione.';
                 return;
             }
-
-            if ((currentBattleState.player?.available_mine_slots || 0) <= 0) {
-                document.getElementById('battleStatusHint').textContent = 'Non puoi piazzare una miniera: non hai slot miniera disponibili (conquista più celle).';
-                transientLogLines = ['Errore PLAYER miniera: slot miniera insufficienti, conquista più territorio'];
-                renderBattleState(currentBattleState);
-                return;
-            }
-
-            let target = findAutoMineTarget();
-            if (!target) {
-                await refreshStateFromServer();
-                target = findAutoMineTarget();
-            }
-            if (!target) {
-                if (!playerCanBuildAnywhere()) {
-                    document.getElementById('battleStatusHint').textContent = 'Senza Abilità puoi costruire miniere solo sulla cella della tua armata.';
-                    transientLogLines = ['Errore PLAYER miniera: abilità non sbloccata per costruire fuori dalla cella armata'];
-                } else {
-                    document.getElementById('battleStatusHint').textContent = 'Nessuna cella valida per piazzare una miniera.';
-                    transientLogLines = ['Errore PLAYER miniera: nessuna cella valida trovata'];
-                }
-                renderBattleState(currentBattleState);
-                return;
-            }
-
-            await placeMine(target[0], target[1]);
-        }
-
-        function findAutoFortificationTarget() {
-            if (!currentBattleState || !currentBattleState.map) {
-                return null;
-            }
-
-            const mapData = currentBattleState.map;
-            const legionPositions = getActivePlayerLegionPositions();
-            const candidates = [];
-
-            for (const [pr, pc] of legionPositions) {
-                candidates.push([pr, pc]);
-                for (const [r, c] of getAdjacentMoves([pr, pc], mapData.rows, mapData.cols)) {
-                    candidates.push([r, c]);
-                }
-            }
-
-            for (let r = 0; r < mapData.rows; r += 1) {
-                for (let c = 0; c < mapData.cols; c += 1) {
-                    candidates.push([r, c]);
-                }
-            }
-
-            let best = null;
-            for (const [r, c] of candidates) {
-                const cell = mapData.grid[r][c];
-                if (!canPlaceFortificationOnCell(cell, r, c, legionPositions)) {
-                    continue;
-                }
-                if (!best || cell.fortification_level < best[2]) {
-                    best = [r, c, cell.fortification_level];
-                }
-            }
-
-            return best ? [best[0], best[1]] : null;
-        }
-
-        function autoPlaceFortification() {
-            if (!currentBattleState) {
-                document.getElementById('battleStatusHint').textContent = 'Partita non disponibile.';
-                return;
-            }
-
-            const target = findAutoFortificationTarget();
-            if (!target) {
-                document.getElementById('battleStatusHint').textContent = 'Nessuna cella valida per fortificare.';
-                transientLogLines = ['Errore PLAYER fortificazione: nessuna cella valida trovata'];
-                renderBattleState(currentBattleState);
-                return;
-            }
-
-            placeFortification(target[0], target[1]);
-        }
-
-        async function placeFortification(row, col) {
             try {
                 const response = await fetch('http://127.0.0.1:8000/game/place-fortification', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ row: row, col: col })
+                    body: JSON.stringify({ legion_id: legionId })
                 });
 
                 if (!response.ok) {
@@ -623,13 +335,39 @@
 
                 await response.json();
                 transientLogLines = [];
-                const stateResponse = await fetch('http://127.0.0.1:8000/game/state');
-                const stateData = await stateResponse.json();
-                renderBattleState(stateData);
-                resetActionToDefault();
+                await refreshStateFromServer();
             } catch (error) {
                 document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
                 transientLogLines = [`Errore PLAYER fortificazione: ${error.message}`];
+                renderBattleState(currentBattleState);
+            }
+        }
+
+        async function placeGarrisonWithSelectedLegion() {
+            const legionId = getSelectedTacticalLegionId();
+            if (!legionId) {
+                document.getElementById('battleStatusHint').textContent = 'Seleziona prima una legione.';
+                return;
+            }
+            try {
+                const selectedGarrisonUnitId = getSelectedGarrisonUnitId();
+                const response = await fetch('http://127.0.0.1:8000/game/place-garrison-here', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ legion_id: legionId, unit_id: selectedGarrisonUnitId })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Errore nel piazzare il presidio');
+                }
+
+                await response.json();
+                transientLogLines = [];
+                await refreshStateFromServer();
+            } catch (error) {
+                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
+                transientLogLines = [`Errore PLAYER presidio: ${error.message}`];
                 renderBattleState(currentBattleState);
             }
         }
