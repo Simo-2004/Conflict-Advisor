@@ -16,12 +16,46 @@ from gamecore.economy import STARTING_GRUX, calculate_army_cost, get_unit_costs
 
 AI_NORMAL_ID = "normal"
 
+# ── Spinta verso il castello nemico ────────────────────────────────
+# Profilo "normale": l'IA passa all'offensiva presto, da più lontano e con una
+# legione anche solo discreta. È qui che il cambiamento incide davvero.
+CASTLE_PUSH_FROM_TURN = 8    # inizia a minacciare il castello già a metà apertura
+# I castelli distano 13 caselle: con 13 l'IA "normale" può lanciare l'offensiva
+# da qualunque punto della mappa, non solo quando è già arrivata sotto le mura.
+CASTLE_PUSH_RANGE = 13
+CASTLE_PUSH_MIN_UNITS = 3    # non aspetta un esercito enorme
+CASTLE_PUSH_CHANCE = 0.58    # spinta decisamente più frequente dell'easy
+CASTLE_ADJACENT_CHANCE = 0.85  # a ridosso del castello quasi sempre attacca (era 0.72)
+
 
 class NormalAIDifficultyPolicy:
     """Policy runtime IA: più consistente dell'easy ma non ottimale."""
 
     def __init__(self, seed: Optional[int] = None) -> None:
         self.rng = random.Random(seed)
+
+    def should_push_castle(
+        self,
+        *,
+        turn: int,
+        distance: Optional[int],
+        legion_size: int,
+    ) -> bool:
+        """True se l'IA deve puntare il castello nemico invece di espandersi."""
+        if distance is None:
+            return False
+        if turn < CASTLE_PUSH_FROM_TURN:
+            return False
+        if legion_size < CASTLE_PUSH_MIN_UNITS:
+            return False
+        if distance > CASTLE_PUSH_RANGE:
+            return False
+
+        chance = CASTLE_PUSH_CHANCE
+        # Più la legione è grossa, più conviene forzare l'assalto.
+        if legion_size >= CASTLE_PUSH_MIN_UNITS * 2:
+            chance += 0.15
+        return self.rng.random() < min(0.9, chance)
 
     def should_skip_turn(self, turn: int) -> bool:
         if turn <= 2:
@@ -37,20 +71,29 @@ class NormalAIDifficultyPolicy:
         enemy_castle: Optional[Tuple[int, int]],
         strategic_targets: List[Tuple[float, Any]],
         economic_targets: Optional[List[Tuple[int, int]]] = None,
+        turn: int = 0,
+        legion_size: int = 0,
     ) -> Optional[Tuple[int, int]]:
         if player_pos and own_castle:
             player_to_own_castle = abs(player_pos[0] - own_castle[0]) + abs(player_pos[1] - own_castle[1])
             if player_to_own_castle <= 2:
                 return player_pos
 
+        # Spinta offensiva sul castello: valutata prima dell'espansione economica,
+        # altrimenti l'IA rimanda l'assalto all'infinito.
+        dist_castle: Optional[int] = None
+        if enemy_castle:
+            dist_castle = abs(ai_pos[0] - enemy_castle[0]) + abs(ai_pos[1] - enemy_castle[1])
+            if self.should_push_castle(turn=turn, distance=dist_castle, legion_size=legion_size):
+                return enemy_castle
+
         economic_targets = economic_targets or []
         if economic_targets and self.rng.random() < 0.52:
             top_k = economic_targets[: min(4, len(economic_targets))]
             return self.rng.choice(top_k)
 
-        if enemy_castle:
-            dist_castle = abs(ai_pos[0] - enemy_castle[0]) + abs(ai_pos[1] - enemy_castle[1])
-            if dist_castle <= 2 and self.rng.random() < 0.72:
+        if enemy_castle and dist_castle is not None:
+            if dist_castle <= 2 and self.rng.random() < CASTLE_ADJACENT_CHANCE:
                 return enemy_castle
 
         if strategic_targets and self.rng.random() < 0.88:
