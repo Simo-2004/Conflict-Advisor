@@ -26,8 +26,18 @@ War Advisor/
 ├── engine.py              # Motore di raccomandazione (core logic)
 ├── main.py                # API FastAPI (endpoints REST)
 ├── run_app.py             # Launcher eseguibile (avvio automatico)
-├── index.html             # Frontend web interattivo
-├── WarAdvisor.spec        # Configurazione PyInstaller
+├── frontend/              # Frontend web interattivo
+│   ├── index.html
+│   └── battle.html
+├── packaging/
+│   └── WarAdvisor.spec    # Configurazione PyInstaller
+├── scripts/
+│   ├── setup.ps1
+│   └── rapidtest.py
+├── assets/
+│   └── icon.ico
+├── reports/
+│   └── test_results.txt
 ├── requirements.txt       # Dipendenze Python
 └── data/                  # Database JSON
     ├── units.json         # Database unità militari
@@ -207,7 +217,7 @@ Esegue il calcolo della strategia ottimale.
 ```
 
 ### **Endpoint 3: GET /**
-Serve il frontend HTML (index.html) automaticamente.
+Serve il frontend HTML (frontend/index.html) automaticamente.
 
 ---
 
@@ -333,13 +343,14 @@ pip install -r requirements.txt
 python run_app.py
 
 # Compilazione eseguibile
-pyinstaller WarAdvisor.spec --clean
+pyinstaller packaging/WarAdvisor.spec --clean
 
 # Eseguibile produzione
 .\dist\WarAdvisor.exe
 
 # Mini-Framework per il testing veloce e automatico
-python rapidtest.py
+python scripts/rapidtest.py
+
 ```
 
 ---

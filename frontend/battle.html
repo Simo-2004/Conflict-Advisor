@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>War Advisor - Battaglia</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <link rel="stylesheet" href="/static/battle/battle.css">
+    <link rel="stylesheet" href="/static/battle/legions/legions_panel.css">
+</head>
+<body>
+    <div class="page">
+        <div class="header">
+            <div>
+                <h1>⚔️ Campo di Battaglia</h1>
+                <p>La simulazione è terminata. Qui inizi la partita vera contro l'IA.</p>
+            </div>
+            <a class="ghost-link" href="/">← Torna al simulatore</a>
+        </div>
+
+        <div class="panel" id="battlePanel" style="display:none;">
+            <div class="battle-toolbar">
+                <div class="battle-status" id="battleStatus">
+                    <div class="status-line">
+                        <span class="status-pill" id="battleStatusMode">Legione: nessuna</span>
+                        <span class="status-pill" id="battleStatusRound">Partita attiva</span>
+                    </div>
+                    <div class="status-muted status-hint-info" id="battleStatusHint">Premi H per vedere i comandi rapidi.</div>
+                    <div class="tactical-legion-select-wrap">
+                        <label for="tacticalLegionSelect">Legione attiva</label>
+                        <select id="tacticalLegionSelect"></select>
+                    </div>
+                    <div class="action-row">
+                        <button class="action-btn" id="actionGarrisonBtn" type="button" onclick="placeGarrisonWithSelectedLegion()">Presidio [1]</button>
+                        <button class="action-btn" id="actionMineBtn" type="button" onclick="placeMineWithSelectedLegion()">Miniera [2]</button>
+                        <button class="action-btn" id="actionFortifyBtn" type="button" onclick="placeFortificationWithSelectedLegion()">Fortifica [3]</button>
+                        <div class="garrison-select-wrap">
+                            <label for="garrisonUnitSelect">Unità presidio</label>
+                            <select id="garrisonUnitSelect"></select>
+                        </div>
+                    </div>
+                    <div class="garrison-defense-preview" id="garrisonDefensePreview">Difesa presidio stimata: ---</div>
+                    <button class="ability-card" id="abilityResearchBtn" type="button" onclick="openSkillTree()" title="Apri l'albero delle abilità [A]">
+                        <span class="ability-card-icon" aria-hidden="true">⭐</span>
+                        <span class="ability-card-body">
+                            <span class="ability-card-title">Albero Abilità</span>
+                            <span class="ability-card-status" id="abilityLabel">Pronta per la ricerca</span>
+                        </span>
+                        <span class="ability-card-arrow" aria-hidden="true">›</span>
+                    </button>
+                    <div class="toolbar-recruit">
+                        <select id="recruitSelect"></select>
+                        <div class="toolbar-recruit-actions">
+                            <button id="recruitBtn" type="button" onclick="recruitSelectedUnit()">Compra Unità</button>
+                            <button id="autoRecruitBtn" class="auto-recruit-btn" type="button" onclick="handleAutoRecruitButton()">Autoreclutamento</button>
+                        </div>
+                    </div>
+                    <div class="toolbar-strategy">
+                        <select id="strategySelect"></select>
+                        <button type="button" onclick="applyBattleStrategy()">Applica Strategia</button>
+                        <button id="strategyInfoBtn" type="button" onclick="openInGameAdvisorMenu()">Info Strategie</button>
+                    </div>
+                </div>
+                <div class="button-row">
+                    <button class="debug-switch-btn" id="aiKillSwitchBtn" type="button" onclick="toggleAiKillSwitch()">🧪 IA ON</button>
+                    <div class="difficulty-inline">
+                        <select id="aiDifficultySelect" class="difficulty-select"></select>
+                        <button id="applyAiDifficultyBtn" class="difficulty-apply-btn" type="button" onclick="applyAiDifficulty()">Applica IA</button>
+                    </div>
+                    <div class="settings-menu" id="settingsMenu">
+                        <button
+                            class="secondary settings-trigger"
+                            type="button"
+                            title="Apri menu impostazioni"
+                            aria-label="Apri menu impostazioni"
+                            onclick="toggleSettingsMenu()"
+                        >
+                            <span class="settings-trigger-icon" aria-hidden="true">⚙️</span>
+                        </button>
+                        <div class="settings-dropdown" id="settingsDropdown">
+                            <button class="menu-item" type="button" onclick="handleSettingsAction('shortcuts')">Comandi rapidi [H]</button>
+                            <button class="menu-item" type="button" onclick="handleSettingsAction('restart')">Ricomincia scontro</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="layout-mode-row">
+                    <button class="layout-btn active" id="layoutSplitBtn" type="button" onclick="setLayoutMode('split')">Vista Split</button>
+                    <button class="layout-btn" id="layoutMapBtn" type="button" onclick="setLayoutMode('map')">Vista Mappa</button>
+                    <button class="layout-btn" id="layoutLogsBtn" type="button" onclick="setLayoutMode('logs')">Vista Log</button>
+                </div>
+            </div>
+
+            <div class="shortcuts-panel" id="shortcutsPanel">
+                1: Presidio (legione attiva) | 2: Miniera (legione attiva) | 3: Fortifica (legione attiva) | A: Ricerca Abilità | V: Cambia vista layout | E: Esegui turno | R: Recluta
+            </div>
+
+            <div class="battle-layout layout-with-divider" id="battleLayoutRoot">
+                <div class="battle-main-column" id="battleMainColumn">
+                    <div id="mapBoard" class="map-board"></div>
+
+                    <div class="split-logs">
+                        <div class="log-column">
+                            <div class="log-title log-title-player">Log PLAYER</div>
+                            <div id="battleLogPlayer" class="battle-log battle-log-split">
+                                <div class="log-entry">Nessuna azione.</div>
+                            </div>
+                        </div>
+                        <div class="log-column">
+                            <div class="log-title log-title-ai">Log IA</div>
+                            <div id="battleLogAi" class="battle-log battle-log-split">
+                                <div class="log-entry">Nessuna azione.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="layout-divider" id="layoutDivider" title="Trascina per ridimensionare mappa e pannello"></div>
+
+                <div class="battle-sidebar" id="battleSidebarColumn">
+                    <div class="battle-card">
+                        <div class="battle-card-header">
+                            <h3>Economia e Presidi</h3>
+                            <button class="sidebar-collapse-toggle" id="sidebarCollapseToggle" type="button"
+                                    onclick="toggleSidebarCollapse()" title="Comprimi pannello" aria-expanded="true">
+                                <span id="sidebarCollapseIcon">▶</span>
+                            </button>
+                        </div>
+                        <div class="economy-sections" id="economySections">
+                            <div class="economy-side player">
+                                <h4 class="economy-side-title">PLAYER</h4>
+                                <div class="economy-kpi">
+                                    <span class="economy-kpi-label">Tesoreria Grux</span>
+                                    <span class="economy-kpi-value" id="playerGruxValue">---</span>
+                                    <span class="economy-kpi-sub" id="playerGruxSub">Costo legione: ---</span>
+                                </div>
+                                <div class="economy-metrics">
+                                    <p class="economy-metric" id="playerMinesInfo">Miniere: ---</p>
+                                    <p class="economy-metric" id="playerFortInfo">Fortificazioni: ---</p>
+                                    <p class="economy-metric" id="playerReserveInfo">Guarnigioni: ---</p>
+                                </div>
+                                <div class="legion-box">
+                                    <p class="legion-title">Legione attuale</p>
+                                    <p class="legion-summary" id="playerLegionSummary">Unità: ---</p>
+                                    <p class="legion-meta" id="playerLegionMeta">Strategia: ---</p>
+                                    <p class="legion-composition" id="playerLegionComposition">Composizione: ---</p>
+                                </div>
+                            </div>
+
+                            <div class="economy-side ai">
+                                <h4 class="economy-side-title">IA</h4>
+                                <div class="economy-kpi">
+                                    <span class="economy-kpi-label">Tesoreria Grux</span>
+                                    <span class="economy-kpi-value" id="aiGruxValue">---</span>
+                                    <span class="economy-kpi-sub" id="aiGruxSub">Costo legione: ---</span>
+                                </div>
+                                <div class="economy-metrics">
+                                    <p class="economy-metric" id="aiMinesInfo">Miniere: ---</p>
+                                    <p class="economy-metric" id="aiFortInfo">Fortificazioni: ---</p>
+                                    <p class="economy-metric" id="aiReserveInfo">Guarnigioni: ---</p>
+                                </div>
+                                <div class="legion-box">
+                                    <p class="legion-title">Legione attuale</p>
+                                    <p class="legion-summary" id="aiLegionSummary">Unità: ---</p>
+                                    <p class="legion-meta" id="aiLegionMeta">Strategia: ---</p>
+                                    <p class="legion-composition" id="aiLegionComposition">Composizione: ---</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="panel empty-state" id="emptyState" style="display:none;">
+            <h2>Nessuna simulazione disponibile</h2>
+            <p>Prima esegui una simulazione nella pagina principale, poi torna qui per iniziare la battaglia.</p>
+        </div>
+
+        <div class="skilltree-overlay" id="skillTreeOverlay" onclick="closeSkillTreeIfBackdrop(event)">
+            <div class="skilltree-modal">
+                <div class="skilltree-header">
+                    <div>
+                        <h3>⭐ Skill Tree</h3>
+                        <p>Scegli e ricerca abilità durante la battaglia.</p>
+                    </div>
+                    <button class="skilltree-close" type="button" onclick="closeSkillTree()">Chiudi</button>
+                </div>
+                <div class="skilltree-body">
+                    <div class="skilltree-paths" id="skillTreePaths"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="auto-recruit-overlay" id="autoRecruitOverlay" onclick="closeAutoRecruitIfBackdrop(event)">
+            <div class="auto-recruit-modal">
+                <div class="auto-recruit-header">
+                    <div>
+                        <h3>🤖 Autoreclutamento</h3>
+                        <p>Imposta unità e durata del piano automatico.</p>
+                    </div>
+                    <button class="auto-recruit-close" type="button" onclick="closeAutoRecruitMenu()">Chiudi</button>
+                </div>
+                <div class="auto-recruit-body">
+                    <div class="auto-recruit-form">
+                        <div class="auto-recruit-field">
+                            <label for="autoRecruitUnitSelect">Unità da autoreclutare</label>
+                            <select id="autoRecruitUnitSelect"></select>
+                        </div>
+                        <div class="auto-recruit-field">
+                            <label for="autoRecruitTurnsInput">Turni piano</label>
+                            <input id="autoRecruitTurnsInput" type="number" min="1" max="40" value="6">
+                        </div>
+                    </div>
+                    <div class="auto-recruit-summary" id="autoRecruitSummary">
+                        Stima preliminare: accuratezza limitata nelle prime fasi della partita.
+                    </div>
+                    <div class="auto-recruit-chart-wrap">
+                        <p class="auto-recruit-chart-title">Potenziale forza stimata (trend)</p>
+                        <svg id="autoRecruitChart" class="auto-recruit-chart" viewBox="0 0 360 170" preserveAspectRatio="xMidYMid meet"></svg>
+                    </div>
+                    <div class="auto-recruit-actions">
+                        <button class="auto-recruit-start" type="button" onclick="startAutoRecruitFromMenu()">Avvia autoreclutamento</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="strategy-advisor-overlay" id="strategyAdvisorOverlay" onclick="closeInGameAdvisorIfBackdrop(event)">
+            <div class="strategy-advisor-modal">
+                <div class="strategy-advisor-header">
+                    <div>
+                        <h3>Info Strategie</h3>
+                        <p id="strategyAdvisorMeta">Stima tattica in battaglia.</p>
+                    </div>
+                    <button class="strategy-advisor-close" type="button" onclick="closeInGameAdvisorMenu()">Chiudi</button>
+                </div>
+                <div class="strategy-advisor-body">
+                    <div class="strategy-advisor-reliability" id="strategyAdvisorReliability">
+                        Affidabilità report: ---
+                    </div>
+                    <div class="strategy-advisor-note" id="strategyAdvisorNote">
+                        Rapporto parziale: analisi non completamente affidabile.
+                    </div>
+                    <div class="strategy-advisor-cards">
+                        <div class="advisor-card best">
+                            <div class="advisor-card-label">Consigliata ora</div>
+                            <h4 id="advisorTopName">---</h4>
+                            <p id="advisorTopScore">Compatibilità stimata: ---</p>
+                            <p id="advisorTopDesc">---</p>
+                        </div>
+                        <div class="advisor-card alt">
+                            <div class="advisor-card-label">Alternativa</div>
+                            <h4 id="advisorSecondName">---</h4>
+                            <p id="advisorSecondScore">Compatibilità stimata: ---</p>
+                            <p id="advisorSecondDesc">---</p>
+                        </div>
+                        <div class="advisor-card worst">
+                            <div class="advisor-card-label">Sconsigliata</div>
+                            <h4 id="advisorWorstName">---</h4>
+                            <p id="advisorWorstScore">Compatibilità stimata: ---</p>
+                            <p id="advisorWorstDesc">---</p>
+                        </div>
+                    </div>
+                    <div class="strategy-advisor-chart-wrap">
+                        <canvas id="strategyAdvisorRadarChart"></canvas>
+                    </div>
+                    <div class="strategy-advisor-warnings" id="strategyAdvisorWarnings"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/battle/bootstrap.js?v=2"></script>
+    <script src="/static/battle/render.js?v=2"></script>
+    <script src="/static/battle/interaction.js?v=2"></script>
+    <script src="/static/battle/features.js?v=2"></script>
+    <script src="/static/battle/legions/legions_panel.js?v=2"></script>
+    <script src="/static/battle_bar.js?v=2"></script>
+    <script>
+        // Hook: ogni volta che renderBattleState aggiorna la UI,
+        // propaga lo stato anche al pannello Legioni (se visibile)
+        (function () {
+            const _orig = window.renderBattleState;
+            if (typeof _orig === 'function') {
+                window.renderBattleState = function (sessionData) {
+                    _orig(sessionData);
+                    if (window.LegionsPanel) {
+                        window.LegionsPanel.update(sessionData);
+                    }
+                };
+            }
+        })();
+    </script>
+</body>
+</html>
+

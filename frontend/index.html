@@ -163,6 +163,22 @@
             font-weight: 600;
         }
 
+        .budget-box {
+            margin-top: 12px;
+            padding: 12px;
+            background: #fff8e7;
+            border-radius: 8px;
+            border-left: 4px solid #d97706;
+            color: #7c2d12;
+            font-weight: 600;
+        }
+
+        .budget-box.over-budget {
+            background: #ffebee;
+            border-left-color: #c62828;
+            color: #b91c1c;
+        }
+
         button {
             width: 100%;
             padding: 14px;
@@ -360,6 +376,32 @@
             padding: 40px;
         }
 
+        .launch-area {
+            margin-top: 22px;
+            display: none;
+            padding: 16px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            background: linear-gradient(135deg, #fff9ec 0%, #fff 100%);
+        }
+
+        .launch-area.active {
+            display: block;
+        }
+
+        .launch-area p {
+            margin-bottom: 10px;
+            color: #444;
+        }
+
+        .secondary-button {
+            background: #1a1a2e;
+        }
+
+        .secondary-button:hover {
+            background: #0f1020;
+        }
+
         .spinner {
             width: 40px;
             height: 40px;
@@ -420,6 +462,9 @@
                 </div>
                 <div class="selected-units" id="selectedUnitsBox">
                     <p id="selectedCount">Unità selezionate: 0</p>
+                </div>
+                <div class="budget-box" id="budgetBox">
+                    Budget iniziale: 220 grux | Spesa attuale: 0 grux | Residuo: 220 grux
                 </div>
             </div>
 
@@ -503,6 +548,13 @@
                     <div class="distance-score" id="worstDistance">Distanza Semantica: ---</div>
                     <div style="font-size: 0.85em; margin-top: 10px; opacity: 0.85;" id="worstDescription">---</div>
                 </div>
+
+                <div class="launch-area" id="launchArea">
+                    <p id="launchSummary">La simulazione è pronta.</p>
+                    <button class="secondary-button" id="launchBattleBtn" onclick="goToBattlePage()">
+                        ⚔️ SCENDI IN BATTAGLIA
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -526,6 +578,8 @@
         let allTerrains = [];
         let allWeather = [];
         let allTroopStatus = [];
+        let latestCalculation = null;
+        let startingBudget = 220;
 
         // Carica i dati al load della pagina
         window.addEventListener('DOMContentLoaded', loadData);
@@ -561,7 +615,7 @@
                     <input type="checkbox" id="unit_${unit.id}" value="${unit.id}" 
                            onchange="updateSelectedUnits()">
                     <div class="unit-info">
-                        <div class="unit-name">${unit.name}</div>
+                        <div class="unit-name">${unit.name} • ${unit.cost_grux} grux</div>
                         <div class="unit-desc">${unit.description}</div>
                     </div>
                 `;
@@ -616,6 +670,12 @@
             const count = document.getElementById('selectedCount');
             count.textContent = `Unità selezionate: ${selectedUnits.length}`;
 
+            const selectedCost = getSelectedUnitsCost();
+            const remaining = startingBudget - selectedCost;
+            const budgetBox = document.getElementById('budgetBox');
+            budgetBox.textContent = `Budget iniziale: ${startingBudget} grux | Spesa attuale: ${selectedCost} grux | Residuo: ${remaining} grux`;
+            budgetBox.classList.toggle('over-budget', remaining < 0);
+
             if (selectedUnits.length > 0) {
                 box.classList.add('active');
             } else {
@@ -629,7 +689,14 @@
         function updateButtonState() {
             const btn = document.getElementById('calculateBtn');
             const terrain = document.getElementById('terrainSelect').value;
-            btn.disabled = !(selectedUnits.length > 0 && terrain !== '');
+            btn.disabled = !(selectedUnits.length > 0 && terrain !== '' && getSelectedUnitsCost() <= startingBudget);
+        }
+
+        function getSelectedUnitsCost() {
+            return selectedUnits.reduce((total, unitId) => {
+                const unit = allUnits.find(item => item.id === unitId);
+                return total + (unit ? unit.cost_grux : 0);
+            }, 0);
         }
 
         document.getElementById('terrainSelect').addEventListener('change', updateButtonState);
@@ -664,7 +731,9 @@
                 }
 
                 const data = await response.json();
+                latestCalculation = data;
                 renderResults(data);
+                saveSimulationForBattle(data, terrain, weather || null, troop_status || null);
             } catch (error) {
                 showError(error.message);
             } finally {
@@ -709,6 +778,37 @@
 
             // Mostra i risultati
             document.getElementById('resultsArea').classList.add('active');
+            document.getElementById('launchArea').classList.add('active');
+            document.getElementById('launchSummary').textContent = `Simulazione pronta. Strategia consigliata: ${data.top_strategy.name}. Spesa: ${data.selected_units_cost} grux, residuo: ${data.remaining_grux} grux.`;
+        }
+
+        function saveSimulationForBattle(calculation, terrain, weather, troopStatus) {
+            const payload = {
+                units: [...selectedUnits],
+                terrain: terrain,
+                weather: weather,
+                troop_status: troopStatus,
+                strategy_id: calculation.top_strategy.id,
+                army_profile: calculation.army_profile,
+                modified_profile: calculation.modified_profile,
+                map_seed: null,
+                summary: {
+                    top_strategy_name: calculation.top_strategy.name,
+                    top_strategy_compatibility: calculation.top_strategy.compatibility,
+                    budget_grux: calculation.budget_grux,
+                    selected_units_cost: calculation.selected_units_cost,
+                    remaining_grux: calculation.remaining_grux
+                }
+            };
+            sessionStorage.setItem('warAdvisorBattleSetup', JSON.stringify(payload));
+        }
+
+        function goToBattlePage() {
+            if (!latestCalculation) {
+                showError('Prima esegui una simulazione strategica.');
+                return;
+            }
+            window.location.href = 'http://127.0.0.1:8000/battle';
         }
 
         function createWarningsArea() {
