@@ -1,0 +1,26 @@
+# Claude Code local config
+.claude/
+
+# Debug scaffolding (temporaneo, vedi debug/README_DEBUG.md)
+debug/
+
+# Report generati dai test
+reports/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Environment / secrets
+.env
+.env.*
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
