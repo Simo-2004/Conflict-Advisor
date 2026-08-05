@@ -5,6 +5,7 @@
         let currentLayoutMode = 'split';
         let layoutSplitRatio = 0.7;
         let splitterDragging = false;
+        let sidebarCollapsed = false;
         let inGameAdvisorRadarChart = null;
         const ADVISOR_ATTRIBUTE_NAMES = {
             U1_attack: 'Attacco',
@@ -37,6 +38,7 @@
             initHintToneObserver();
             initLayoutControls();
             applyLayoutMode();
+            applySidebarCollapseState();
 
             const garrisonSelector = document.getElementById('garrisonUnitSelect');
             if (garrisonSelector) {

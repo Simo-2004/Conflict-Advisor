@@ -38,12 +38,16 @@
                             <label for="garrisonUnitSelect">Unità presidio</label>
                             <select id="garrisonUnitSelect"></select>
                         </div>
-                        <div class="ability-inline">
-                            <button class="ability-star" id="abilityResearchBtn" type="button" onclick="openSkillTree()">⭐</button>
-                            <span class="ability-label" id="abilityLabel">Abilità</span>
-                        </div>
                     </div>
                     <div class="garrison-defense-preview" id="garrisonDefensePreview">Difesa presidio stimata: ---</div>
+                    <button class="ability-card" id="abilityResearchBtn" type="button" onclick="openSkillTree()" title="Apri l'albero delle abilità [A]">
+                        <span class="ability-card-icon" aria-hidden="true">⭐</span>
+                        <span class="ability-card-body">
+                            <span class="ability-card-title">Albero Abilità</span>
+                            <span class="ability-card-status" id="abilityLabel">Pronta per la ricerca</span>
+                        </span>
+                        <span class="ability-card-arrow" aria-hidden="true">›</span>
+                    </button>
                     <div class="toolbar-recruit">
                         <select id="recruitSelect"></select>
                         <div class="toolbar-recruit-actions">
@@ -71,9 +75,7 @@
                             aria-label="Apri menu impostazioni"
                             onclick="toggleSettingsMenu()"
                         >
-                            <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                                <path d="M9.605.667a.5.5 0 0 0-.21.56l.08.319a.5.5 0 0 1-.242.55l-.244.141a.5.5 0 0 1-.6-.08l-.24-.24a.5.5 0 0 0-.707 0l-.708.708a.5.5 0 0 0 0 .707l.24.24a.5.5 0 0 1 .08.6l-.141.244a.5.5 0 0 1-.55.242l-.319-.08a.5.5 0 0 0-.56.21l-.5.866a.5.5 0 0 0 .122.646l.262.205a.5.5 0 0 1 .192.52l-.06.275a.5.5 0 0 1-.404.383l-.3.057a.5.5 0 0 0-.4.49v1a.5.5 0 0 0 .4.49l.3.057a.5.5 0 0 1 .404.383l.06.275a.5.5 0 0 1-.192.52l-.262.205a.5.5 0 0 0-.122.646l.5.866a.5.5 0 0 0 .56.21l.319-.08a.5.5 0 0 1 .55.242l.141.244a.5.5 0 0 1-.08.6l-.24.24a.5.5 0 0 0 0 .707l.708.708a.5.5 0 0 0 .707 0l.24-.24a.5.5 0 0 1 .6-.08l.244.141a.5.5 0 0 1 .242.55l-.08.319a.5.5 0 0 0 .21.56l.866.5a.5.5 0 0 0 .646-.122l.205-.262a.5.5 0 0 1 .52-.192l.275.06a.5.5 0 0 1 .383.404l.057.3a.5.5 0 0 0 .49.4h1a.5.5 0 0 0 .49-.4l.057-.3a.5.5 0 0 1 .383-.404l.275-.06a.5.5 0 0 1 .52.192l.205.262a.5.5 0 0 0 .646.122l.866-.5a.5.5 0 0 0 .21-.56l-.08-.319a.5.5 0 0 1 .242-.55l.244-.141a.5.5 0 0 1 .6.08l.24.24a.5.5 0 0 0 .707 0l.708-.708a.5.5 0 0 0 0-.707l-.24-.24a.5.5 0 0 1-.08-.6l.141-.244a.5.5 0 0 1 .55-.242l.319.08a.5.5 0 0 0 .56-.21l.5-.866a.5.5 0 0 0-.122-.646l-.262-.205a.5.5 0 0 1-.192-.52l.06-.275a.5.5 0 0 1 .404-.383l.3-.057a.5.5 0 0 0 .4-.49v-1a.5.5 0 0 0-.4-.49l-.3-.057a.5.5 0 0 1-.404-.383l-.06-.275a.5.5 0 0 1 .192-.52l.262-.205a.5.5 0 0 0 .122-.646l-.5-.866a.5.5 0 0 0-.56-.21l-.319.08a.5.5 0 0 1-.55-.242l-.141-.244a.5.5 0 0 1 .08-.6l.24-.24a.5.5 0 0 0 0-.707l-.708-.708a.5.5 0 0 0-.707 0l-.24.24a.5.5 0 0 1-.6.08l-.244-.141a.5.5 0 0 1-.242-.55l.08-.319a.5.5 0 0 0-.21-.56l-.866-.5zM8 10.5A2.5 2.5 0 1 1 8 5.5a2.5 2.5 0 0 1 0 5z"/>
-                            </svg>
+                            <span class="settings-trigger-icon" aria-hidden="true">⚙️</span>
                         </button>
                         <div class="settings-dropdown" id="settingsDropdown">
                             <button class="menu-item" type="button" onclick="handleSettingsAction('shortcuts')">Comandi rapidi [H]</button>
@@ -116,8 +118,14 @@
 
                 <div class="battle-sidebar" id="battleSidebarColumn">
                     <div class="battle-card">
-                        <h3>Economia e Presidi</h3>
-                        <div class="economy-sections">
+                        <div class="battle-card-header">
+                            <h3>Economia e Presidi</h3>
+                            <button class="sidebar-collapse-toggle" id="sidebarCollapseToggle" type="button"
+                                    onclick="toggleSidebarCollapse()" title="Comprimi pannello" aria-expanded="true">
+                                <span id="sidebarCollapseIcon">▶</span>
+                            </button>
+                        </div>
+                        <div class="economy-sections" id="economySections">
                             <div class="economy-side player">
                                 <h4 class="economy-side-title">PLAYER</h4>
                                 <div class="economy-kpi">

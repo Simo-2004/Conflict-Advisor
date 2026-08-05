@@ -38,17 +38,26 @@
             document.getElementById('aiLegionComposition').textContent = `Composizione: ${aiLegion.compositionText}`;
 
             const abilityState = sessionData.player?.abilities?.domain_engineering;
+            const abilityCard = document.getElementById('abilityResearchBtn');
             const abilityLabel = document.getElementById('abilityLabel');
-            if (abilityState) {
-                if (abilityState.unlocked) {
-                    abilityLabel.textContent = 'Abilità: Sbloccata';
-                } else if (abilityState.researching) {
-                    abilityLabel.textContent = `Abilità: ${abilityState.turns_remaining} turni`;
-                } else {
-                    abilityLabel.textContent = 'Abilità: Pronta ricerca';
+            if (abilityLabel && abilityCard) {
+                let statusText = 'Apri per vedere le ricerche';
+                let unlocked = false;
+                let researching = false;
+                if (abilityState) {
+                    if (abilityState.unlocked) {
+                        statusText = 'Sbloccata';
+                        unlocked = true;
+                    } else if (abilityState.researching) {
+                        statusText = `Ricerca in corso · ${abilityState.turns_remaining} turni`;
+                        researching = true;
+                    } else {
+                        statusText = 'Pronta per la ricerca';
+                    }
                 }
-            } else {
-                abilityLabel.textContent = 'Abilità';
+                abilityLabel.textContent = statusText;
+                abilityCard.classList.toggle('is-unlocked', unlocked);
+                abilityCard.classList.toggle('is-researching', researching);
             }
 
             const killSwitchBtn = document.getElementById('aiKillSwitchBtn');

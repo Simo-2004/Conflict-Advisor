@@ -82,6 +82,26 @@
             if (logsBtn) logsBtn.classList.toggle('active', currentLayoutMode === 'logs');
         }
 
+        function toggleSidebarCollapse() {
+            sidebarCollapsed = !sidebarCollapsed;
+            applySidebarCollapseState();
+        }
+
+        function applySidebarCollapseState() {
+            const layoutRoot = document.getElementById('battleLayoutRoot');
+            const sidebar = document.getElementById('battleSidebarColumn');
+            const toggleBtn = document.getElementById('sidebarCollapseToggle');
+            const icon = document.getElementById('sidebarCollapseIcon');
+
+            if (layoutRoot) layoutRoot.classList.toggle('sidebar-collapsed', sidebarCollapsed);
+            if (sidebar) sidebar.classList.toggle('collapsed', sidebarCollapsed);
+            if (toggleBtn) {
+                toggleBtn.title = sidebarCollapsed ? 'Espandi pannello Economia e Presidi' : 'Comprimi pannello Economia e Presidi';
+                toggleBtn.setAttribute('aria-expanded', String(!sidebarCollapsed));
+            }
+            if (icon) icon.textContent = sidebarCollapsed ? '◀' : '▶';
+        }
+
         function handleOutsideMenuClick(event) {
             const menu = document.getElementById('settingsMenu');
             if (menu && !menu.contains(event.target)) {
