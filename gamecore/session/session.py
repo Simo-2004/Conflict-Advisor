@@ -27,7 +27,6 @@ from gamecore.session.ai_core.ai_builder import (
     normalize_ai_difficulty,
 )
 from gamecore.session.ai_core.ai_easy_difficulty import AI_EASY_ID
-from gamecore.session.ai_core.ai_normal_difficulty import AI_NORMAL_ID
 from gamecore.session.in_game_advisor import build_in_game_advisor_payload
 from gamecore.session.movement_points import MovementPointsSystem
 
@@ -407,18 +406,42 @@ class GameSession:
             "session": self.to_dict()
         }
 
-    def _ensure_ai_legions_initialized(self) -> None:
-        """Spawna una legione IA se assente, con cooldown dopo annientamento."""
-        if self.ai_legions or not self.ai_units:
-            return
+    def _ai_desired_legion_count(self) -> int:
+        """Quante legioni l'IA vuole in campo adesso (profilo di difficoltà + situazione)."""
+        max_getter = getattr(self.ai_policy, "max_legions", None)
+        max_legions = max(1, int(max_getter())) if callable(max_getter) else 1
+        if max_legions < 2:
+            return 1
 
-        if self.ai_last_legion_loss_turn is not None:
-            turns_since_loss = self.game_map.turn - self.ai_last_legion_loss_turn
-            if turns_since_loss < self.ai_legion_respawn_delay_turns:
-                return
+        # La seconda legione è una risposta difensiva: serve un'incursione in corso
+        # e un esercito abbastanza grande da reggere la divisione.
+        if not self._ai_intruder_legions():
+            return 1
+
+        min_getter = getattr(self.ai_policy, "second_legion_min_units", None)
+        min_units = max(2, int(min_getter())) if callable(min_getter) else 6
+        if len(self.ai_units) < min_units:
+            return 1
+
+        return 2
+
+    def _ensure_ai_legions_initialized(self) -> None:
+        """Mantiene in campo il numero di legioni IA voluto, con cooldown dopo annientamento."""
+        if not self.ai_units:
+            return
 
         if self.debug_ai_kill_switch:
             return
+
+        if len(self.ai_legions) >= self._ai_desired_legion_count():
+            return
+
+        # Il cooldown vale solo per il ritorno in campo dopo l'annientamento totale,
+        # non per l'aggiunta di una legione difensiva a fianco di una già viva.
+        if not self.ai_legions and self.ai_last_legion_loss_turn is not None:
+            turns_since_loss = self.game_map.turn - self.ai_last_legion_loss_turn
+            if turns_since_loss < self.ai_legion_respawn_delay_turns:
+                return
 
         castle_pos = self.game_map.castle_positions[AI]
         spawn_pos = self._get_free_spawn_cell(AI, castle_pos) or castle_pos
@@ -426,10 +449,16 @@ class GameSession:
         legion_id = f"AI_{self.next_legion_id}"
         self.next_legion_id += 1
 
+        used_names = {legion.get("name") for legion in self.ai_legions.values()}
+        free_names = [name for name in AI_LEGION_NAMES if name not in used_names]
+        legion_name = random.choice(free_names or AI_LEGION_NAMES)
+
         self.ai_legions[legion_id] = {
             "id": legion_id,
-            "name": random.choice(AI_LEGION_NAMES),
-            "units": list(self.ai_units),
+            "name": legion_name,
+            # Le truppe le assegna la ripartizione qui sotto: con due legioni
+            # copiare l'intero esercito in ciascuna lo duplicherebbe.
+            "units": [],
             "pos": spawn_pos,
             "target": None,
             "legion_type": LEGION_TYPE_ARMY,
@@ -439,6 +468,8 @@ class GameSession:
                 self._legion_movement_key(AI, legion_id)
             ),
         }
+
+        self._sync_ai_legion_units()
 
         cell = self.game_map.get_cell(*spawn_pos)
         if cell is not None:
@@ -499,36 +530,88 @@ class GameSession:
         self.movement_system.prune_legions(active)
 
     def _sync_ai_legion_units(self) -> bool:
-        """Riallinea la legione IA in campo all'esercito IA (`self.ai_units`).
+        """Ripartisce l'esercito IA (`self.ai_units`) fra le legioni in campo.
 
         A differenza del player — dove `player_units` è una riserva e creare una
-        legione ne sottrae le unità — l'IA possiede una sola legione che *è*
-        l'intero esercito: `_ensure_ai_legions_initialized` la spawna con
-        `list(self.ai_units)`, una copia che poi resterebbe congelata.
-        Senza questo riallineamento le reclute successive allo spawn non
-        arriverebbero mai al fronte e le perdite non ridurrebbero la legione.
+        legione ne sottrae le unità — per l'IA `ai_units` resta l'esercito
+        autoritativo e le legioni ne sono una vista. Senza questo riallineamento
+        le reclute non arriverebbero mai al fronte e le perdite non
+        ridurrebbero le legioni.
+
+        Con una sola legione è un mirror; con due (difesa ad alveare) le unità
+        vengono distribuite alternandole per valore, così nessuna delle due
+        eredita solo gli scarti.
 
         Returns:
-            True se la legione è stata effettivamente modificata.
+            True se qualcosa è stato effettivamente modificato.
         """
-        if len(self.ai_legions) != 1:
-            # Invariante corrente: una sola legione IA. Con più legioni servirebbe
-            # una politica di ripartizione, non un mirror dell'intero esercito.
-            return False
-
-        legion_id, legion = next(iter(self.ai_legions.items()))
-        if legion.get("units", []) == self.ai_units:
+        if not self.ai_legions:
             return False
 
         if not self.ai_units:
-            # Esercito azzerato: sciogli la legione invece di lasciarne una vuota in campo
-            # (varrebbe comunque forza 1 negli scontri e bloccherebbe il respawn).
-            del self.ai_legions[legion_id]
+            # Esercito azzerato: sciogli le legioni invece di lasciarne di vuote in
+            # campo (varrebbero forza 1 negli scontri e bloccherebbero il respawn).
+            self.ai_legions.clear()
             self.ai_last_legion_loss_turn = self.game_map.turn
             return True
 
-        legion["units"] = list(self.ai_units)
-        return True
+        legion_ids = sorted(self.ai_legions.keys())
+        if len(legion_ids) == 1:
+            legion = self.ai_legions[legion_ids[0]]
+            if legion.get("units", []) == self.ai_units:
+                return False
+            legion["units"] = list(self.ai_units)
+            return True
+
+        # Distribuzione a serpentina sul valore in combattimento: le legioni
+        # restano equilibrate anche con unità di qualità molto diversa.
+        ordered = sorted(self.ai_units, key=lambda uid: self._unit_battle_value(uid), reverse=True)
+        buckets: Dict[str, List[str]] = {lid: [] for lid in legion_ids}
+        for index, unit_id in enumerate(ordered):
+            slot = index % len(legion_ids)
+            if (index // len(legion_ids)) % 2 == 1:
+                slot = len(legion_ids) - 1 - slot
+            buckets[legion_ids[slot]].append(unit_id)
+
+        changed = False
+        for legion_id in legion_ids:
+            legion = self.ai_legions[legion_id]
+            if legion.get("units", []) != buckets[legion_id]:
+                legion["units"] = buckets[legion_id]
+                changed = True
+
+        # Una legione rimasta senza truppe va sciolta, non lasciata a vuoto.
+        for legion_id in legion_ids:
+            if not self.ai_legions[legion_id].get("units"):
+                del self.ai_legions[legion_id]
+                changed = True
+
+        return changed
+
+    def _ai_intruder_legions(self) -> List[Tuple[int, int]]:
+        """Posizioni delle legioni player che hanno superato la metà campo.
+
+        La metà è calcolata fra i due castelli, così la regola resta valida
+        qualunque sia l'orientamento della mappa.
+        """
+        ai_castle = self.game_map.castle_positions.get(AI)
+        player_castle = self.game_map.castle_positions.get(PLAYER)
+        if ai_castle is None or player_castle is None or not self.player_legions:
+            return []
+
+        midline = (ai_castle[0] + player_castle[0]) / 2.0
+        ai_is_north = ai_castle[0] < player_castle[0]
+
+        intruders: List[Tuple[int, int]] = []
+        for legion in self.player_legions.values():
+            pos = tuple(legion.get("pos", ()))
+            if len(pos) != 2:
+                continue
+            row = int(pos[0])
+            crossed = row <= midline if ai_is_north else row >= midline
+            if crossed:
+                intruders.append((row, int(pos[1])))
+        return intruders
 
     def _find_legion_at(self, entity: Occupation, pos: Tuple[int, int]) -> Optional[Tuple[str, Dict[str, Any]]]:
         """Restituisce (id, legione) se l'entità ha una legione sulla posizione richiesta."""
@@ -698,6 +781,15 @@ class GameSession:
         )
         economic_targets = self._collect_ai_economic_targets(ai_pos)
 
+        # Incursione oltre metà campo: l'IA molla l'espansione e converge
+        # sull'intruso più vicino. Sostituisce anche un eventuale assalto in corso.
+        intruders = self._ai_intruder_legions()
+        if intruders:
+            focus = getattr(self.ai_policy, "should_focus_intruder", None)
+            if callable(focus) and focus(turn=self.game_map.turn, intruder_count=len(intruders)):
+                ai_legion["castle_commit"] = False
+                return min(intruders, key=lambda p: self._order_distance(ai_pos, p))
+
         # Un assalto già deciso non va abbandonato a metà strada: il target viene
         # ri-scelto ogni 2-3 turni, ma il castello nemico dista 13 caselle, quindi
         # senza impegno persistente l'IA non arriva mai sotto le mura.
@@ -754,9 +846,13 @@ class GameSession:
         return enemy_castle or player_pos
 
     def _ai_legion_target_lock_turns(self) -> int:
-        """Numero turni minimi prima del retarget IA per evitare zig-zag e inseguimenti artificiali."""
-        if self.ai_difficulty == AI_NORMAL_ID:
-            return 2
+        """Numero turni minimi prima del retarget IA per evitare zig-zag e inseguimenti artificiali.
+
+        Il valore appartiene al profilo di difficoltà: ogni file lo dichiara.
+        """
+        getter = getattr(self.ai_policy, "target_lock_turns", None)
+        if callable(getter):
+            return max(1, int(getter()))
         return 3
 
     def _apply_legion_castle_assault(
@@ -942,15 +1038,17 @@ class GameSession:
                 if unit_id in self.ai_units:
                     self.ai_units.remove(unit_id)
             self._recompute_entity_army_state(AI)
+            # La ripartizione può riassegnare le truppe fra le legioni superstiti,
+            # quindi la sopravvivenza va letta dopo il sync, non da `remaining`.
             self._sync_ai_legion_units()
+            survived = bool(source.get(legion_id, {}).get("units"))
+            if not self.ai_legions:
+                self.ai_last_legion_loss_turn = self.game_map.turn
         else:
             legion["units"] = remaining
-
-        survived = bool(remaining)
-        if not survived and legion_id in source:
-            del source[legion_id]
-            if entity == AI:
-                self.ai_last_legion_loss_turn = self.game_map.turn
+            survived = bool(remaining)
+            if not survived and legion_id in source:
+                del source[legion_id]
 
         counts = Counter(removed)
         text = ", ".join(
@@ -1612,9 +1710,10 @@ class GameSession:
             ai_slots -= 1
             attempts -= 1
 
-        # Fortificazione IA: più frequente a difficoltà normal.
+        # Fortificazione IA: la cadenza appartiene al profilo di difficoltà.
         if self.grux_balance[AI] >= self.base_fortification_cost:
-            fortify_turn_gate = 2 if self.ai_difficulty == AI_NORMAL_ID else 3
+            gate_getter = getattr(self.ai_policy, "fortify_turn_gate", None)
+            fortify_turn_gate = max(1, int(gate_getter())) if callable(gate_getter) else 3
             if self.game_map.turn % fortify_turn_gate == 0:
                 fort_log = self._place_best_ai_fortification()
                 if fort_log:
@@ -2993,12 +3092,14 @@ class GameSession:
         log_entry = f"[Turno {self.game_map.turn}] 💰 {side} recluta {unit_name} per {cost} grux"
         self.battle_log.append(log_entry)
 
-        # La recluta IA deve raggiungere la legione in campo, non restare a castello.
+        # La recluta IA deve raggiungere le legioni in campo, non restare a castello.
         if entity == AI and self._sync_ai_legion_units() and self.ai_legions:
-            reinforced = next(iter(self.ai_legions.values()))
+            detail = " · ".join(
+                f"'{lg.get('name', lid)}' {len(lg.get('units', []))}"
+                for lid, lg in sorted(self.ai_legions.items())
+            )
             self.battle_log.append(
-                f"[Turno {self.game_map.turn}] 🤖 IA rinforza la legione "
-                f"'{reinforced.get('name', '?')}' → {len(reinforced.get('units', []))} unità"
+                f"[Turno {self.game_map.turn}] 🤖 IA rinforza le legioni → {detail} unità"
             )
         self.last_recruit_turn[entity] = self.game_map.turn
 

@@ -1,11 +1,23 @@
 """
-War Advisor - AI Easy Difficulty
+War Advisor - AI Hard Difficulty
 
-Profilo IA "easy" con comportamento più indulgente:
-- esercito iniziale ridotto
-- pressione strategica/castello meno aggressiva
-- reclute/miniere/ricerche non sempre eseguite
-- garrisoning più raro
+Profilo IA "difficile": un gradino sopra il normale, non un salto.
+
+Comportamento ad alveare. Tutto scala verso l'alto (esercito, reclute,
+miniere, fortificazioni, presidi) TRANNE l'aggressione in territorio nemico,
+che scala al contrario:
+
+- non si sbilancia quasi mai verso il castello nemico: consolida ed espande
+  il territorio attorno a sé, dove combatte in casa con le proprie difese;
+- appena una legione player supera la metà campo l'IA "si imbestialisce":
+  molla l'espansione e converge sull'intruso;
+- in quella fase può schierare una seconda legione per la difesa.
+
+È l'opposto del profilo facile, che si lancia subito lontano da casa con un
+esercito piccolo — ed è proprio quell'esposizione a renderlo facile da battere.
+
+Il margine verso l'alto resta volutamente ampio: la difficoltà "incubo"
+occuperà lo spazio sopra questo profilo.
 """
 
 import random
@@ -14,30 +26,34 @@ from typing import Any, Dict, List, Optional, Tuple
 from engine import aggregate_army, apply_modifiers, compute_ranking
 from gamecore.economy import STARTING_GRUX, calculate_army_cost, get_unit_costs
 
-AI_EASY_ID = "easy"
+AI_HARD_ID = "hard"
 
 # ── Spinta verso il castello nemico ────────────────────────────────
-# L'aggressione è l'UNICO asse che scala al contrario della difficoltà.
-# Il profilo "facile" è il più avventato: si lancia presto verso il castello
-# con una legione ancora piccola, ed è proprio questo a renderlo facile —
-# un esercito debole che si espone lontano da casa è comodo da distruggere.
-CASTLE_PUSH_FROM_TURN = 4    # parte quasi subito
-CASTLE_PUSH_RANGE = 13       # tutta la mappa: attacca da qualunque distanza
-CASTLE_PUSH_MIN_UNITS = 2    # non aspetta di essere pronta
-CASTLE_PUSH_CHANCE = 0.62    # spinta frequente
-CASTLE_ADJACENT_CHANCE = 0.88  # a ridosso del castello attacca quasi sempre
+# Volutamente la PIÙ BASSA delle tre difficoltà: l'alveare non esce di casa.
+# Tenta il castello solo a partita inoltrata e con un esercito schiacciante,
+# cioè quando è una decisione sensata e non un suicidio.
+CASTLE_PUSH_FROM_TURN = 40   # facile: 4 · normale: 10
+CASTLE_PUSH_RANGE = 13
+CASTLE_PUSH_MIN_UNITS = 8    # facile: 2 · normale: 4
+CASTLE_PUSH_CHANCE = 0.08    # facile: 0.62 · normale: 0.34
+CASTLE_ADJACENT_CHANCE = 0.45  # facile: 0.88 · normale: 0.70
+
+# ── Espansione (l'alveare cresce attorno a sé) ─────────────────────
+ECONOMIC_TARGET_CHANCE = 0.72  # normale: 0.52 — conquista tutto intorno
+STRATEGIC_TARGET_CHANCE = 0.92
 
 # ── Risposta alle incursioni ───────────────────────────────────────
-MAX_LEGIONS = 1              # nessuna seconda legione difensiva
-INTRUDER_FOCUS_CHANCE = 0.0  # ignora chi entra in casa: continua la sua corsa
+INTRUDER_FOCUS_CHANCE = 0.95   # chi supera la metà campo diventa LA priorità
+MAX_LEGIONS = 2                # può schierare una seconda legione per difendersi
+SECOND_LEGION_MIN_UNITS = 6    # solo se l'esercito regge la divisione in due
 
 # ── Ritmo operativo ────────────────────────────────────────────────
-TARGET_LOCK_TURNS = 3        # cambia obiettivo di rado: sembra più indeciso
-FORTIFY_TURN_GATE = 3        # fortifica un turno su tre
+TARGET_LOCK_TURNS = 2        # come il normale: non zig-zaga
+FORTIFY_TURN_GATE = 2        # fortifica un turno su due
 
 
-class EasyAIDifficultyPolicy:
-    """Policy runtime per rendere il comportamento IA meno oppressivo."""
+class HardAIDifficultyPolicy:
+    """Policy runtime IA: più solida del normale, ancora lontana dall'ottimo."""
 
     def __init__(self, seed: Optional[int] = None) -> None:
         self.rng = random.Random(seed)
@@ -51,9 +67,19 @@ class EasyAIDifficultyPolicy:
     def max_legions(self) -> int:
         return MAX_LEGIONS
 
+    def second_legion_min_units(self) -> int:
+        return SECOND_LEGION_MIN_UNITS
+
     def should_focus_intruder(self, *, turn: int, intruder_count: int) -> bool:
-        """L'IA facile non reagisce alle incursioni: resta sulla sua corsa."""
-        return False
+        """L'alveare si imbestialisce: chi entra in casa diventa la priorità."""
+        if intruder_count <= 0:
+            return False
+        return self.rng.random() < INTRUDER_FOCUS_CHANCE
+
+    def should_skip_turn(self, turn: int) -> bool:
+        if turn <= 2:
+            return False
+        return self.rng.random() < 0.015   # normale: 0.04
 
     def should_push_castle(
         self,
@@ -62,7 +88,7 @@ class EasyAIDifficultyPolicy:
         distance: Optional[int],
         legion_size: int,
     ) -> bool:
-        """True se l'IA deve puntare il castello nemico invece di espandersi."""
+        """True solo quando l'assalto è una scelta sensata, non una scommessa."""
         if distance is None:
             return False
         if turn < CASTLE_PUSH_FROM_TURN:
@@ -71,12 +97,12 @@ class EasyAIDifficultyPolicy:
             return False
         if distance > CASTLE_PUSH_RANGE:
             return False
-        return self.rng.random() < CASTLE_PUSH_CHANCE
 
-    def should_skip_turn(self, turn: int) -> bool:
-        if turn <= 2:
-            return False
-        return self.rng.random() < 0.14
+        chance = CASTLE_PUSH_CHANCE
+        # Con un esercito davvero schiacciante vale la pena uscire dall'alveare.
+        if legion_size >= CASTLE_PUSH_MIN_UNITS * 2:
+            chance += 0.12
+        return self.rng.random() < min(0.30, chance)
 
     def choose_target(
         self,
@@ -90,44 +116,41 @@ class EasyAIDifficultyPolicy:
         turn: int = 0,
         legion_size: int = 0,
     ) -> Optional[Tuple[int, int]]:
+        # Difesa del proprio castello: raggio di allerta più ampio del normale.
         if player_pos and own_castle:
             player_to_own_castle = abs(player_pos[0] - own_castle[0]) + abs(player_pos[1] - own_castle[1])
-            if player_to_own_castle <= 2:
+            if player_to_own_castle <= 3:
                 return player_pos
 
-        # Spinta offensiva sul castello: valutata prima dell'espansione economica,
-        # altrimenti l'IA rimanda l'assalto all'infinito.
         dist_castle: Optional[int] = None
         if enemy_castle:
             dist_castle = abs(ai_pos[0] - enemy_castle[0]) + abs(ai_pos[1] - enemy_castle[1])
             if self.should_push_castle(turn=turn, distance=dist_castle, legion_size=legion_size):
                 return enemy_castle
 
+        # L'alveare cresce: l'espansione ha la precedenza sull'avventura.
         economic_targets = economic_targets or []
-        if economic_targets and self.rng.random() < 0.64:
-            top_k = economic_targets[: min(3, len(economic_targets))]
+        if economic_targets and self.rng.random() < ECONOMIC_TARGET_CHANCE:
+            top_k = economic_targets[: min(4, len(economic_targets))]
             return self.rng.choice(top_k)
-
-        if strategic_targets and self.rng.random() < 0.78:
-            top_k = strategic_targets[: min(3, len(strategic_targets))]
-            _, chosen_cell = self.rng.choice(top_k)
-            return (chosen_cell.row, chosen_cell.col)
-
-        if player_pos and self.rng.random() < 0.32:
-            return player_pos
 
         if enemy_castle and dist_castle is not None:
             if dist_castle <= 2 and self.rng.random() < CASTLE_ADJACENT_CHANCE:
                 return enemy_castle
-            if dist_castle > 2 and strategic_targets and self.rng.random() < 0.8:
-                _, chosen_cell = strategic_targets[0]
-                return (chosen_cell.row, chosen_cell.col)
 
-        if player_pos:
+        if strategic_targets and self.rng.random() < STRATEGIC_TARGET_CHANCE:
+            top_k = strategic_targets[: min(3, len(strategic_targets))]
+            _, chosen_cell = self.rng.choice(top_k)
+            return (chosen_cell.row, chosen_cell.col)
+
+        if player_pos and self.rng.random() < 0.50:
             return player_pos
 
         if enemy_castle:
             return enemy_castle
+
+        if player_pos:
+            return player_pos
 
         return None
 
@@ -135,28 +158,28 @@ class EasyAIDifficultyPolicy:
         if available <= 0:
             return False
         if is_castle:
-            return current_strength < 2 and self.rng.random() < 0.55
+            return current_strength < 2 and self.rng.random() < 0.50   # normale: 0.36
         if is_strategic:
-            return current_strength < 1 and self.rng.random() < 0.35
+            return current_strength < 1 and self.rng.random() < 0.30   # normale: 0.18
         return False
 
     def should_start_research(self, turn: int) -> bool:
         if turn <= 3:
-            return self.rng.random() < 0.35
-        return self.rng.random() < 0.22
+            return self.rng.random() < 0.95
+        return self.rng.random() < 0.90
 
     def mine_attempts(self, available_slots: int, turn: int) -> int:
         if available_slots <= 0:
             return 0
-        if self.rng.random() < 0.4:
+        if self.rng.random() < 0.40:   # normale: 0.52 di saltare
             return 0
         return min(1, available_slots)
 
     def should_recruit(self, *, grux_balance: int, turn: int) -> bool:
-        base_chance = 0.45 if turn <= 8 else 0.38
+        base_chance = 0.93 if turn <= 10 else 0.90
         if grux_balance >= 120:
-            base_chance += 0.1
-        return self.rng.random() < base_chance
+            base_chance += 0.05
+        return self.rng.random() < min(0.98, base_chance)
 
 
 def _score_unit_on_terrain(unit_attrs: Dict[str, float], terrain: str, terrain_modifiers: Dict[str, dict]) -> float:
@@ -172,7 +195,7 @@ def _score_unit_on_terrain(unit_attrs: Dict[str, float], terrain: str, terrain_m
     return total
 
 
-def build_ai_army_easy(
+def build_ai_army_hard(
     data: Dict[str, Any],
     ai_terrain: str,
     weather: Optional[str],
@@ -188,29 +211,29 @@ def build_ai_army_easy(
     affinities_data: Dict = data.get("unit_affinities", {})
     unit_costs = get_unit_costs(all_units)
 
-    easy_budget = max(70, int(budget * rng.uniform(0.42, 0.58)))
-    easy_unit_target = max(1, min(2, n_units - 1))
+    # Budget quasi pieno e rumore ridotto: sceglie unità più adatte al terreno.
+    hard_budget = max(140, int(budget * rng.uniform(0.88, 1.0)))
+    hard_unit_target = max(3, min(4, n_units + 1))
 
     unit_scores: List[Tuple[float, Dict]] = []
     for unit in all_units:
         score = _score_unit_on_terrain(unit["attributes"], ai_terrain, terrain_modifiers)
-        score += rng.uniform(-0.32, 0.32)
+        score += rng.uniform(-0.12, 0.12)   # normale: ±0.2
         unit_scores.append((score, unit))
 
     unit_scores.sort(key=lambda x: x[0], reverse=True)
-    candidate_pool = unit_scores[: max(3, len(unit_scores) // 2)]
+    # Pool più stretta del normale (0.65): pesca tra le unità davvero migliori.
+    candidate_pool = unit_scores[: max(3, int(len(unit_scores) * 0.5))]
 
     selected_ids: List[str] = []
     running_cost = 0
-    shuffled_pool = candidate_pool[:]
-    rng.shuffle(shuffled_pool)
-    for _, unit in shuffled_pool:
+    for _, unit in candidate_pool:
         unit_cost = unit_costs[unit["id"]]
-        if running_cost + unit_cost > easy_budget:
+        if running_cost + unit_cost > hard_budget:
             continue
         selected_ids.append(unit["id"])
         running_cost += unit_cost
-        if len(selected_ids) >= easy_unit_target:
+        if len(selected_ids) >= hard_unit_target:
             break
 
     if not selected_ids:
@@ -241,7 +264,7 @@ def build_ai_army_easy(
         "units": selected_ids,
         "unit_costs": {unit_id: unit_costs[unit_id] for unit_id in selected_ids},
         "army_cost": total_cost,
-        "remaining_grux": max(0, easy_budget - total_cost),
+        "remaining_grux": max(0, hard_budget - total_cost),
         "troop_status": "Fresche",
         "army_vector": army_vector,
         "modified_vector": modified_vector,

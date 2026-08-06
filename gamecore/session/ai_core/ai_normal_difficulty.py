@@ -17,15 +17,21 @@ from gamecore.economy import STARTING_GRUX, calculate_army_cost, get_unit_costs
 AI_NORMAL_ID = "normal"
 
 # ── Spinta verso il castello nemico ────────────────────────────────
-# Profilo "normale": l'IA passa all'offensiva presto, da più lontano e con una
-# legione anche solo discreta. È qui che il cambiamento incide davvero.
-CASTLE_PUSH_FROM_TURN = 8    # inizia a minacciare il castello già a metà apertura
-# I castelli distano 13 caselle: con 13 l'IA "normale" può lanciare l'offensiva
-# da qualunque punto della mappa, non solo quando è già arrivata sotto le mura.
-CASTLE_PUSH_RANGE = 13
-CASTLE_PUSH_MIN_UNITS = 3    # non aspetta un esercito enorme
-CASTLE_PUSH_CHANCE = 0.58    # spinta decisamente più frequente dell'easy
-CASTLE_ADJACENT_CHANCE = 0.85  # a ridosso del castello quasi sempre attacca (era 0.72)
+# L'aggressione scala al contrario della difficoltà: il profilo "normale" sta
+# a metà strada, attacca ma aspetta di avere una legione decente.
+CASTLE_PUSH_FROM_TURN = 10   # facile: 4 · difficile: 24
+CASTLE_PUSH_RANGE = 13       # i castelli distano 13 caselle: copre la mappa
+CASTLE_PUSH_MIN_UNITS = 4    # facile: 2 · difficile: 8
+CASTLE_PUSH_CHANCE = 0.34    # facile: 0.62 · difficile: 0.08
+CASTLE_ADJACENT_CHANCE = 0.70  # facile: 0.88 · difficile: 0.45
+
+# ── Risposta alle incursioni ───────────────────────────────────────
+MAX_LEGIONS = 1              # niente seconda legione difensiva
+INTRUDER_FOCUS_CHANCE = 0.45  # a volte reagisce a chi entra in casa
+
+# ── Ritmo operativo ────────────────────────────────────────────────
+TARGET_LOCK_TURNS = 2        # più reattiva dell'easy nel cambiare obiettivo
+FORTIFY_TURN_GATE = 2        # fortifica un turno su due
 
 
 class NormalAIDifficultyPolicy:
@@ -33,6 +39,21 @@ class NormalAIDifficultyPolicy:
 
     def __init__(self, seed: Optional[int] = None) -> None:
         self.rng = random.Random(seed)
+
+    def target_lock_turns(self) -> int:
+        return TARGET_LOCK_TURNS
+
+    def fortify_turn_gate(self) -> int:
+        return FORTIFY_TURN_GATE
+
+    def max_legions(self) -> int:
+        return MAX_LEGIONS
+
+    def should_focus_intruder(self, *, turn: int, intruder_count: int) -> bool:
+        """Reagisce a chi ha superato la metà campo, ma non sistematicamente."""
+        if intruder_count <= 0:
+            return False
+        return self.rng.random() < INTRUDER_FOCUS_CHANCE
 
     def should_push_castle(
         self,
