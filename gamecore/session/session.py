@@ -11,7 +11,7 @@ from enum import Enum
 from collections import Counter, deque
 from typing import Any, Dict, List, Optional, Tuple
 
-from engine import aggregate_army, apply_modifiers, euclidean_distance
+from engine import aggregate_army, apply_modifiers, compute_ranking, euclidean_distance
 from gamecore.economy import (
     MINE_TILES_PER_SLOT,
     MINE_YIELD_PER_ROUND,
@@ -22,12 +22,12 @@ from gamecore.economy import (
 from gamecore.maps import GameMap, Occupation
 from gamecore.session.abilities import DOMAIN_ENGINEERING_ID, build_default_ability_states
 from gamecore.session.ai_core.ai_builder import (
+    build_ai_army,
     build_ai_policy,
     get_ai_difficulty_labels,
     normalize_ai_difficulty,
 )
 from gamecore.session.ai_core.ai_easy_difficulty import AI_EASY_ID
-from gamecore.session.ai_core.ai_normal_difficulty import AI_NORMAL_ID
 from gamecore.session.in_game_advisor import build_in_game_advisor_payload
 from gamecore.session.movement_points import MovementPointsSystem
 
@@ -239,7 +239,14 @@ class GameSession:
             AI: ai_max,
         }
 
-    def _mine_income_for_count(self, mine_count: int) -> int:
+    def _ai_mine_income_multiplier(self) -> float:
+        """Moltiplicatore sul rendimento delle miniere IA (vantaggio di difficoltà)."""
+        getter = getattr(self.ai_policy, "mine_income_multiplier", None)
+        if callable(getter):
+            return max(1.0, float(getter()))
+        return 1.0
+
+    def _mine_income_for_count(self, mine_count: int, entity: Occupation = PLAYER) -> int:
         """Rendimento miniere a bande: pieno early, decrescente in late game."""
         if mine_count <= 0:
             return 0
@@ -249,12 +256,16 @@ class GameSession:
         tier_3 = min(max(0, mine_count - 8), 4)
         tier_4 = max(0, mine_count - 12)
 
-        return (
+        income = (
             (tier_1 * MINE_YIELD_PER_ROUND)
             + (tier_2 * int(round(MINE_YIELD_PER_ROUND * 0.8)))
             + (tier_3 * int(round(MINE_YIELD_PER_ROUND * 0.6)))
             + (tier_4 * int(round(MINE_YIELD_PER_ROUND * 0.4)))
         )
+
+        if entity == AI:
+            income = int(round(income * self._ai_mine_income_multiplier()))
+        return income
 
     def _compute_castle_damage(self, attacker_strength: float, defender_score: float) -> int:
         """Danno inflitto al castello quando l'assalto supera la difesa statica."""
@@ -331,7 +342,10 @@ class GameSession:
             "target": target,
             "legion_type": legion_type,
             "path": [],
-            "path_step": 0
+            "path_step": 0,
+            "movement": self.movement_system.export_legion_state(
+                self._legion_movement_key(PLAYER, legion_id)
+            ),
         }
 
         type_label = LEGION_TYPE_LABELS[legion_type]
@@ -404,18 +418,42 @@ class GameSession:
             "session": self.to_dict()
         }
 
-    def _ensure_ai_legions_initialized(self) -> None:
-        """Spawna una legione IA se assente, con cooldown dopo annientamento."""
-        if self.ai_legions or not self.ai_units:
-            return
+    def _ai_desired_legion_count(self) -> int:
+        """Quante legioni l'IA vuole in campo adesso (profilo di difficoltà + situazione)."""
+        max_getter = getattr(self.ai_policy, "max_legions", None)
+        max_legions = max(1, int(max_getter())) if callable(max_getter) else 1
+        if max_legions < 2:
+            return 1
 
-        if self.ai_last_legion_loss_turn is not None:
-            turns_since_loss = self.game_map.turn - self.ai_last_legion_loss_turn
-            if turns_since_loss < self.ai_legion_respawn_delay_turns:
-                return
+        # La seconda legione è una risposta difensiva: serve un'incursione in corso
+        # e un esercito abbastanza grande da reggere la divisione.
+        if not self._ai_intruder_legions():
+            return 1
+
+        min_getter = getattr(self.ai_policy, "second_legion_min_units", None)
+        min_units = max(2, int(min_getter())) if callable(min_getter) else 6
+        if len(self.ai_units) < min_units:
+            return 1
+
+        return 2
+
+    def _ensure_ai_legions_initialized(self) -> None:
+        """Mantiene in campo il numero di legioni IA voluto, con cooldown dopo annientamento."""
+        if not self.ai_units:
+            return
 
         if self.debug_ai_kill_switch:
             return
+
+        if len(self.ai_legions) >= self._ai_desired_legion_count():
+            return
+
+        # Il cooldown vale solo per il ritorno in campo dopo l'annientamento totale,
+        # non per l'aggiunta di una legione difensiva a fianco di una già viva.
+        if not self.ai_legions and self.ai_last_legion_loss_turn is not None:
+            turns_since_loss = self.game_map.turn - self.ai_last_legion_loss_turn
+            if turns_since_loss < self.ai_legion_respawn_delay_turns:
+                return
 
         castle_pos = self.game_map.castle_positions[AI]
         spawn_pos = self._get_free_spawn_cell(AI, castle_pos) or castle_pos
@@ -423,20 +461,169 @@ class GameSession:
         legion_id = f"AI_{self.next_legion_id}"
         self.next_legion_id += 1
 
+        used_names = {legion.get("name") for legion in self.ai_legions.values()}
+        free_names = [name for name in AI_LEGION_NAMES if name not in used_names]
+        legion_name = random.choice(free_names or AI_LEGION_NAMES)
+
         self.ai_legions[legion_id] = {
             "id": legion_id,
-            "name": random.choice(AI_LEGION_NAMES),
-            "units": list(self.ai_units),
+            "name": legion_name,
+            # Le truppe le assegna la ripartizione qui sotto: con due legioni
+            # copiare l'intero esercito in ciascuna lo duplicherebbe.
+            "units": [],
             "pos": spawn_pos,
             "target": None,
             "legion_type": LEGION_TYPE_ARMY,
             "path": [],
             "path_step": 0,
+            "movement": self.movement_system.export_legion_state(
+                self._legion_movement_key(AI, legion_id)
+            ),
         }
+
+        self._sync_ai_legion_units()
 
         cell = self.game_map.get_cell(*spawn_pos)
         if cell is not None:
             cell.occupation = AI
+
+    def _legion_movement_key(self, entity: Occupation, legion_id: str) -> str:
+        """Chiave dello stato movimento di una legione."""
+        return self.movement_system.legion_key(entity, legion_id)
+
+    def _legion_is_movement_blocked(
+        self,
+        entity: Occupation,
+        legion_id: str,
+        legion: Dict[str, Any],
+        logs: List[str],
+    ) -> bool:
+        """Consuma un turno di attraversamento: True se la legione non può muoversi ora.
+
+        Riusa il sistema punti-movimento già esistente (100 punti/turno, terreni
+        più difficili costano di più e il surplus diventa turni di attesa),
+        applicandolo però alla singola legione invece che all'intera armata.
+        """
+        key = self._legion_movement_key(entity, legion_id)
+        block = self.movement_system.consume_legion_block_if_any(key)
+        legion["movement"] = self.movement_system.export_legion_state(key)
+        if not block["blocked"]:
+            return False
+
+        icon = "⚔️" if entity == PLAYER else "🤖"
+        remaining = int(block["remaining_blocked_turns"]) + 1
+        logs.append(
+            f"{icon} La legione {entity.value.upper()} '{legion.get('name', legion_id)}' "
+            f"attraversa {str(block['last_terrain']).lower()} "
+            f"(costo {block['last_cost']} punti): ancora {remaining} turno/i di marcia."
+        )
+        return True
+
+    def _register_legion_move_cost(
+        self,
+        entity: Occupation,
+        legion_id: str,
+        legion: Dict[str, Any],
+        from_pos: Tuple[int, int],
+        to_pos: Tuple[int, int],
+    ) -> Dict[str, Any]:
+        """Registra il costo del terreno appena raggiunto dalla legione."""
+        key = self._legion_movement_key(entity, legion_id)
+        cell = self.game_map.get_cell(*to_pos)
+        terrain = cell.terrain if cell is not None else "Pianura"
+        info = self.movement_system.register_legion_move(key, terrain, from_pos, to_pos)
+        legion["movement"] = self.movement_system.export_legion_state(key)
+        return info
+
+    def _prune_legion_movement_states(self) -> None:
+        """Scarta lo stato movimento delle legioni non più in campo."""
+        active = {self._legion_movement_key(PLAYER, lid) for lid in self.player_legions}
+        active |= {self._legion_movement_key(AI, lid) for lid in self.ai_legions}
+        self.movement_system.prune_legions(active)
+
+    def _sync_ai_legion_units(self) -> bool:
+        """Ripartisce l'esercito IA (`self.ai_units`) fra le legioni in campo.
+
+        A differenza del player — dove `player_units` è una riserva e creare una
+        legione ne sottrae le unità — per l'IA `ai_units` resta l'esercito
+        autoritativo e le legioni ne sono una vista. Senza questo riallineamento
+        le reclute non arriverebbero mai al fronte e le perdite non
+        ridurrebbero le legioni.
+
+        Con una sola legione è un mirror; con due (difesa ad alveare) le unità
+        vengono distribuite alternandole per valore, così nessuna delle due
+        eredita solo gli scarti.
+
+        Returns:
+            True se qualcosa è stato effettivamente modificato.
+        """
+        if not self.ai_legions:
+            return False
+
+        if not self.ai_units:
+            # Esercito azzerato: sciogli le legioni invece di lasciarne di vuote in
+            # campo (varrebbero forza 1 negli scontri e bloccherebbero il respawn).
+            self.ai_legions.clear()
+            self.ai_last_legion_loss_turn = self.game_map.turn
+            return True
+
+        legion_ids = sorted(self.ai_legions.keys())
+        if len(legion_ids) == 1:
+            legion = self.ai_legions[legion_ids[0]]
+            if legion.get("units", []) == self.ai_units:
+                return False
+            legion["units"] = list(self.ai_units)
+            return True
+
+        # Distribuzione a serpentina sul valore in combattimento: le legioni
+        # restano equilibrate anche con unità di qualità molto diversa.
+        ordered = sorted(self.ai_units, key=lambda uid: self._unit_battle_value(uid), reverse=True)
+        buckets: Dict[str, List[str]] = {lid: [] for lid in legion_ids}
+        for index, unit_id in enumerate(ordered):
+            slot = index % len(legion_ids)
+            if (index // len(legion_ids)) % 2 == 1:
+                slot = len(legion_ids) - 1 - slot
+            buckets[legion_ids[slot]].append(unit_id)
+
+        changed = False
+        for legion_id in legion_ids:
+            legion = self.ai_legions[legion_id]
+            if legion.get("units", []) != buckets[legion_id]:
+                legion["units"] = buckets[legion_id]
+                changed = True
+
+        # Una legione rimasta senza truppe va sciolta, non lasciata a vuoto.
+        for legion_id in legion_ids:
+            if not self.ai_legions[legion_id].get("units"):
+                del self.ai_legions[legion_id]
+                changed = True
+
+        return changed
+
+    def _ai_intruder_legions(self) -> List[Tuple[int, int]]:
+        """Posizioni delle legioni player che hanno superato la metà campo.
+
+        La metà è calcolata fra i due castelli, così la regola resta valida
+        qualunque sia l'orientamento della mappa.
+        """
+        ai_castle = self.game_map.castle_positions.get(AI)
+        player_castle = self.game_map.castle_positions.get(PLAYER)
+        if ai_castle is None or player_castle is None or not self.player_legions:
+            return []
+
+        midline = (ai_castle[0] + player_castle[0]) / 2.0
+        ai_is_north = ai_castle[0] < player_castle[0]
+
+        intruders: List[Tuple[int, int]] = []
+        for legion in self.player_legions.values():
+            pos = tuple(legion.get("pos", ()))
+            if len(pos) != 2:
+                continue
+            row = int(pos[0])
+            crossed = row <= midline if ai_is_north else row >= midline
+            if crossed:
+                intruders.append((row, int(pos[1])))
+        return intruders
 
     def _find_legion_at(self, entity: Occupation, pos: Tuple[int, int]) -> Optional[Tuple[str, Dict[str, Any]]]:
         """Restituisce (id, legione) se l'entità ha una legione sulla posizione richiesta."""
@@ -471,8 +658,37 @@ class GameSession:
             return [fallback]
         return []
 
+    def _ai_expansion_allows(self, pos: Tuple[int, int]) -> bool:
+        """True se l'IA può espandersi su questa cella nella fase corrente.
+
+        In fase difensiva alcuni profili restano nella propria metà campo:
+        senza il vincolo l'espansione punta il miglior obiettivo ovunque sia e
+        degenera in una marcia dentro il territorio nemico.
+        """
+        confine = getattr(self.ai_policy, "confine_expansion_to_own_half", None)
+        if not callable(confine) or not confine():
+            return True
+
+        ai_castle = self.game_map.castle_positions.get(AI)
+        player_castle = self.game_map.castle_positions.get(PLAYER)
+        if ai_castle is None or player_castle is None:
+            return True
+
+        midline = (ai_castle[0] + player_castle[0]) / 2.0
+        if ai_castle[0] < player_castle[0]:
+            return pos[0] <= midline
+        return pos[0] >= midline
+
+    def _ai_expansion_distance_penalty(self) -> float:
+        """Peso della distanza nella scelta degli obiettivi economici dell'IA."""
+        getter = getattr(self.ai_policy, "expansion_distance_penalty", None)
+        if callable(getter):
+            return max(0.0, float(getter()))
+        return 0.18
+
     def _collect_ai_economic_targets(self, ai_pos: Tuple[int, int]) -> List[Tuple[int, int]]:
         """Target economici/territoriali per l'IA (miniere, territori utili, espansione)."""
+        distance_penalty = self._ai_expansion_distance_penalty()
         scored: List[Tuple[float, Tuple[int, int]]] = []
         for row in self.game_map.grid:
             for cell in row:
@@ -480,6 +696,9 @@ class GameSession:
                     continue
 
                 pos = (cell.row, cell.col)
+                if not self._ai_expansion_allows(pos):
+                    continue
+
                 distance = self._order_distance(ai_pos, pos)
 
                 score = 0.0
@@ -492,7 +711,7 @@ class GameSession:
                 if cell.occupation == PLAYER:
                     score += 0.5
 
-                score -= distance * 0.18
+                score -= distance * distance_penalty
                 scored.append((score, pos))
 
         scored.sort(key=lambda item: item[0], reverse=True)
@@ -604,7 +823,31 @@ class GameSession:
             army_vector=self.ai_army,
             terrain_modifiers=self.data["terrain"],
         )
+        # `get_strategic_targets` ordina solo per resa del terreno, senza guardare
+        # la distanza: da sola porterebbe l'IA dall'altra parte della mappa.
+        strategic_targets = [
+            item for item in strategic_targets
+            if self._ai_expansion_allows((item[1].row, item[1].col))
+        ]
         economic_targets = self._collect_ai_economic_targets(ai_pos)
+
+        # Incursione oltre metà campo: l'IA molla l'espansione e converge
+        # sull'intruso più vicino. Sostituisce anche un eventuale assalto in corso.
+        intruders = self._ai_intruder_legions()
+        if intruders:
+            focus = getattr(self.ai_policy, "should_focus_intruder", None)
+            if callable(focus) and focus(turn=self.game_map.turn, intruder_count=len(intruders)):
+                ai_legion["castle_commit"] = False
+                return min(intruders, key=lambda p: self._order_distance(ai_pos, p))
+
+        # Un assalto già deciso non va abbandonato a metà strada: il target viene
+        # ri-scelto ogni 2-3 turni, ma il castello nemico dista 13 caselle, quindi
+        # senza impegno persistente l'IA non arriva mai sotto le mura.
+        if ai_legion.get("castle_commit") and enemy_castle is not None:
+            if player_threatens_own_castle:
+                ai_legion["castle_commit"] = False  # difendere casa ha priorità
+            else:
+                return enemy_castle
 
         policy_target = self.ai_policy.choose_target(
             ai_pos=ai_pos,
@@ -613,9 +856,20 @@ class GameSession:
             enemy_castle=enemy_castle,
             strategic_targets=strategic_targets,
             economic_targets=economic_targets,
+            turn=self.game_map.turn,
+            legion_size=len(ai_legion.get("units", [])),
         )
         if policy_target is not None:
             chosen = tuple(policy_target)
+
+            # Il castello nemico è un obiettivo strategico, non un inseguimento:
+            # va valutato prima del filtro sotto, altrimenti quando il player
+            # presidia il proprio castello (player_pos == enemy_castle) l'assalto
+            # verrebbe scambiato per una caccia alla legione e deviato.
+            if enemy_castle is not None and chosen == tuple(enemy_castle):
+                ai_legion["castle_commit"] = True
+                return chosen
+
             if (
                 player_pos is not None
                 and chosen == player_pos
@@ -639,12 +893,21 @@ class GameSession:
             )
             return best_cell.row, best_cell.col
 
+        # Ripiego: se il profilo è in postura difensiva non deve finire in
+        # trasferta per mancanza di alternative — si stringe attorno a casa.
+        if enemy_castle is not None and not self._ai_expansion_allows(tuple(enemy_castle)):
+            return own_castle or player_pos
+
         return enemy_castle or player_pos
 
     def _ai_legion_target_lock_turns(self) -> int:
-        """Numero turni minimi prima del retarget IA per evitare zig-zag e inseguimenti artificiali."""
-        if self.ai_difficulty == AI_NORMAL_ID:
-            return 2
+        """Numero turni minimi prima del retarget IA per evitare zig-zag e inseguimenti artificiali.
+
+        Il valore appartiene al profilo di difficoltà: ogni file lo dichiara.
+        """
+        getter = getattr(self.ai_policy, "target_lock_turns", None)
+        if callable(getter):
+            return max(1, int(getter()))
         return 3
 
     def _apply_legion_castle_assault(
@@ -686,6 +949,8 @@ class GameSession:
         own_castle = self.game_map.castle_positions.get(attacker)
         legion["pos"] = own_castle if own_castle is not None else from_pos
         legion["target"] = None
+        # Assalto concluso: l'impegno va sciolto, la prossima offensiva si ridecide.
+        legion["castle_commit"] = False
         if castle_cell is not None:
             castle_cell.occupation = defender
         from_cell = self.game_map.get_cell(*from_pos)
@@ -697,45 +962,273 @@ class GameSession:
             f"al castello (HP {hp_before}->{hp_after}) e le truppe rientrano al castello d'origine."
         )
 
-    def _resolve_legion_clash_if_any(self, pos: Tuple[int, int], logs: List[str]) -> None:
-        """Risoluzione semplificata scontro legione-vs-legione su una stessa cella."""
+    def _legion_battle_strength(
+        self,
+        entity: Occupation,
+        legion: Dict[str, Any],
+        terrain: str,
+        *,
+        defending: bool,
+        cell: Optional[Any],
+        enemy_strength: float = 0.0,
+        movement_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Forza di combattimento di una singola legione sulla cella dello scontro.
+
+        Riusa le stesse regole del resto del motore: valore unità modulato dal
+        terreno, bonus stack, fattore strategia/contesto e — solo per chi
+        difende la propria cella — fortificazioni, presidi e vantaggio del
+        terreno difensivo.
+        """
+        unit_ids = list(legion.get("units", []))
+        empty = {
+            "strength": 0.0,
+            "units": 0,
+            "fortification_level": 0,
+            "garrison_strength": 0,
+            "strategy_factor": 0.0,
+            "defense_bonus": 0.0,
+            "movement_factor": 1.0,
+        }
+        if not unit_ids:
+            return empty
+
+        # 1. Valore delle unità modulato dal terreno (stessa regola dei presidi).
+        base_total = sum(self._garrison_unit_defense_value(uid, terrain) for uid in unit_ids)
+
+        # 2. Bonus stack per unità dello stesso tipo (coerente con _strength_breakdown).
+        stack_bonus = 0.0
+        for unit_id, count in Counter(unit_ids).items():
+            if count <= 1:
+                continue
+            value = self._unit_battle_value(unit_id)
+            bonus = value * 0.22 * ((count - 1) ** 1.08)
+            stack_bonus += min(bonus, value * count * 0.55)
+
+        # 3. Strategia ed effetti ambientali sul terreno dello scontro.
+        army_vector = self.player_army if entity == PLAYER else self.ai_army
+        troop_status = self.player_troop_status if entity == PLAYER else self.ai_troop_status
+        modified, _ = apply_modifiers(
+            army_vector=army_vector,
+            terrain_name=terrain,
+            weather_name=self.weather,
+            troop_status_name=troop_status,
+            modifiers_data=self.data,
+        )
+        strategy_factor = self._strategy_factor(entity, terrain, modified)
+        context_factor = max(0.75, min(1.25, (sum(modified.values()) / 4.6)))
+
+        strength = (base_total + stack_bonus) * strategy_factor * context_factor
+
+        # 4. Vantaggi difensivi: valgono solo per la legione già presente sulla cella.
+        fortification_level = 0
+        garrison_strength = 0
+        defense_bonus = 0.0
+        if defending and cell is not None:
+            fortification_level = int(cell.fortification_level)
+            garrison_strength = int(cell.garrison_strength)
+
+            if fortification_level > 0:
+                # Come nella difesa statica: parte fissa + parte che scala
+                # sull'intensità dell'assalto, altrimenti contro legioni grandi
+                # un bonus piatto diventa irrilevante.
+                defense_bonus += (fortification_level * 18.0) + (max(0, fortification_level - 1) * 16.0)
+                defense_bonus += enemy_strength * min(0.32, 0.12 + (fortification_level * 0.05))
+            if garrison_strength > 0:
+                defense_bonus += garrison_strength * 18.0
+                defense_bonus += enemy_strength * min(0.22, garrison_strength * 0.025)
+            if cell.garrison_unit_ids:
+                defense_bonus += sum(
+                    self._garrison_unit_defense_value(uid, terrain) for uid in cell.garrison_unit_ids
+                ) * 2.0
+            if fortification_level > 0 and garrison_strength > 0:
+                # Sinergia presidio-dentro-fortificazione, come nella difesa statica.
+                defense_bonus += fortification_level * garrison_strength * 7.0
+            defense_bonus += 8.0 if terrain in {"Foresta", "Montagna", "Palude"} else 5.0
+
+        # 5. Malus da marcia incompleta: una legione sorpresa mentre attraversa
+        #    un terreno difficile combatte peggio (regola già del sistema movimento).
+        movement_factor = 1.0
+        if movement_key is not None:
+            movement_factor = float(
+                self.movement_system.get_legion_defense_modifier(movement_key)["factor"]
+            )
+
+        return {
+            "strength": (strength + defense_bonus) * movement_factor,
+            "units": len(unit_ids),
+            "fortification_level": fortification_level,
+            "garrison_strength": garrison_strength,
+            "strategy_factor": strategy_factor,
+            "defense_bonus": defense_bonus,
+            "movement_factor": movement_factor,
+        }
+
+    def _apply_legion_losses(
+        self,
+        entity: Occupation,
+        legion_id: str,
+        legion: Dict[str, Any],
+        losses: int,
+    ) -> Tuple[int, str, bool]:
+        """Applica le perdite a una legione. Ritorna (perdite, testo, sopravvissuta)."""
+        unit_ids = list(legion.get("units", []))
+        source = self.player_legions if entity == PLAYER else self.ai_legions
+
+        if losses <= 0 or not unit_ids:
+            return 0, "", bool(unit_ids)
+
+        losses = min(losses, len(unit_ids))
+        # Cadono per prime le unità di minor valore.
+        removed = sorted(unit_ids, key=lambda uid: self._unit_battle_value(uid))[:losses]
+
+        remaining = list(unit_ids)
+        for unit_id in removed:
+            remaining.remove(unit_id)
+
+        if entity == AI:
+            # `ai_units` è l'esercito autoritativo dell'IA: senza rimuoverle anche
+            # da lì, _sync_ai_legion_units rimetterebbe in campo le unità perse.
+            for unit_id in removed:
+                if unit_id in self.ai_units:
+                    self.ai_units.remove(unit_id)
+            self._recompute_entity_army_state(AI)
+            # La ripartizione può riassegnare le truppe fra le legioni superstiti,
+            # quindi la sopravvivenza va letta dopo il sync, non da `remaining`.
+            self._sync_ai_legion_units()
+            survived = bool(source.get(legion_id, {}).get("units"))
+            if not self.ai_legions:
+                self.ai_last_legion_loss_turn = self.game_map.turn
+        else:
+            legion["units"] = remaining
+            survived = bool(remaining)
+            if not survived and legion_id in source:
+                del source[legion_id]
+
+        counts = Counter(removed)
+        text = ", ".join(
+            f"{count} {self.units_map.get(unit_id, {}).get('name', unit_id)}"
+            for unit_id, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+        )
+        return losses, text, survived
+
+    def _resolve_legion_clash_if_any(
+        self,
+        pos: Tuple[int, int],
+        logs: List[str],
+        attacker: Optional[Occupation] = None,
+    ) -> None:
+        """Scontro legione-vs-legione: attrito reale con terreno, strategia e difese."""
         player_entry = self._find_legion_at(PLAYER, pos)
         ai_entry = self._find_legion_at(AI, pos)
         if player_entry is None or ai_entry is None:
             return
 
-        player_id, player_legion = player_entry
-        ai_id, ai_legion = ai_entry
-        player_power = max(1, len(player_legion.get("units", [])))
-        ai_power = max(1, len(ai_legion.get("units", [])))
         cell = self.game_map.get_cell(*pos)
+        terrain = cell.terrain if cell is not None else self.player_home_terrain
 
-        if player_power == ai_power:
-            del self.player_legions[player_id]
-            del self.ai_legions[ai_id]
-            self.ai_last_legion_loss_turn = self.game_map.turn
+        # Chi ha appena mosso attacca; l'altra legione difende la cella su cui già si trovava.
+        if attacker is None:
+            attacker = AI
+        defender = attacker.opposite()
+
+        entries = {PLAYER: player_entry, AI: ai_entry}
+        atk_id, atk_legion = entries[attacker]
+        def_id, def_legion = entries[defender]
+
+        atk = self._legion_battle_strength(
+            attacker, atk_legion, terrain, defending=False, cell=cell,
+            movement_key=self._legion_movement_key(attacker, atk_id),
+        )
+        # Le difese della cella scalano sull'intensità dell'assalto: serve prima la forza attaccante.
+        dfn = self._legion_battle_strength(
+            defender, def_legion, terrain, defending=True, cell=cell,
+            enemy_strength=atk["strength"],
+            movement_key=self._legion_movement_key(defender, def_id),
+        )
+
+        # Le difese della cella aumentano anche l'attrito subito dall'attaccante.
+        atk_losses = self._calculate_losses_for_battle(
+            atk["units"],
+            atk["strength"],
+            dfn["strength"],
+            fortification_level=dfn["fortification_level"],
+            garrison_strength=dfn["garrison_strength"],
+        )
+        def_losses = self._calculate_losses_for_battle(
+            dfn["units"],
+            dfn["strength"],
+            atk["strength"],
+        )
+
+        atk_n, atk_text, atk_alive = self._apply_legion_losses(attacker, atk_id, atk_legion, atk_losses)
+        def_n, def_text, def_alive = self._apply_legion_losses(defender, def_id, def_legion, def_losses)
+
+        atk_name = atk_legion.get("name", atk_id)
+        def_name = def_legion.get("name", def_id)
+        header = (
+            f"{self._format_battle_location(terrain)} su {pos}: "
+            f"{attacker.value.upper()} '{atk_name}' ({int(atk['strength'])}) contro "
+            f"{defender.value.upper()} '{def_name}' ({int(dfn['strength'])})"
+        )
+        if dfn["defense_bonus"] > 0:
+            header += (
+                f" — difese: fort. {dfn['fortification_level']}, presidio {dfn['garrison_strength']}"
+            )
+        logs.append(header + ".")
+
+        if atk_n or def_n:
+            logs.append(
+                f"   Perdite: {attacker.value.upper()} -{atk_n}"
+                f"{f' ({atk_text})' if atk_text else ''} · "
+                f"{defender.value.upper()} -{def_n}"
+                f"{f' ({def_text})' if def_text else ''}."
+            )
+
+        # Entrambe annientate: la cella resta contesa.
+        if not atk_alive and not def_alive:
             if cell is not None and not cell.is_castle:
                 cell.occupation = Occupation.NEUTRAL
+            logs.append(f"   Esito: annientamento reciproco su {pos}.")
+            return
+
+        if not def_alive:
+            if cell is not None:
+                cell.occupation = attacker
             logs.append(
-                f"⚔️ Scontro su {pos}: legioni annientate (PLAYER={player_power}, IA={ai_power})."
+                f"   Esito: vince {attacker.value.upper()} — legione '{def_name}' distrutta."
             )
             return
 
-        if player_power > ai_power:
-            winner = PLAYER
-            loser_name = ai_legion.get("name", ai_id)
-            del self.ai_legions[ai_id]
-            self.ai_last_legion_loss_turn = self.game_map.turn
+        if not atk_alive:
+            if cell is not None:
+                cell.occupation = defender
+            logs.append(
+                f"   Esito: assalto respinto — legione '{atk_name}' distrutta."
+            )
+            return
+
+        # Entrambe sopravvivono: decide la forza, chi perde ripiega al proprio castello.
+        if atk["strength"] > dfn["strength"]:
+            winner, loser_entity = attacker, defender
+            winner_legion, loser_legion = atk_legion, def_legion
+            loser_name = def_name
         else:
-            winner = AI
-            loser_name = player_legion.get("name", player_id)
-            del self.player_legions[player_id]
+            winner, loser_entity = defender, attacker
+            winner_legion, loser_legion = def_legion, atk_legion
+            loser_name = atk_name
 
         if cell is not None:
             cell.occupation = winner
 
+        own_castle = self.game_map.castle_positions.get(loser_entity)
+        if own_castle is not None:
+            loser_legion["pos"] = own_castle
+        loser_legion["target"] = None
+
         logs.append(
-            f"⚔️ Scontro su {pos}: vince {winner.value.upper()} (eliminata legione '{loser_name}')."
+            f"   Esito: vince {winner.value.upper()} — la legione '{loser_name}' "
+            f"ripiega al proprio castello."
         )
 
     # ──────────────────────────────────────────────────────────
@@ -1198,7 +1691,7 @@ class GameSession:
             mine_count = self.game_map.count_mines(entity)
             if mine_count > 0:
                 linear_income = mine_count * MINE_YIELD_PER_ROUND
-                income = self._mine_income_for_count(mine_count)
+                income = self._mine_income_for_count(mine_count, entity)
                 self.grux_balance[entity] += income
                 diminishing_note = ""
                 if income < linear_income:
@@ -1228,6 +1721,49 @@ class GameSession:
             "session": self.to_dict(),
         }
 
+    def _rebuild_ai_army_for_difficulty(self) -> Optional[str]:
+        """Ricostruisce l'esercito IA col profilo della difficoltà, se la partita non è iniziata.
+
+        Ogni difficoltà ha il proprio costruttore (budget, qualità delle unità,
+        strategia iniziale): senza questo, cambiare difficoltà dal selettore
+        avrebbe cambiato solo il comportamento, lasciando l'esercito di 'facile'.
+        """
+        if self.game_map.turn > 1 or self.player_legions or self.ai_legions:
+            return None
+
+        ai_data = build_ai_army(
+            data=self.data,
+            ai_terrain=self.ai_home_terrain,
+            weather=self.weather,
+            n_units=3,
+            budget=STARTING_GRUX,
+            seed=self.ai_policy_seed,
+            difficulty=self.ai_difficulty,
+        )
+
+        self.ai_units = list(ai_data["units"])
+        self.ai_strategy_id = ai_data["strategy"]["id"]
+        self.ai_strategy_name = ai_data["strategy"]["name"]
+        self.ai_army = ai_data["army_vector"]
+        self.ai_modified = ai_data["modified_vector"]
+        self.ai_troop_status = ai_data["troop_status"]
+        self.ai_army_cost = ai_data.get("army_cost", 0)
+        self.grux_balance[AI] = ai_data.get("remaining_grux", STARTING_GRUX - self.ai_army_cost)
+
+        # Gli HP del castello dipendono dalla dimensione dell'esercito.
+        self.castle_hp_max = self._build_castle_hp_pool()
+        self.castle_hp[AI] = self.castle_hp_max[AI]
+
+        composition = ", ".join(
+            f"{count} {self.units_map.get(uid, {}).get('name', uid)}"
+            for uid, count in sorted(Counter(self.ai_units).items())
+        )
+        return (
+            f"[Turno {self.game_map.turn}] 🏗 L'IA riorganizza l'esercito per la difficoltà "
+            f"{self.ai_difficulty.upper()}: {composition} · strategia {self.ai_strategy_name} "
+            f"· {self.grux_balance[AI]} grux in cassa"
+        )
+
     def set_ai_difficulty(self, difficulty: str) -> Dict[str, Any]:
         """Aggiorna la difficoltà IA runtime e ricalcola la policy decisionale."""
         if self.state != SessionState.ACTIVE:
@@ -1248,6 +1784,13 @@ class GameSession:
         log_entry = f"[Turno {self.game_map.turn}] ⚙ Sistema: difficoltà IA impostata su {self.ai_difficulty.upper()}"
         self.battle_log.append(log_entry)
 
+        # A partita appena iniziata la difficoltà deve valere davvero: ogni profilo
+        # costruisce l'esercito IA a modo suo (budget, qualità unità, strategia).
+        # A partita in corso non si può riscrivere il passato: cambia solo la policy.
+        rebuild_log = self._rebuild_ai_army_for_difficulty()
+        if rebuild_log:
+            self.battle_log.append(rebuild_log)
+
         return {
             "ok": True,
             "message": log_entry,
@@ -1256,9 +1799,119 @@ class GameSession:
             "session": self.to_dict(),
         }
 
+    # Attributi che caratterizzano una strategia come offensiva o difensiva.
+    _OFFENSE_ATTRS = ("U1_attack", "U3_mobility", "U7_range_power")
+    _DEFENSE_ATTRS = ("U2_defense", "U5_discipline", "U8_support")
+
+    def _update_ai_phase_and_profile(self) -> Optional[str]:
+        """Aggiorna la fase interna dell'IA leggendo lo stato reale della partita."""
+        updater = getattr(self.ai_policy, "update_phase", None)
+        if not callable(updater):
+            return None
+
+        stats = self.game_map.to_dict().get("stats", {})
+        ai_cells = int(stats.get("ai_cells", 0))
+        player_cells = int(stats.get("player_cells", 0))
+
+        was_annihilating = bool(getattr(self.ai_policy, "is_annihilating", lambda: False)())
+        phase = updater(
+            turn=self.game_map.turn,
+            ai_army=len(self.ai_units),
+            player_army=len(self.player_units) + sum(
+                len(lg.get("units", [])) for lg in self.player_legions.values()
+            ),
+            ai_cells=ai_cells,
+            player_cells=player_cells,
+            ai_grux=self.grux_balance[AI],
+            player_grux=self.grux_balance[PLAYER],
+            player_intruding=bool(self._ai_intruder_legions()),
+        )
+
+        now_annihilating = bool(getattr(self.ai_policy, "is_annihilating", lambda: False)())
+        if now_annihilating and not was_annihilating:
+            # Commutazione irreversibile: il giocatore deve accorgersene.
+            for legion in self.ai_legions.values():
+                legion["target"] = None
+                legion["castle_commit"] = False
+            return (
+                f"[Turno {self.game_map.turn}] ☠️ L'IA ha raggiunto la superiorità: "
+                f"abbandona la difesa e marcia per annientarti."
+            )
+        return None
+
+    def _maybe_update_ai_strategy(self) -> Optional[str]:
+        """Rivaluta la strategia IA sull'esercito corrente, adattandola al player."""
+        review = getattr(self.ai_policy, "should_review_strategy", None)
+        if not callable(review) or not review(self.game_map.turn):
+            return None
+        if not self.ai_units:
+            return None
+
+        terrain = self.ai_home_terrain
+        if self.ai_legions:
+            first = next(iter(sorted(self.ai_legions.items())))[1]
+            pos = tuple(first.get("pos", ()))
+            if len(pos) == 2:
+                cell = self.game_map.get_cell(*pos)
+                if cell is not None:
+                    terrain = cell.terrain
+
+        modified, _ = apply_modifiers(
+            army_vector=self.ai_army,
+            terrain_name=terrain,
+            weather_name=self.weather,
+            troop_status_name=self.ai_troop_status,
+            modifiers_data=self.data,
+        )
+        ranking = compute_ranking(
+            army_vector=modified,
+            strategies_list=self.data["strategies"],
+            unit_ids=self.ai_units,
+            terrain_name=terrain,
+            weather_name=self.weather,
+            affinities_data=self.data.get("unit_affinities", {}),
+        )
+        if not ranking:
+            return None
+
+        bias_getter = getattr(self.ai_policy, "strategy_bias", None)
+        bias = bias_getter() if callable(bias_getter) else {"offense": 0.5, "defense": 0.5}
+
+        # Fra le strategie compatibili sceglie quella coerente con la postura
+        # attuale: difensiva se il player preme, offensiva quando deve chiudere.
+        def posture_score(entry: Dict[str, Any]) -> float:
+            ideal = entry.get("ideal_attributes", {})
+            offense = sum(float(ideal.get(a, 0.0)) for a in self._OFFENSE_ATTRS)
+            defense = sum(float(ideal.get(a, 0.0)) for a in self._DEFENSE_ATTRS)
+            fit = float(entry.get("compatibility", 0.0)) / 100.0
+            return fit + (offense * bias.get("offense", 0.5) + defense * bias.get("defense", 0.5)) * 0.22
+
+        best = max(ranking[: min(5, len(ranking))], key=posture_score)
+        if best["id"] == self.ai_strategy_id:
+            return None
+
+        previous = self.ai_strategy_name
+        self.ai_strategy_id = best["id"]
+        self.ai_strategy_name = best["name"]
+        profile = getattr(self.ai_policy, "player_profile", "sconosciuto")
+        return (
+            f"[Turno {self.game_map.turn}] 🧠 IA cambia strategia: {previous} → "
+            f"{best['name']} (ti legge come '{profile}')"
+        )
+
     def _auto_manage_ai_economy(self) -> List[str]:
         """L'IA piazza miniere disponibili e recluta automaticamente se può permetterselo."""
         logs: List[str] = []
+
+        phase_log = self._update_ai_phase_and_profile()
+        if phase_log:
+            logs.append(phase_log)
+
+        strategy_log = self._maybe_update_ai_strategy()
+        if strategy_log:
+            logs.append(strategy_log)
+
+        logs.extend(self._reinforce_ai_castle_ring())
         if self.ai_policy.should_start_research(self.game_map.turn):
             self._start_ability_research(AI, DOMAIN_ENGINEERING_ID)
 
@@ -1272,9 +1925,10 @@ class GameSession:
             ai_slots -= 1
             attempts -= 1
 
-        # Fortificazione IA: più frequente a difficoltà normal.
+        # Fortificazione IA: la cadenza appartiene al profilo di difficoltà.
         if self.grux_balance[AI] >= self.base_fortification_cost:
-            fortify_turn_gate = 2 if self.ai_difficulty == AI_NORMAL_ID else 3
+            gate_getter = getattr(self.ai_policy, "fortify_turn_gate", None)
+            fortify_turn_gate = max(1, int(gate_getter())) if callable(gate_getter) else 3
             if self.game_map.turn % fortify_turn_gate == 0:
                 fort_log = self._place_best_ai_fortification()
                 if fort_log:
@@ -1680,7 +2334,7 @@ class GameSession:
         logs = []
 
         # 1. Movimento Legioni Player
-        for _, legion in list(self.player_legions.items()):
+        for legion_id, legion in list(self.player_legions.items()):
             target = legion.get("target")
             target_pos = tuple(target) if target is not None else None
             current_pos = tuple(legion.get("pos", ()))
@@ -1689,10 +2343,15 @@ class GameSession:
             if current_pos == target_pos:
                 continue
 
+            # Terreno difficile: la legione può essere ancora in marcia dal turno scorso.
+            if self._legion_is_movement_blocked(PLAYER, legion_id, legion, logs):
+                continue
+
             next_pos = self._next_legion_step(current_pos, target_pos, PLAYER)
             if next_pos == current_pos:
                 continue
             legion["pos"] = next_pos
+            self._register_legion_move_cost(PLAYER, legion_id, legion, current_pos, next_pos)
 
             row, col = next_pos
             cell = self.game_map.get_cell(row, col)
@@ -1704,7 +2363,7 @@ class GameSession:
             if tuple(legion.get("pos", ())) != next_pos:
                 continue
 
-            self._resolve_legion_clash_if_any(next_pos, logs)
+            self._resolve_legion_clash_if_any(next_pos, logs, attacker=PLAYER)
             if self.state != SessionState.ACTIVE:
                 break
 
@@ -1713,13 +2372,20 @@ class GameSession:
         ai_skipped = False
         if self.state == SessionState.ACTIVE:
             self._ensure_ai_legions_initialized()
+            # Rete di sicurezza: assorbe qualsiasi disallineamento legione/esercito IA
+            # maturato fuori dai punti di mutazione noti (recluta, perdite).
+            self._sync_ai_legion_units()
             if self.ai_policy.should_skip_turn(self.game_map.turn):
                 ai_skipped = True
                 logs.append(f"[Turno {self.game_map.turn}] IA esita e mantiene la posizione.")
             else:
-                for _, legion in list(self.ai_legions.items()):
+                for legion_id, legion in list(self.ai_legions.items()):
                     current_pos = tuple(legion.get("pos", ()))
                     if len(current_pos) != 2:
+                        continue
+
+                    # Stesso vincolo del player: nessuna corsia preferenziale per l'IA.
+                    if self._legion_is_movement_blocked(AI, legion_id, legion, logs):
                         continue
 
                     target_pos = self._pick_ai_legion_target(legion)
@@ -1744,6 +2410,7 @@ class GameSession:
 
                     ai_moved = True
                     legion["pos"] = next_pos
+                    self._register_legion_move_cost(AI, legion_id, legion, current_pos, next_pos)
 
                     row, col = next_pos
                     cell = self.game_map.get_cell(row, col)
@@ -1755,7 +2422,7 @@ class GameSession:
                     if tuple(legion.get("pos", ())) != next_pos:
                         continue
 
-                    self._resolve_legion_clash_if_any(next_pos, logs)
+                    self._resolve_legion_clash_if_any(next_pos, logs, attacker=AI)
                     if self.state != SessionState.ACTIVE:
                         break
 
@@ -1767,6 +2434,8 @@ class GameSession:
             econ_logs = self._advance_round_economy()
             if econ_logs:
                 logs.extend(econ_logs)
+
+        self._prune_legion_movement_states()
 
         self.game_map.turn += 1
         self.battle_log.extend(logs)
@@ -1914,6 +2583,8 @@ class GameSession:
             units.remove(unit_id)
 
         self._recompute_entity_army_state(attacker)
+        if attacker == AI:
+            self._sync_ai_legion_units()
 
         removed_counts: Dict[str, int] = dict(Counter(removed))
         removed_parts: List[str] = []
@@ -2395,6 +3066,87 @@ class GameSession:
         self.game_map.place_mine(AI, best_cell.row, best_cell.col)
         return f"[Turno {self.game_map.turn}] ⛏ IA costruisce una miniera su ({best_cell.row},{best_cell.col})"
 
+    def _ai_castle_ring_cells(self) -> List[Any]:
+        """Celle immediatamente adiacenti al castello IA e da essa controllate."""
+        castle_pos = self.game_map.castle_positions.get(AI)
+        if castle_pos is None:
+            return []
+
+        ring: List[Any] = []
+        for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            cell = self.game_map.get_cell(castle_pos[0] + dr, castle_pos[1] + dc)
+            if cell is None or cell.is_castle:
+                continue
+            if cell.occupation != AI:
+                continue
+            ring.append(cell)
+        return ring
+
+    def _reinforce_ai_castle_ring(self) -> List[str]:
+        """Trincera l'IA sulle caselle adiacenti al proprio castello.
+
+        Fortifica l'anello e vi compra truppe di presidio con il budget extra:
+        sono unità acquistate apposta, quindi NON tolgono forza alla legione
+        in campo (`ai_units` resta intatto).
+        """
+        plan_getter = getattr(self.ai_policy, "castle_ring_plan", None)
+        if not callable(plan_getter):
+            return []
+
+        plan = plan_getter()
+        max_fort = int(plan.get("max_fort_level", 0))
+        target_garrison = int(plan.get("target_garrison", 0))
+        reserve = int(plan.get("reserve_grux", 0))
+
+        logs: List[str] = []
+        ring = self._ai_castle_ring_cells()
+        if not ring:
+            return logs
+
+        # 1. Fortificazioni sull'anello, dalla cella più scoperta.
+        for cell in sorted(ring, key=lambda c: c.fortification_level):
+            if cell.fortification_level >= max_fort:
+                continue
+            cost = self._fortification_cost(int(cell.fortification_level))
+            if self.grux_balance[AI] < cost + reserve:
+                break
+            self.grux_balance[AI] -= cost
+            placed = self.game_map.place_fortification(AI, cell.row, cell.col)
+            logs.append(
+                f"[Turno {self.game_map.turn}] 🧱 IA blinda l'anello del castello "
+                f"({placed.row},{placed.col}) → livello {placed.fortification_level} "
+                f"(costo {cost} grux)"
+            )
+            break   # una costruzione per turno, non svuota le casse in un colpo
+
+        # 2. Presidi comprati apposta per l'anello.
+        for cell in sorted(ring, key=lambda c: len(c.garrison_unit_ids)):
+            if len(cell.garrison_unit_ids) >= target_garrison:
+                continue
+
+            affordable = [
+                unit for unit in self.data["units"]
+                if self.unit_costs[unit["id"]] + reserve <= self.grux_balance[AI]
+            ]
+            if not affordable:
+                break
+
+            best_unit = max(
+                affordable,
+                key=lambda unit: self._garrison_unit_defense_value(unit["id"], cell.terrain),
+            )
+            cost = self.unit_costs[best_unit["id"]]
+            self.grux_balance[AI] -= cost
+            cell.garrison_unit_ids.append(best_unit["id"])
+            cell.garrison_strength = max(cell.garrison_strength, len(cell.garrison_unit_ids))
+            logs.append(
+                f"[Turno {self.game_map.turn}] 🛡 IA arruola {best_unit['name']} a presidio "
+                f"di ({cell.row},{cell.col}) — {cost} grux, anello del castello"
+            )
+            break   # un presidio per turno
+
+        return logs
+
     def _place_best_ai_fortification(self) -> Optional[str]:
         """L'IA fortifica la miglior cella controllata disponibile, rispettando costo e vincoli abilità."""
         ai_can_build_anywhere = self._is_ability_unlocked(AI, DOMAIN_ENGINEERING_ID)
@@ -2635,6 +3387,16 @@ class GameSession:
         unit_name = self.units_map.get(unit_id, {}).get("name", unit_id)
         log_entry = f"[Turno {self.game_map.turn}] 💰 {side} recluta {unit_name} per {cost} grux"
         self.battle_log.append(log_entry)
+
+        # La recluta IA deve raggiungere le legioni in campo, non restare a castello.
+        if entity == AI and self._sync_ai_legion_units() and self.ai_legions:
+            detail = " · ".join(
+                f"'{lg.get('name', lid)}' {len(lg.get('units', []))}"
+                for lid, lg in sorted(self.ai_legions.items())
+            )
+            self.battle_log.append(
+                f"[Turno {self.game_map.turn}] 🤖 IA rinforza le legioni → {detail} unità"
+            )
         self.last_recruit_turn[entity] = self.game_map.turn
 
         after_breakdown = self._strength_breakdown(entity, home_terrain)
