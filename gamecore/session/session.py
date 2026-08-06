@@ -2370,7 +2370,17 @@ class GameSession:
         # 2. Movimento Legioni IA
         ai_moved = False
         ai_skipped = False
-        if self.state == SessionState.ACTIVE:
+        if self.state == SessionState.ACTIVE and self.debug_ai_kill_switch:
+            # Kill switch: l'IA è completamente congelata. Il controllo va qui,
+            # nel ciclo vivo: quello storico stava in `_ai_turn`, cioè nel vecchio
+            # sistema a singola armata ormai irraggiungibile, quindi le legioni
+            # continuavano a muoversi, conquistare e assaltare a switch attivo.
+            ai_skipped = True
+            logs.append(
+                f"[Turno {self.game_map.turn}] 🧪 IA CONGELATA (kill switch attivo): "
+                f"nessun movimento, nessuna costruzione, nessuna recluta."
+            )
+        elif self.state == SessionState.ACTIVE:
             self._ensure_ai_legions_initialized()
             # Rete di sicurezza: assorbe qualsiasi disallineamento legione/esercito IA
             # maturato fuori dai punti di mutazione noti (recluta, perdite).
