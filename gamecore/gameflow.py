@@ -25,9 +25,10 @@ def start_game_session(
     army_profile: Dict[str, float],
     modified_profile: Dict[str, float],
     map_seed: Optional[int] = None,
-    ai_difficulty: str = AI_EASY_ID,
+    ai_difficulty: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Crea una sessione di gioco completa partendo dal risultato di /calculate."""
+    ai_difficulty = ai_difficulty or AI_EASY_ID
     if terrain not in TERRAIN_TYPES:
         raise ValueError(f"Terreno non valido: '{terrain}'. Valori ammessi: {TERRAIN_TYPES}")
 

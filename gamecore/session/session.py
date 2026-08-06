@@ -11,7 +11,7 @@ from enum import Enum
 from collections import Counter, deque
 from typing import Any, Dict, List, Optional, Tuple
 
-from engine import aggregate_army, apply_modifiers, euclidean_distance
+from engine import aggregate_army, apply_modifiers, compute_ranking, euclidean_distance
 from gamecore.economy import (
     MINE_TILES_PER_SLOT,
     MINE_YIELD_PER_ROUND,
@@ -22,6 +22,7 @@ from gamecore.economy import (
 from gamecore.maps import GameMap, Occupation
 from gamecore.session.abilities import DOMAIN_ENGINEERING_ID, build_default_ability_states
 from gamecore.session.ai_core.ai_builder import (
+    build_ai_army,
     build_ai_policy,
     get_ai_difficulty_labels,
     normalize_ai_difficulty,
@@ -238,7 +239,14 @@ class GameSession:
             AI: ai_max,
         }
 
-    def _mine_income_for_count(self, mine_count: int) -> int:
+    def _ai_mine_income_multiplier(self) -> float:
+        """Moltiplicatore sul rendimento delle miniere IA (vantaggio di difficoltà)."""
+        getter = getattr(self.ai_policy, "mine_income_multiplier", None)
+        if callable(getter):
+            return max(1.0, float(getter()))
+        return 1.0
+
+    def _mine_income_for_count(self, mine_count: int, entity: Occupation = PLAYER) -> int:
         """Rendimento miniere a bande: pieno early, decrescente in late game."""
         if mine_count <= 0:
             return 0
@@ -248,12 +256,16 @@ class GameSession:
         tier_3 = min(max(0, mine_count - 8), 4)
         tier_4 = max(0, mine_count - 12)
 
-        return (
+        income = (
             (tier_1 * MINE_YIELD_PER_ROUND)
             + (tier_2 * int(round(MINE_YIELD_PER_ROUND * 0.8)))
             + (tier_3 * int(round(MINE_YIELD_PER_ROUND * 0.6)))
             + (tier_4 * int(round(MINE_YIELD_PER_ROUND * 0.4)))
         )
+
+        if entity == AI:
+            income = int(round(income * self._ai_mine_income_multiplier()))
+        return income
 
     def _compute_castle_damage(self, attacker_strength: float, defender_score: float) -> int:
         """Danno inflitto al castello quando l'assalto supera la difesa statica."""
@@ -646,8 +658,37 @@ class GameSession:
             return [fallback]
         return []
 
+    def _ai_expansion_allows(self, pos: Tuple[int, int]) -> bool:
+        """True se l'IA può espandersi su questa cella nella fase corrente.
+
+        In fase difensiva alcuni profili restano nella propria metà campo:
+        senza il vincolo l'espansione punta il miglior obiettivo ovunque sia e
+        degenera in una marcia dentro il territorio nemico.
+        """
+        confine = getattr(self.ai_policy, "confine_expansion_to_own_half", None)
+        if not callable(confine) or not confine():
+            return True
+
+        ai_castle = self.game_map.castle_positions.get(AI)
+        player_castle = self.game_map.castle_positions.get(PLAYER)
+        if ai_castle is None or player_castle is None:
+            return True
+
+        midline = (ai_castle[0] + player_castle[0]) / 2.0
+        if ai_castle[0] < player_castle[0]:
+            return pos[0] <= midline
+        return pos[0] >= midline
+
+    def _ai_expansion_distance_penalty(self) -> float:
+        """Peso della distanza nella scelta degli obiettivi economici dell'IA."""
+        getter = getattr(self.ai_policy, "expansion_distance_penalty", None)
+        if callable(getter):
+            return max(0.0, float(getter()))
+        return 0.18
+
     def _collect_ai_economic_targets(self, ai_pos: Tuple[int, int]) -> List[Tuple[int, int]]:
         """Target economici/territoriali per l'IA (miniere, territori utili, espansione)."""
+        distance_penalty = self._ai_expansion_distance_penalty()
         scored: List[Tuple[float, Tuple[int, int]]] = []
         for row in self.game_map.grid:
             for cell in row:
@@ -655,6 +696,9 @@ class GameSession:
                     continue
 
                 pos = (cell.row, cell.col)
+                if not self._ai_expansion_allows(pos):
+                    continue
+
                 distance = self._order_distance(ai_pos, pos)
 
                 score = 0.0
@@ -667,7 +711,7 @@ class GameSession:
                 if cell.occupation == PLAYER:
                     score += 0.5
 
-                score -= distance * 0.18
+                score -= distance * distance_penalty
                 scored.append((score, pos))
 
         scored.sort(key=lambda item: item[0], reverse=True)
@@ -779,6 +823,12 @@ class GameSession:
             army_vector=self.ai_army,
             terrain_modifiers=self.data["terrain"],
         )
+        # `get_strategic_targets` ordina solo per resa del terreno, senza guardare
+        # la distanza: da sola porterebbe l'IA dall'altra parte della mappa.
+        strategic_targets = [
+            item for item in strategic_targets
+            if self._ai_expansion_allows((item[1].row, item[1].col))
+        ]
         economic_targets = self._collect_ai_economic_targets(ai_pos)
 
         # Incursione oltre metà campo: l'IA molla l'espansione e converge
@@ -842,6 +892,11 @@ class GameSession:
                 key=lambda item: self._order_distance(ai_pos, (item[1].row, item[1].col)),
             )
             return best_cell.row, best_cell.col
+
+        # Ripiego: se il profilo è in postura difensiva non deve finire in
+        # trasferta per mancanza di alternative — si stringe attorno a casa.
+        if enemy_castle is not None and not self._ai_expansion_allows(tuple(enemy_castle)):
+            return own_castle or player_pos
 
         return enemy_castle or player_pos
 
@@ -1636,7 +1691,7 @@ class GameSession:
             mine_count = self.game_map.count_mines(entity)
             if mine_count > 0:
                 linear_income = mine_count * MINE_YIELD_PER_ROUND
-                income = self._mine_income_for_count(mine_count)
+                income = self._mine_income_for_count(mine_count, entity)
                 self.grux_balance[entity] += income
                 diminishing_note = ""
                 if income < linear_income:
@@ -1666,6 +1721,49 @@ class GameSession:
             "session": self.to_dict(),
         }
 
+    def _rebuild_ai_army_for_difficulty(self) -> Optional[str]:
+        """Ricostruisce l'esercito IA col profilo della difficoltà, se la partita non è iniziata.
+
+        Ogni difficoltà ha il proprio costruttore (budget, qualità delle unità,
+        strategia iniziale): senza questo, cambiare difficoltà dal selettore
+        avrebbe cambiato solo il comportamento, lasciando l'esercito di 'facile'.
+        """
+        if self.game_map.turn > 1 or self.player_legions or self.ai_legions:
+            return None
+
+        ai_data = build_ai_army(
+            data=self.data,
+            ai_terrain=self.ai_home_terrain,
+            weather=self.weather,
+            n_units=3,
+            budget=STARTING_GRUX,
+            seed=self.ai_policy_seed,
+            difficulty=self.ai_difficulty,
+        )
+
+        self.ai_units = list(ai_data["units"])
+        self.ai_strategy_id = ai_data["strategy"]["id"]
+        self.ai_strategy_name = ai_data["strategy"]["name"]
+        self.ai_army = ai_data["army_vector"]
+        self.ai_modified = ai_data["modified_vector"]
+        self.ai_troop_status = ai_data["troop_status"]
+        self.ai_army_cost = ai_data.get("army_cost", 0)
+        self.grux_balance[AI] = ai_data.get("remaining_grux", STARTING_GRUX - self.ai_army_cost)
+
+        # Gli HP del castello dipendono dalla dimensione dell'esercito.
+        self.castle_hp_max = self._build_castle_hp_pool()
+        self.castle_hp[AI] = self.castle_hp_max[AI]
+
+        composition = ", ".join(
+            f"{count} {self.units_map.get(uid, {}).get('name', uid)}"
+            for uid, count in sorted(Counter(self.ai_units).items())
+        )
+        return (
+            f"[Turno {self.game_map.turn}] 🏗 L'IA riorganizza l'esercito per la difficoltà "
+            f"{self.ai_difficulty.upper()}: {composition} · strategia {self.ai_strategy_name} "
+            f"· {self.grux_balance[AI]} grux in cassa"
+        )
+
     def set_ai_difficulty(self, difficulty: str) -> Dict[str, Any]:
         """Aggiorna la difficoltà IA runtime e ricalcola la policy decisionale."""
         if self.state != SessionState.ACTIVE:
@@ -1686,6 +1784,13 @@ class GameSession:
         log_entry = f"[Turno {self.game_map.turn}] ⚙ Sistema: difficoltà IA impostata su {self.ai_difficulty.upper()}"
         self.battle_log.append(log_entry)
 
+        # A partita appena iniziata la difficoltà deve valere davvero: ogni profilo
+        # costruisce l'esercito IA a modo suo (budget, qualità unità, strategia).
+        # A partita in corso non si può riscrivere il passato: cambia solo la policy.
+        rebuild_log = self._rebuild_ai_army_for_difficulty()
+        if rebuild_log:
+            self.battle_log.append(rebuild_log)
+
         return {
             "ok": True,
             "message": log_entry,
@@ -1694,9 +1799,119 @@ class GameSession:
             "session": self.to_dict(),
         }
 
+    # Attributi che caratterizzano una strategia come offensiva o difensiva.
+    _OFFENSE_ATTRS = ("U1_attack", "U3_mobility", "U7_range_power")
+    _DEFENSE_ATTRS = ("U2_defense", "U5_discipline", "U8_support")
+
+    def _update_ai_phase_and_profile(self) -> Optional[str]:
+        """Aggiorna la fase interna dell'IA leggendo lo stato reale della partita."""
+        updater = getattr(self.ai_policy, "update_phase", None)
+        if not callable(updater):
+            return None
+
+        stats = self.game_map.to_dict().get("stats", {})
+        ai_cells = int(stats.get("ai_cells", 0))
+        player_cells = int(stats.get("player_cells", 0))
+
+        was_annihilating = bool(getattr(self.ai_policy, "is_annihilating", lambda: False)())
+        phase = updater(
+            turn=self.game_map.turn,
+            ai_army=len(self.ai_units),
+            player_army=len(self.player_units) + sum(
+                len(lg.get("units", [])) for lg in self.player_legions.values()
+            ),
+            ai_cells=ai_cells,
+            player_cells=player_cells,
+            ai_grux=self.grux_balance[AI],
+            player_grux=self.grux_balance[PLAYER],
+            player_intruding=bool(self._ai_intruder_legions()),
+        )
+
+        now_annihilating = bool(getattr(self.ai_policy, "is_annihilating", lambda: False)())
+        if now_annihilating and not was_annihilating:
+            # Commutazione irreversibile: il giocatore deve accorgersene.
+            for legion in self.ai_legions.values():
+                legion["target"] = None
+                legion["castle_commit"] = False
+            return (
+                f"[Turno {self.game_map.turn}] ☠️ L'IA ha raggiunto la superiorità: "
+                f"abbandona la difesa e marcia per annientarti."
+            )
+        return None
+
+    def _maybe_update_ai_strategy(self) -> Optional[str]:
+        """Rivaluta la strategia IA sull'esercito corrente, adattandola al player."""
+        review = getattr(self.ai_policy, "should_review_strategy", None)
+        if not callable(review) or not review(self.game_map.turn):
+            return None
+        if not self.ai_units:
+            return None
+
+        terrain = self.ai_home_terrain
+        if self.ai_legions:
+            first = next(iter(sorted(self.ai_legions.items())))[1]
+            pos = tuple(first.get("pos", ()))
+            if len(pos) == 2:
+                cell = self.game_map.get_cell(*pos)
+                if cell is not None:
+                    terrain = cell.terrain
+
+        modified, _ = apply_modifiers(
+            army_vector=self.ai_army,
+            terrain_name=terrain,
+            weather_name=self.weather,
+            troop_status_name=self.ai_troop_status,
+            modifiers_data=self.data,
+        )
+        ranking = compute_ranking(
+            army_vector=modified,
+            strategies_list=self.data["strategies"],
+            unit_ids=self.ai_units,
+            terrain_name=terrain,
+            weather_name=self.weather,
+            affinities_data=self.data.get("unit_affinities", {}),
+        )
+        if not ranking:
+            return None
+
+        bias_getter = getattr(self.ai_policy, "strategy_bias", None)
+        bias = bias_getter() if callable(bias_getter) else {"offense": 0.5, "defense": 0.5}
+
+        # Fra le strategie compatibili sceglie quella coerente con la postura
+        # attuale: difensiva se il player preme, offensiva quando deve chiudere.
+        def posture_score(entry: Dict[str, Any]) -> float:
+            ideal = entry.get("ideal_attributes", {})
+            offense = sum(float(ideal.get(a, 0.0)) for a in self._OFFENSE_ATTRS)
+            defense = sum(float(ideal.get(a, 0.0)) for a in self._DEFENSE_ATTRS)
+            fit = float(entry.get("compatibility", 0.0)) / 100.0
+            return fit + (offense * bias.get("offense", 0.5) + defense * bias.get("defense", 0.5)) * 0.22
+
+        best = max(ranking[: min(5, len(ranking))], key=posture_score)
+        if best["id"] == self.ai_strategy_id:
+            return None
+
+        previous = self.ai_strategy_name
+        self.ai_strategy_id = best["id"]
+        self.ai_strategy_name = best["name"]
+        profile = getattr(self.ai_policy, "player_profile", "sconosciuto")
+        return (
+            f"[Turno {self.game_map.turn}] 🧠 IA cambia strategia: {previous} → "
+            f"{best['name']} (ti legge come '{profile}')"
+        )
+
     def _auto_manage_ai_economy(self) -> List[str]:
         """L'IA piazza miniere disponibili e recluta automaticamente se può permetterselo."""
         logs: List[str] = []
+
+        phase_log = self._update_ai_phase_and_profile()
+        if phase_log:
+            logs.append(phase_log)
+
+        strategy_log = self._maybe_update_ai_strategy()
+        if strategy_log:
+            logs.append(strategy_log)
+
+        logs.extend(self._reinforce_ai_castle_ring())
         if self.ai_policy.should_start_research(self.game_map.turn):
             self._start_ability_research(AI, DOMAIN_ENGINEERING_ID)
 
@@ -2850,6 +3065,87 @@ class GameSession:
 
         self.game_map.place_mine(AI, best_cell.row, best_cell.col)
         return f"[Turno {self.game_map.turn}] ⛏ IA costruisce una miniera su ({best_cell.row},{best_cell.col})"
+
+    def _ai_castle_ring_cells(self) -> List[Any]:
+        """Celle immediatamente adiacenti al castello IA e da essa controllate."""
+        castle_pos = self.game_map.castle_positions.get(AI)
+        if castle_pos is None:
+            return []
+
+        ring: List[Any] = []
+        for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            cell = self.game_map.get_cell(castle_pos[0] + dr, castle_pos[1] + dc)
+            if cell is None or cell.is_castle:
+                continue
+            if cell.occupation != AI:
+                continue
+            ring.append(cell)
+        return ring
+
+    def _reinforce_ai_castle_ring(self) -> List[str]:
+        """Trincera l'IA sulle caselle adiacenti al proprio castello.
+
+        Fortifica l'anello e vi compra truppe di presidio con il budget extra:
+        sono unità acquistate apposta, quindi NON tolgono forza alla legione
+        in campo (`ai_units` resta intatto).
+        """
+        plan_getter = getattr(self.ai_policy, "castle_ring_plan", None)
+        if not callable(plan_getter):
+            return []
+
+        plan = plan_getter()
+        max_fort = int(plan.get("max_fort_level", 0))
+        target_garrison = int(plan.get("target_garrison", 0))
+        reserve = int(plan.get("reserve_grux", 0))
+
+        logs: List[str] = []
+        ring = self._ai_castle_ring_cells()
+        if not ring:
+            return logs
+
+        # 1. Fortificazioni sull'anello, dalla cella più scoperta.
+        for cell in sorted(ring, key=lambda c: c.fortification_level):
+            if cell.fortification_level >= max_fort:
+                continue
+            cost = self._fortification_cost(int(cell.fortification_level))
+            if self.grux_balance[AI] < cost + reserve:
+                break
+            self.grux_balance[AI] -= cost
+            placed = self.game_map.place_fortification(AI, cell.row, cell.col)
+            logs.append(
+                f"[Turno {self.game_map.turn}] 🧱 IA blinda l'anello del castello "
+                f"({placed.row},{placed.col}) → livello {placed.fortification_level} "
+                f"(costo {cost} grux)"
+            )
+            break   # una costruzione per turno, non svuota le casse in un colpo
+
+        # 2. Presidi comprati apposta per l'anello.
+        for cell in sorted(ring, key=lambda c: len(c.garrison_unit_ids)):
+            if len(cell.garrison_unit_ids) >= target_garrison:
+                continue
+
+            affordable = [
+                unit for unit in self.data["units"]
+                if self.unit_costs[unit["id"]] + reserve <= self.grux_balance[AI]
+            ]
+            if not affordable:
+                break
+
+            best_unit = max(
+                affordable,
+                key=lambda unit: self._garrison_unit_defense_value(unit["id"], cell.terrain),
+            )
+            cost = self.unit_costs[best_unit["id"]]
+            self.grux_balance[AI] -= cost
+            cell.garrison_unit_ids.append(best_unit["id"])
+            cell.garrison_strength = max(cell.garrison_strength, len(cell.garrison_unit_ids))
+            logs.append(
+                f"[Turno {self.game_map.turn}] 🛡 IA arruola {best_unit['name']} a presidio "
+                f"di ({cell.row},{cell.col}) — {cost} grux, anello del castello"
+            )
+            break   # un presidio per turno
+
+        return logs
 
     def _place_best_ai_fortification(self) -> Optional[str]:
         """L'IA fortifica la miglior cella controllata disponibile, rispettando costo e vincoli abilità."""

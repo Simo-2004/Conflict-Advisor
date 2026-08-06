@@ -15,6 +15,11 @@ from engine import aggregate_army, apply_modifiers, compute_ranking
 from gamecore.economy import STARTING_GRUX, calculate_army_cost, get_unit_costs
 from .ai_easy_difficulty import AI_EASY_ID, EasyAIDifficultyPolicy, build_ai_army_easy
 from .ai_hard_difficulty import AI_HARD_ID, HardAIDifficultyPolicy, build_ai_army_hard
+from .ai_nightmare_difficulty import (
+    AI_NIGHTMARE_ID,
+    NightmareAIDifficultyPolicy,
+    build_ai_army_nightmare,
+)
 from .ai_normal_difficulty import AI_NORMAL_ID, NormalAIDifficultyPolicy, build_ai_army_normal
 
 # Stato truppe fisso per l'IA all'inizio partita
@@ -24,6 +29,7 @@ AI_DIFFICULTY_LABELS: Dict[str, str] = {
     AI_EASY_ID: "Facile",
     AI_NORMAL_ID: "Normale",
     AI_HARD_ID: "Difficile",
+    AI_NIGHTMARE_ID: "Incubo",
 }
 
 
@@ -46,6 +52,8 @@ def get_ai_difficulty_labels() -> Dict[str, str]:
 def build_ai_policy(difficulty: Optional[str], seed: Optional[int] = None):
     """Costruisce la policy runtime in base alla difficoltà."""
     normalized = normalize_ai_difficulty(difficulty)
+    if normalized == AI_NIGHTMARE_ID:
+        return NightmareAIDifficultyPolicy(seed=seed)
     if normalized == AI_HARD_ID:
         return HardAIDifficultyPolicy(seed=seed)
     if normalized == AI_NORMAL_ID:
@@ -211,6 +219,16 @@ def build_ai_army(
 
     if normalized_difficulty == AI_HARD_ID:
         return build_ai_army_hard(
+            data=data,
+            ai_terrain=ai_terrain,
+            weather=weather,
+            n_units=n_units,
+            budget=budget,
+            seed=seed,
+        )
+
+    if normalized_difficulty == AI_NIGHTMARE_ID:
+        return build_ai_army_nightmare(
             data=data,
             ai_terrain=ai_terrain,
             weather=weather,

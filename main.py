@@ -250,6 +250,11 @@ class ConfirmRequest(BaseModel):
     army_profile: Dict[str, float]      = Field(..., description="Vettore esercito grezzo (da /calculate)")
     modified_profile: Dict[str, float]  = Field(..., description="Vettore esercito modificato (da /calculate)")
     map_seed: Optional[int]      = Field(None, description="Seed opzionale per la mappa (None = casuale)")
+    ai_difficulty: Optional[str] = Field(
+        None,
+        description="ID difficoltà IA all'avvio (easy, normal, hard, nightmare). "
+                    "Determina anche come l'IA costruisce il proprio esercito iniziale.",
+    )
 
 
 class MoveRequest(BaseModel):
@@ -347,6 +352,7 @@ async def game_confirm(request: ConfirmRequest):
             army_profile=request.army_profile,
             modified_profile=request.modified_profile,
             map_seed=request.map_seed,
+            ai_difficulty=request.ai_difficulty,
         )
 
         _active_session = started["session"]
