@@ -331,7 +331,10 @@ class GameSession:
             "target": target,
             "legion_type": legion_type,
             "path": [],
-            "path_step": 0
+            "path_step": 0,
+            "movement": self.movement_system.export_legion_state(
+                self._legion_movement_key(PLAYER, legion_id)
+            ),
         }
 
         type_label = LEGION_TYPE_LABELS[legion_type]
@@ -432,11 +435,68 @@ class GameSession:
             "legion_type": LEGION_TYPE_ARMY,
             "path": [],
             "path_step": 0,
+            "movement": self.movement_system.export_legion_state(
+                self._legion_movement_key(AI, legion_id)
+            ),
         }
 
         cell = self.game_map.get_cell(*spawn_pos)
         if cell is not None:
             cell.occupation = AI
+
+    def _legion_movement_key(self, entity: Occupation, legion_id: str) -> str:
+        """Chiave dello stato movimento di una legione."""
+        return self.movement_system.legion_key(entity, legion_id)
+
+    def _legion_is_movement_blocked(
+        self,
+        entity: Occupation,
+        legion_id: str,
+        legion: Dict[str, Any],
+        logs: List[str],
+    ) -> bool:
+        """Consuma un turno di attraversamento: True se la legione non può muoversi ora.
+
+        Riusa il sistema punti-movimento già esistente (100 punti/turno, terreni
+        più difficili costano di più e il surplus diventa turni di attesa),
+        applicandolo però alla singola legione invece che all'intera armata.
+        """
+        key = self._legion_movement_key(entity, legion_id)
+        block = self.movement_system.consume_legion_block_if_any(key)
+        legion["movement"] = self.movement_system.export_legion_state(key)
+        if not block["blocked"]:
+            return False
+
+        icon = "⚔️" if entity == PLAYER else "🤖"
+        remaining = int(block["remaining_blocked_turns"]) + 1
+        logs.append(
+            f"{icon} La legione {entity.value.upper()} '{legion.get('name', legion_id)}' "
+            f"attraversa {str(block['last_terrain']).lower()} "
+            f"(costo {block['last_cost']} punti): ancora {remaining} turno/i di marcia."
+        )
+        return True
+
+    def _register_legion_move_cost(
+        self,
+        entity: Occupation,
+        legion_id: str,
+        legion: Dict[str, Any],
+        from_pos: Tuple[int, int],
+        to_pos: Tuple[int, int],
+    ) -> Dict[str, Any]:
+        """Registra il costo del terreno appena raggiunto dalla legione."""
+        key = self._legion_movement_key(entity, legion_id)
+        cell = self.game_map.get_cell(*to_pos)
+        terrain = cell.terrain if cell is not None else "Pianura"
+        info = self.movement_system.register_legion_move(key, terrain, from_pos, to_pos)
+        legion["movement"] = self.movement_system.export_legion_state(key)
+        return info
+
+    def _prune_legion_movement_states(self) -> None:
+        """Scarta lo stato movimento delle legioni non più in campo."""
+        active = {self._legion_movement_key(PLAYER, lid) for lid in self.player_legions}
+        active |= {self._legion_movement_key(AI, lid) for lid in self.ai_legions}
+        self.movement_system.prune_legions(active)
 
     def _sync_ai_legion_units(self) -> bool:
         """Riallinea la legione IA in campo all'esercito IA (`self.ai_units`).
@@ -760,6 +820,7 @@ class GameSession:
         defending: bool,
         cell: Optional[Any],
         enemy_strength: float = 0.0,
+        movement_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Forza di combattimento di una singola legione sulla cella dello scontro.
 
@@ -776,6 +837,7 @@ class GameSession:
             "garrison_strength": 0,
             "strategy_factor": 0.0,
             "defense_bonus": 0.0,
+            "movement_factor": 1.0,
         }
         if not unit_ids:
             return empty
@@ -833,13 +895,22 @@ class GameSession:
                 defense_bonus += fortification_level * garrison_strength * 7.0
             defense_bonus += 8.0 if terrain in {"Foresta", "Montagna", "Palude"} else 5.0
 
+        # 5. Malus da marcia incompleta: una legione sorpresa mentre attraversa
+        #    un terreno difficile combatte peggio (regola già del sistema movimento).
+        movement_factor = 1.0
+        if movement_key is not None:
+            movement_factor = float(
+                self.movement_system.get_legion_defense_modifier(movement_key)["factor"]
+            )
+
         return {
-            "strength": strength + defense_bonus,
+            "strength": (strength + defense_bonus) * movement_factor,
             "units": len(unit_ids),
             "fortification_level": fortification_level,
             "garrison_strength": garrison_strength,
             "strategy_factor": strategy_factor,
             "defense_bonus": defense_bonus,
+            "movement_factor": movement_factor,
         }
 
     def _apply_legion_losses(
@@ -912,11 +983,15 @@ class GameSession:
         atk_id, atk_legion = entries[attacker]
         def_id, def_legion = entries[defender]
 
-        atk = self._legion_battle_strength(attacker, atk_legion, terrain, defending=False, cell=cell)
+        atk = self._legion_battle_strength(
+            attacker, atk_legion, terrain, defending=False, cell=cell,
+            movement_key=self._legion_movement_key(attacker, atk_id),
+        )
         # Le difese della cella scalano sull'intensità dell'assalto: serve prima la forza attaccante.
         dfn = self._legion_battle_strength(
             defender, def_legion, terrain, defending=True, cell=cell,
             enemy_strength=atk["strength"],
+            movement_key=self._legion_movement_key(defender, def_id),
         )
 
         # Le difese della cella aumentano anche l'attrito subito dall'attaccante.
@@ -1945,7 +2020,7 @@ class GameSession:
         logs = []
 
         # 1. Movimento Legioni Player
-        for _, legion in list(self.player_legions.items()):
+        for legion_id, legion in list(self.player_legions.items()):
             target = legion.get("target")
             target_pos = tuple(target) if target is not None else None
             current_pos = tuple(legion.get("pos", ()))
@@ -1954,10 +2029,15 @@ class GameSession:
             if current_pos == target_pos:
                 continue
 
+            # Terreno difficile: la legione può essere ancora in marcia dal turno scorso.
+            if self._legion_is_movement_blocked(PLAYER, legion_id, legion, logs):
+                continue
+
             next_pos = self._next_legion_step(current_pos, target_pos, PLAYER)
             if next_pos == current_pos:
                 continue
             legion["pos"] = next_pos
+            self._register_legion_move_cost(PLAYER, legion_id, legion, current_pos, next_pos)
 
             row, col = next_pos
             cell = self.game_map.get_cell(row, col)
@@ -1985,9 +2065,13 @@ class GameSession:
                 ai_skipped = True
                 logs.append(f"[Turno {self.game_map.turn}] IA esita e mantiene la posizione.")
             else:
-                for _, legion in list(self.ai_legions.items()):
+                for legion_id, legion in list(self.ai_legions.items()):
                     current_pos = tuple(legion.get("pos", ()))
                     if len(current_pos) != 2:
+                        continue
+
+                    # Stesso vincolo del player: nessuna corsia preferenziale per l'IA.
+                    if self._legion_is_movement_blocked(AI, legion_id, legion, logs):
                         continue
 
                     target_pos = self._pick_ai_legion_target(legion)
@@ -2012,6 +2096,7 @@ class GameSession:
 
                     ai_moved = True
                     legion["pos"] = next_pos
+                    self._register_legion_move_cost(AI, legion_id, legion, current_pos, next_pos)
 
                     row, col = next_pos
                     cell = self.game_map.get_cell(row, col)
@@ -2035,6 +2120,8 @@ class GameSession:
             econ_logs = self._advance_round_economy()
             if econ_logs:
                 logs.extend(econ_logs)
+
+        self._prune_legion_movement_states()
 
         self.game_map.turn += 1
         self.battle_log.extend(logs)

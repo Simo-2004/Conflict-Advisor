@@ -46,7 +46,7 @@ class MovementState:
 
 
 class MovementPointsSystem:
-    """Gestisce costi terreno e ritardi turn-based per player/IA."""
+    """Gestisce costi terreno e ritardi turn-based per player/IA e per singole legioni."""
 
     def __init__(
         self,
@@ -59,6 +59,28 @@ class MovementPointsSystem:
             Occupation.PLAYER: MovementState(),
             Occupation.AI: MovementState(),
         }
+        # Nel sistema a legioni ogni legione marcia per conto suo: lo stato per
+        # entità non basta più, serve un ritardo indipendente per ciascuna.
+        self._legion_states: Dict[str, MovementState] = {}
+
+    # ── Chiavi e stato per legione ─────────────────────────────────
+
+    @staticmethod
+    def legion_key(entity: Occupation, legion_id: str) -> str:
+        """Chiave stabile per lo stato movimento di una singola legione."""
+        return f"{entity.value}:{legion_id}"
+
+    def _legion_state(self, legion_key: str) -> MovementState:
+        state = self._legion_states.get(legion_key)
+        if state is None:
+            state = MovementState()
+            self._legion_states[legion_key] = state
+        return state
+
+    def prune_legions(self, active_keys: set[str]) -> None:
+        """Elimina lo stato delle legioni non più in campo (annientate o richiamate)."""
+        for key in [k for k in self._legion_states if k not in active_keys]:
+            del self._legion_states[key]
 
     def terrain_cost(self, terrain: str) -> int:
         """Costo punti movimento per entrare in un terreno."""
@@ -66,15 +88,15 @@ class MovementPointsSystem:
             return max(1, int(self.terrain_costs[terrain]))
         return DEFAULT_TERRAIN_MOVEMENT_COST
 
-    def register_move(
+    # ── Logica condivisa (usata sia per entità che per legione) ─────
+
+    def _apply_move(
         self,
-        entity: Occupation,
+        state: MovementState,
         terrain: str,
-        from_pos: tuple[int, int] | None = None,
-        to_pos: tuple[int, int] | None = None,
+        from_pos: tuple[int, int] | None,
+        to_pos: tuple[int, int] | None,
     ) -> Dict[str, int | str | float]:
-        """Registra la mossa e aggiorna eventuale ritardo turni per il terreno scelto."""
-        state = self._states[entity]
         cost = self.terrain_cost(terrain)
         extra_wait_turns = max(0, ceil(cost / self.points_per_turn) - 1)
         progress_ratio = min(1.0, self.points_per_turn / max(1, cost))
@@ -98,9 +120,27 @@ class MovementPointsSystem:
             "missing_ratio": missing_ratio,
         }
 
-    def consume_block_if_any(self, entity: Occupation) -> Dict[str, int | str | bool]:
-        """Consuma un turno di blocco movimento se presente."""
-        state = self._states[entity]
+    def register_move(
+        self,
+        entity: Occupation,
+        terrain: str,
+        from_pos: tuple[int, int] | None = None,
+        to_pos: tuple[int, int] | None = None,
+    ) -> Dict[str, int | str | float]:
+        """Registra la mossa di un'entità e aggiorna il ritardo turni."""
+        return self._apply_move(self._states[entity], terrain, from_pos, to_pos)
+
+    def register_legion_move(
+        self,
+        legion_key: str,
+        terrain: str,
+        from_pos: tuple[int, int] | None = None,
+        to_pos: tuple[int, int] | None = None,
+    ) -> Dict[str, int | str | float]:
+        """Registra la mossa di una singola legione e aggiorna il suo ritardo turni."""
+        return self._apply_move(self._legion_state(legion_key), terrain, from_pos, to_pos)
+
+    def _apply_consume_block(self, state: MovementState) -> Dict[str, int | str | bool]:
         if state.blocked_turns <= 0:
             state.display_blocked_turns = 0
             return {
@@ -121,9 +161,15 @@ class MovementPointsSystem:
             "last_cost": state.last_cost,
         }
 
-    def export_entity_state(self, entity: Occupation) -> Dict[str, int | str]:
-        """Stato serializzabile del movimento per una entità."""
-        state = self._states[entity]
+    def consume_block_if_any(self, entity: Occupation) -> Dict[str, int | str | bool]:
+        """Consuma un turno di blocco movimento dell'entità, se presente."""
+        return self._apply_consume_block(self._states[entity])
+
+    def consume_legion_block_if_any(self, legion_key: str) -> Dict[str, int | str | bool]:
+        """Consuma un turno di blocco movimento della legione, se presente."""
+        return self._apply_consume_block(self._legion_state(legion_key))
+
+    def _apply_export(self, state: MovementState) -> Dict[str, int | str]:
         defense_penalty_active = state.blocked_turns > 0
         defense_factor = 1.0 - MOVEMENT_DEFENSE_PENALTY_RATIO if defense_penalty_active else 1.0
         return {
@@ -141,9 +187,15 @@ class MovementPointsSystem:
             "defense_factor": defense_factor,
         }
 
-    def get_defense_modifier(self, entity: Occupation) -> Dict[str, int | float | bool]:
-        """Restituisce il modificatore difensivo dovuto a movimento incompleto."""
-        state = self._states[entity]
+    def export_entity_state(self, entity: Occupation) -> Dict[str, int | str]:
+        """Stato serializzabile del movimento per una entità."""
+        return self._apply_export(self._states[entity])
+
+    def export_legion_state(self, legion_key: str) -> Dict[str, int | str]:
+        """Stato serializzabile del movimento per una singola legione."""
+        return self._apply_export(self._legion_state(legion_key))
+
+    def _apply_defense_modifier(self, state: MovementState) -> Dict[str, int | float | bool]:
         active = state.blocked_turns > 0
         factor = 1.0 - MOVEMENT_DEFENSE_PENALTY_RATIO if active else 1.0
         return {
@@ -154,6 +206,14 @@ class MovementPointsSystem:
             "last_terrain": state.last_terrain,
             "last_cost": state.last_cost,
         }
+
+    def get_defense_modifier(self, entity: Occupation) -> Dict[str, int | float | bool]:
+        """Modificatore difensivo dell'entità dovuto a movimento incompleto."""
+        return self._apply_defense_modifier(self._states[entity])
+
+    def get_legion_defense_modifier(self, legion_key: str) -> Dict[str, int | float | bool]:
+        """Modificatore difensivo della legione dovuto a movimento incompleto."""
+        return self._apply_defense_modifier(self._legion_state(legion_key))
 
     def export_config(self) -> Dict[str, int | Dict[str, int]]:
         """Configurazione serializzabile globale del sistema movimento."""
