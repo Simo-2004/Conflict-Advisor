@@ -237,16 +237,27 @@
 
         function updateTacticalActionButtons(sessionData) {
             const gameOver = sessionData.state === 'game_over';
-            const legion = getSelectedTacticalLegion(sessionData);
-            const unitsCount = legion ? (legion.units || []).length : 0;
+            const legions = Object.values(sessionData?.player?.legions || {});
 
-            const garrisonBtn = document.getElementById('actionGarrisonBtn');
-            const mineBtn = document.getElementById('actionMineBtn');
-            const fortifyBtn = document.getElementById('actionFortifyBtn');
+            // Un'azione è disponibile se esiste ALMENO UNA legione idonea in campo,
+            // non se lo è quella nel menu a tendina: quale usare lo decide il click
+            // sulla cella, quindi legarlo alla selezione bloccava azioni possibili.
+            const hasGarrisonable = legions.some((lg) => (lg.units || []).length >= 2);
+            const hasMining = legions.some((lg) => lg.legion_type === 'mining');
+            const hasConstruction = legions.some((lg) => lg.legion_type === 'construction');
 
-            if (garrisonBtn) garrisonBtn.disabled = gameOver || !legion || unitsCount < 2;
-            if (mineBtn) mineBtn.disabled = gameOver || !legion || legion.legion_type !== 'mining';
-            if (fortifyBtn) fortifyBtn.disabled = gameOver || !legion || legion.legion_type !== 'construction';
+            const buttons = [
+                ['actionGarrisonBtn', hasGarrisonable, 'garrison'],
+                ['actionMineBtn', hasMining, 'mine'],
+                ['actionFortifyBtn', hasConstruction, 'fortify'],
+            ];
+
+            for (const [id, available, mode] of buttons) {
+                const btn = document.getElementById(id);
+                if (!btn) continue;
+                btn.disabled = gameOver || !available;
+                btn.classList.toggle('action-btn-armed', buildMode === mode);
+            }
         }
 
         function evaluateUnitBattleValue(unitId, terrainName) {
@@ -465,6 +476,11 @@
             const aiTransit = getEntityTransitState('ai', mapData);
             const cellRefs = new Map();
 
+            // In modalità puntamento la mappa torna cliccabile: le celle con una
+            // legione idonea all'azione vengono evidenziate.
+            const buildConfig = typeof getBuildModeConfig === 'function' ? getBuildModeConfig() : null;
+            const eligibleCells = buildConfig ? getEligibleBuildCells(currentBattleState) : new Map();
+
             mapData.grid.forEach((row, rowIndex) => {
                 row.forEach((cell, colIndex) => {
                     const button = document.createElement('button');
@@ -473,7 +489,18 @@
                     button.dataset.row = String(rowIndex);
                     button.dataset.col = String(colIndex);
                     button.title = `${cell.terrain} (${rowIndex}, ${colIndex})`;
-                    button.disabled = true;
+                    button.disabled = !buildConfig;
+
+                    if (buildConfig) {
+                        button.classList.add('cell-build-target');
+                        const eligibleLegion = eligibleCells.get(`${rowIndex},${colIndex}`);
+                        if (eligibleLegion) {
+                            button.classList.add('cell-build-ready');
+                            button.title =
+                                `${buildConfig.icon} ${buildConfig.label} con '${eligibleLegion.name}' — ${cell.terrain} (${rowIndex}, ${colIndex})`;
+                        }
+                        button.onclick = () => handleBuildCellClick(rowIndex, colIndex);
+                    }
 
                     if (cell.is_strategic) button.classList.add('cell-strategic');
                     if (cell.occupation === 'player') button.classList.add('cell-player');

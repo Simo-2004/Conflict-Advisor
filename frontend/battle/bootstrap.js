@@ -6,6 +6,7 @@
         let layoutSplitRatio = 0.7;
         let splitterDragging = false;
         let sidebarCollapsed = false;
+        let buildMode = null;   // null | 'garrison' | 'mine' | 'fortify'
         let inGameAdvisorRadarChart = null;
         const ADVISOR_ATTRIBUTE_NAMES = {
             U1_attack: 'Attacco',

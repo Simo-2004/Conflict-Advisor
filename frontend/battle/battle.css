@@ -340,6 +340,50 @@
             opacity: 0.95;
         }
 
+        /* ── Modalità puntamento: si sceglie la cella dove costruire ──────────
+           Il cursore dice cosa stai per piazzare; le celle con una legione
+           idonea sono le uniche evidenziate. */
+        body.build-mode-mine .map-cell {
+            cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'><text y='24' font-size='24'>⛏</text></svg>") 4 28, crosshair;
+        }
+
+        body.build-mode-fortify .map-cell {
+            cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'><text y='24' font-size='24'>🧱</text></svg>") 4 28, crosshair;
+        }
+
+        body.build-mode-garrison .map-cell {
+            cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'><text y='24' font-size='24'>🛡</text></svg>") 4 28, crosshair;
+        }
+
+        .map-cell.cell-build-target {
+            opacity: 0.55;
+        }
+
+        .map-cell.cell-build-ready {
+            opacity: 1;
+            outline: 3px solid #f59e0b;
+            outline-offset: -3px;
+            box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.28);
+            animation: build-target-pulse 1.4s ease-in-out infinite;
+        }
+
+        .map-cell.cell-build-ready:hover {
+            outline-color: #b45309;
+            transform: translateY(-2px);
+        }
+
+        @keyframes build-target-pulse {
+            0%, 100% { box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.28); }
+            50%      { box-shadow: 0 0 0 7px rgba(245, 158, 11, 0.12); }
+        }
+
+        .action-btn.action-btn-armed {
+            background: #f59e0b;
+            border-color: #b45309;
+            color: #1f2937;
+            box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.25);
+        }
+
 
 
         .terrain-pianura { background: #e9dfc8; }
