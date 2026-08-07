@@ -116,6 +116,20 @@ CASTLE_DAMAGE_MAX = 65.0                  # danno massimo per assalto
 CASTLE_DAMAGE_MIN = 8                     # pavimento: garantisce che il castello cada sempre
 CASTLE_DAMAGE_HALF_RATIO = 15.0           # rapporto forza/difesa a metà del danno massimo
 
+# ── Presidi e legioni sulle celle normali ──────────────────────────
+# I presidi non si impilano più senza freno: quanti ne regge una cella
+# dipende da quanto è fortificata. Serve a due cose insieme — toglie il
+# muro di truppe su una casella qualsiasi e dà alle fortificazioni uno
+# scopo oltre al bonus difensivo, creando un ordine di costruzione.
+CELL_GARRISON_BASE_CAPACITY = 1           # presidi ospitabili senza fortificazioni
+CELL_GARRISON_PER_FORT_LEVEL = 1          # presidi in più per ogni livello costruito
+CELL_MAX_GARRISON_UNITS = 4               # tetto assoluto, fortificazioni comprese
+
+# Tetto al numero di legioni contemporanee. Senza, si creavano decine di
+# legioni da una unità: conquista a sciame e legioni accatastate sulla
+# stessa cella. L'IA ha già il proprio limite nei file di difficoltà.
+MAX_LEGIONS_PER_SIDE = 4
+
 LEGION_TYPE_ARMY = "army"
 LEGION_TYPE_MINING = "mining"
 LEGION_TYPE_CONSTRUCTION = "construction"
@@ -330,7 +344,10 @@ class GameSession:
             if adj and adj.terrain != "Fiume":
                 if not any(tuple(leg.get("pos", ())) == (nr, nc) for leg in own_legions.values()):
                     return (nr, nc)
-        return None
+
+        # Castello e adiacenti tutti presi: allarga la ricerca invece di
+        # accettare una sovrapposizione, che è proprio ciò che vogliamo evitare.
+        return self._free_cell_for(entity, (r, c))
 
     def create_player_legion(
         self,
@@ -344,6 +361,12 @@ class GameSession:
 
         if legion_type not in LEGION_TYPES:
             raise ValueError(f"Tipo legione non valido: {legion_type}")
+
+        if len(self.player_legions) >= MAX_LEGIONS_PER_SIDE:
+            raise ValueError(
+                f"Hai già {MAX_LEGIONS_PER_SIDE} legioni in campo, il massimo consentito: "
+                f"richiamane una prima di formarne un'altra."
+            )
 
         # Verifica disponibilità truppe nella riserva
         from collections import Counter
@@ -362,10 +385,7 @@ class GameSession:
                 
         # Spawn position
         castle_pos = self.game_map.castle_positions[PLAYER]
-        spawn_pos = self._get_free_spawn_cell(PLAYER, castle_pos)
-        if not spawn_pos:
-            # Fallback al castello comunque (sovrapposizione)
-            spawn_pos = castle_pos
+        spawn_pos = self._get_free_spawn_cell(PLAYER, castle_pos) or castle_pos
             
         legion_id = f"L_{self.next_legion_id}"
         self.next_legion_id += 1
@@ -458,6 +478,9 @@ class GameSession:
         """Quante legioni l'IA vuole in campo adesso (profilo di difficoltà + situazione)."""
         max_getter = getattr(self.ai_policy, "max_legions", None)
         max_legions = max(1, int(max_getter())) if callable(max_getter) else 1
+        # Stesso tetto del player: i profili di difficoltà stanno già sotto,
+        # ma la regola non deve dipendere da come sono tarati.
+        max_legions = min(max_legions, MAX_LEGIONS_PER_SIDE)
         if max_legions < 2:
             return 1
 
@@ -767,6 +790,94 @@ class GameSession:
             col -= 1
         return row, col
 
+    def _own_legion_positions_map(
+        self,
+        entity: Occupation,
+        exclude_id: Optional[str] = None,
+    ) -> Dict[Tuple[int, int], str]:
+        """Celle occupate dalle legioni di `entity`, mappate al nome della legione.
+
+        È la base della regola del muro: una legione occupa la sua cella in
+        esclusiva verso gli alleati. Senza, due legioni finivano sovrapposte e
+        negli scontri ne combatteva una sola mentre l'altra restava illesa
+        sulla stessa casella.
+        """
+        source = self.player_legions if entity == PLAYER else self.ai_legions
+        occupied: Dict[Tuple[int, int], str] = {}
+        for legion_id, legion in source.items():
+            if exclude_id is not None and legion_id == exclude_id:
+                continue
+            pos = tuple(legion.get("pos", ()))
+            if len(pos) == 2:
+                occupied[pos] = legion.get("name", legion_id)
+        return occupied
+
+    def _free_cell_for(
+        self,
+        entity: Occupation,
+        preferred: Tuple[int, int],
+        exclude_id: Optional[str] = None,
+    ) -> Optional[Tuple[int, int]]:
+        """Cella libera da legioni alleate, partendo da `preferred` e allargandosi.
+
+        Serve ai ripiegamenti: mandare un perdente sul proprio castello quando
+        lì c'è già una legione ricreerebbe la sovrapposizione che stiamo togliendo.
+        """
+        preferred = tuple(preferred)
+        occupied = self._own_legion_positions_map(entity, exclude_id=exclude_id)
+
+        visited = {preferred}
+        queue = deque([preferred])
+        while queue:
+            pos = queue.popleft()
+            cell = self.game_map.get_cell(*pos)
+            if cell is not None and cell.terrain != "Fiume" and pos not in occupied:
+                return pos
+            r, c = pos
+            for neighbor in ((r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)):
+                if neighbor in visited:
+                    continue
+                if self.game_map.get_cell(*neighbor) is None:
+                    continue
+                visited.add(neighbor)
+                queue.append(neighbor)
+        return None
+
+    def _nearest_reachable_cell_to(
+        self,
+        start: Tuple[int, int],
+        goal: Tuple[int, int],
+        blocked: set,
+    ) -> Optional[Tuple[int, int]]:
+        """Cella raggiungibile da `start` più vicina a `goal`, aggirando `blocked`.
+
+        È il ripiego quando la destinazione voluta è occupata o irraggiungibile:
+        invece di piantarsi, la legione punta al punto utile più vicino. A parità
+        di distanza dall'obiettivo vince quello che costa meno strada.
+        """
+        start = tuple(start)
+        goal = tuple(goal)
+        best: Optional[Tuple[int, int]] = None
+        best_key: Optional[Tuple[int, int]] = None
+
+        visited = {start}
+        queue = deque([(start, 0)])
+        while queue:
+            pos, dist = queue.popleft()
+            key = (abs(pos[0] - goal[0]) + abs(pos[1] - goal[1]), dist)
+            if best_key is None or key < best_key:
+                best_key, best = key, pos
+
+            r, c = pos
+            for neighbor in ((r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)):
+                if neighbor in visited or neighbor in blocked:
+                    continue
+                if self.game_map.get_cell(*neighbor) is None:
+                    continue
+                visited.add(neighbor)
+                queue.append((neighbor, dist + 1))
+        return best
+
     def _bfs_next_step(
         self,
         start: Tuple[int, int],
@@ -813,23 +924,92 @@ class GameSession:
         current_pos: Tuple[int, int],
         target_pos: Tuple[int, int],
         mover: Occupation,
-    ) -> Tuple[int, int]:
-        """Passo verso il target evitando di attraversare il castello nemico come ostacolo,
-        a meno che il castello non sia esso stesso la destinazione scelta (assalto esplicito)."""
+        legion_id: Optional[str] = None,
+    ) -> Tuple[Tuple[int, int], Dict[str, Any]]:
+        """Passo verso il target, aggirando gli ostacoli e ripiegando se serve.
+
+        Sono ostacoli il castello nemico (a meno che sia la destinazione scelta,
+        cioè un assalto esplicito) e le legioni alleate, che fanno da muro:
+        una cella ne ospita una sola. Contro le legioni nemiche invece si va
+        addosso: quello è uno scontro, non un ostacolo.
+
+        Se l'obiettivo è occupato da un'alleata o non c'è un varco per arrivarci,
+        la legione non si pianta: punta alla cella libera più vicina possibile
+        all'obiettivo. Chi arriva primo prende la casella, gli altri si
+        sistemano intorno.
+
+        Returns:
+            (prossima posizione, esito) dove l'esito riporta `blocked_by` — il
+            nome dell'alleata sull'obiettivo — e `fallback`, la destinazione di
+            ripiego scelta. Servono al log, per rendere visibile la decisione.
+        """
         current_pos = tuple(current_pos)
         target_pos = tuple(target_pos)
+        resolution: Dict[str, Any] = {"blocked_by": None, "fallback": None}
         if current_pos == target_pos:
-            return current_pos
+            return current_pos, resolution
 
         defender_castle = self.game_map.castle_positions.get(mover.opposite())
-        blocked: set = set()
+        allies = self._own_legion_positions_map(mover, exclude_id=legion_id)
+
+        blocked: set = set(allies)
         if defender_castle is not None and tuple(defender_castle) != target_pos:
             blocked.add(tuple(defender_castle))
 
-        next_step = self._bfs_next_step(current_pos, target_pos, blocked)
-        if next_step is None:
-            return current_pos
-        return next_step
+        # 1. Rotta diretta: il BFS aggira già le alleate lungo il percorso.
+        if target_pos not in allies:
+            next_step = self._bfs_next_step(current_pos, target_pos, blocked)
+            # Il BFS concede sempre la cella d'arrivo, anche se bloccata: qui la
+            # regola del muro deve valere pure per l'ultimo passo.
+            if next_step is not None and next_step not in allies:
+                return next_step, resolution
+
+        # 2. Obiettivo occupato o senza varco: ripiego sul punto utile più vicino.
+        resolution["blocked_by"] = allies.get(target_pos)
+        fallback = self._nearest_reachable_cell_to(current_pos, target_pos, blocked)
+        if fallback is None:
+            return current_pos, resolution
+
+        resolution["fallback"] = fallback
+        if fallback == current_pos:
+            return current_pos, resolution
+
+        next_step = self._bfs_next_step(current_pos, fallback, blocked)
+        if next_step is None or next_step in allies:
+            return current_pos, resolution
+        return next_step, resolution
+
+    def _log_legion_fallback(
+        self,
+        legion: Dict[str, Any],
+        etichetta: str,
+        target_pos: Tuple[int, int],
+        next_pos: Tuple[int, int],
+        resolution: Dict[str, Any],
+        logs: List[str],
+    ) -> None:
+        """Annota il ripiego quando la legione si sistema al posto dell'obiettivo.
+
+        Scrive solo all'arrivo sulla cella di ripiego e una volta sola: senza
+        memoria, una legione ferma riscriverebbe la stessa riga a ogni turno.
+        """
+        fallback = resolution.get("fallback")
+        if fallback is None:
+            legion.pop("fallback_note", None)
+            return
+        if tuple(next_pos) != tuple(fallback) or legion.get("fallback_note") == fallback:
+            return
+
+        legion["fallback_note"] = fallback
+        blocked_by = resolution.get("blocked_by")
+        motivo = (
+            f"la legione '{blocked_by}' è arrivata prima"
+            if blocked_by else "non c'è un varco libero"
+        )
+        logs.append(
+            f"🧭 La legione {etichetta} '{legion['name']}' non può occupare {tuple(target_pos)}: "
+            f"{motivo}. Si sistema in {tuple(fallback)}, la cella libera più vicina all'obiettivo."
+        )
 
     def _pick_ai_legion_target(self, ai_legion: Dict[str, Any]) -> Optional[Tuple[int, int]]:
         """Target IA: insegui legioni player, altrimenti espandi su obiettivi strategici e solo poi castello."""
@@ -1029,7 +1209,14 @@ class GameSession:
         # Castello non distrutto: assalto respinto, le truppe rientrano subito al castello d'origine
         # (niente spam di assalti: il target viene azzerato, serve un nuovo ordine del giocatore/IA).
         own_castle = self.game_map.castle_positions.get(attacker)
-        legion["pos"] = own_castle if own_castle is not None else from_pos
+        if own_castle is not None:
+            # Come nei ripiegamenti dopo uno scontro: se il castello è occupato
+            # da un'altra legione si rientra di fianco, mai sopra.
+            legion["pos"] = self._free_cell_for(
+                attacker, own_castle, exclude_id=legion.get("id")
+            ) or own_castle
+        else:
+            legion["pos"] = from_pos
         legion["target"] = None
         # Assalto concluso: l'impegno va sciolto, la prossima offensiva si ridecide.
         legion["castle_commit"] = False
@@ -1305,7 +1492,12 @@ class GameSession:
 
         own_castle = self.game_map.castle_positions.get(loser_entity)
         if own_castle is not None:
-            loser_legion["pos"] = own_castle
+            # Se il castello è già presidiato da un'altra legione ripiega di fianco:
+            # il ripiegamento non deve ricreare la sovrapposizione.
+            loser_id = def_id if loser_entity == defender else atk_id
+            loser_legion["pos"] = (
+                self._free_cell_for(loser_entity, own_castle, exclude_id=loser_id) or own_castle
+            )
         loser_legion["target"] = None
 
         logs.append(
@@ -2430,7 +2622,10 @@ class GameSession:
             if self._legion_is_movement_blocked(PLAYER, legion_id, legion, logs):
                 continue
 
-            next_pos = self._next_legion_step(current_pos, target_pos, PLAYER)
+            next_pos, resolution = self._next_legion_step(
+                current_pos, target_pos, PLAYER, legion_id
+            )
+            self._log_legion_fallback(legion, "PLAYER", target_pos, next_pos, resolution, logs)
             if next_pos == current_pos:
                 continue
             legion["pos"] = next_pos
@@ -2497,8 +2692,15 @@ class GameSession:
                         legion["target"] = target_pos
                         legion["target_lock_until"] = self.game_map.turn + self._ai_legion_target_lock_turns()
 
-                    next_pos = self._next_legion_step(current_pos, target_pos, AI)
+                    next_pos, resolution = self._next_legion_step(
+                        current_pos, target_pos, AI, legion_id
+                    )
+                    self._log_legion_fallback(legion, "IA", target_pos, next_pos, resolution, logs)
                     if next_pos == current_pos:
+                        if resolution["blocked_by"]:
+                            # Non c'è nemmeno un ripiego utile: sblocca il target
+                            # invece di restare incollata al lock a fissare il muro.
+                            legion["target_lock_until"] = 0
                         continue
 
                     ai_moved = True
@@ -2611,13 +2813,11 @@ class GameSession:
             if auto:
                 return {"unit_id": None, "unit_name": ""}
             raise ValueError("Cella presidio non valida.")
-        if self._castle_garrison_full(cell):
+        full = self._garrison_full_error(cell)
+        if full:
             if auto:
                 return {"unit_id": None, "unit_name": ""}
-            raise ValueError(
-                f"Il castello ha già il massimo di presidi "
-                f"({CASTLE_MAX_GARRISON_UNITS}): oltre questo limite sarebbe imprendibile."
-            )
+            raise ValueError(full)
 
         units.remove(selected_unit_id)
         cell.garrison_unit_ids.append(selected_unit_id)
@@ -3036,11 +3236,41 @@ class GameSession:
             "player_grux": self.grux_balance[PLAYER],
         }
 
-    def _castle_garrison_full(self, cell: Optional[Any]) -> bool:
-        """True se la cella è il castello e ha già il massimo di presidi consentito."""
-        if cell is None or not cell.is_castle:
-            return False
-        return len(cell.garrison_unit_ids) >= CASTLE_MAX_GARRISON_UNITS
+    def _garrison_capacity(self, cell: Optional[Any]) -> int:
+        """Quanti presidi regge una cella.
+
+        Il castello ha il suo tetto fisso; una cella normale ne ospita uno,
+        più uno per ogni livello di fortificazione, fino al tetto assoluto.
+        """
+        if cell is None:
+            return 0
+        if cell.is_castle:
+            return CASTLE_MAX_GARRISON_UNITS
+        capacity = (
+            CELL_GARRISON_BASE_CAPACITY
+            + int(cell.fortification_level) * CELL_GARRISON_PER_FORT_LEVEL
+        )
+        return min(capacity, CELL_MAX_GARRISON_UNITS)
+
+    def _garrison_full_error(self, cell: Optional[Any]) -> Optional[str]:
+        """Messaggio di rifiuto se la cella non regge un altro presidio, altrimenti None."""
+        if cell is None:
+            return None
+        capacity = self._garrison_capacity(cell)
+        if len(cell.garrison_unit_ids) < capacity:
+            return None
+
+        if cell.is_castle:
+            return (
+                f"Il castello ha già il massimo di presidi ({capacity}): "
+                f"oltre questo limite sarebbe imprendibile."
+            )
+        if capacity < CELL_MAX_GARRISON_UNITS:
+            return (
+                f"Questa cella regge {capacity} presidi al suo livello di fortificazione: "
+                f"costruisci una fortificazione per ospitarne un altro."
+            )
+        return f"Questa cella ha già il massimo di presidi ({capacity})."
 
     def _detach_unit_from_legion_to_garrison(
         self,
@@ -3066,11 +3296,9 @@ class GameSession:
         cell = self.game_map.get_cell(*cell_pos)
         if cell is None:
             raise ValueError("Cella presidio non valida.")
-        if self._castle_garrison_full(cell):
-            raise ValueError(
-                f"Il castello ha già il massimo di presidi "
-                f"({CASTLE_MAX_GARRISON_UNITS}): oltre questo limite sarebbe imprendibile."
-            )
+        full = self._garrison_full_error(cell)
+        if full:
+            raise ValueError(full)
 
         units.remove(selected_unit_id)
         cell.garrison_unit_ids.append(selected_unit_id)
@@ -3229,7 +3457,7 @@ class GameSession:
         if cell is None:
             return []
 
-        target = min(target, CASTLE_MAX_GARRISON_UNITS)
+        target = min(target, self._garrison_capacity(cell))
         if len(cell.garrison_unit_ids) >= target:
             return []
 
@@ -3265,7 +3493,8 @@ class GameSession:
             return []
 
         plan = plan_getter()
-        max_fort = int(plan.get("max_fort_level", 0))
+        # Il piano dell'anello non può sfondare il tetto generale delle celle.
+        max_fort = min(int(plan.get("max_fort_level", 0)), GameMap.MAX_FORTIFICATION_LEVEL)
         target_garrison = int(plan.get("target_garrison", 0))
         reserve = int(plan.get("reserve_grux", 0))
 
@@ -3290,9 +3519,10 @@ class GameSession:
             )
             break   # una costruzione per turno, non svuota le casse in un colpo
 
-        # 2. Presidi comprati apposta per l'anello.
+        # 2. Presidi comprati apposta per l'anello, entro la capienza della cella.
         for cell in sorted(ring, key=lambda c: len(c.garrison_unit_ids)):
-            if len(cell.garrison_unit_ids) >= target_garrison:
+            capacity = min(target_garrison, self._garrison_capacity(cell))
+            if len(cell.garrison_unit_ids) >= capacity:
                 continue
 
             affordable = [
@@ -3337,8 +3567,13 @@ class GameSession:
                     continue
                 # Il castello ora è fortificabile e riduce i danni da assedio:
                 # l'IA deve poterlo fare come il player, o l'asimmetria falserebbe
-                # tutto il bilanciamento delle difficoltà.
-                if cell.is_castle and cell.fortification_level >= CASTLE_MAX_FORTIFICATION_LEVEL:
+                # tutto il bilanciamento delle difficoltà. Valgono per lei gli
+                # stessi tetti: una cella al massimo non è più un bersaglio.
+                cell_cap = (
+                    CASTLE_MAX_FORTIFICATION_LEVEL if cell.is_castle
+                    else GameMap.MAX_FORTIFICATION_LEVEL
+                )
+                if cell.fortification_level >= cell_cap:
                     continue
                 if not ai_can_build_anywhere and (cell.row, cell.col) not in ai_build_positions:
                     continue

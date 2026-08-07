@@ -792,6 +792,11 @@ class GameMap:
         cell.is_mine = True
         return cell
 
+    #: Tetto di fortificazione delle celle normali. Oltre il quarto livello il
+    #: bonus difensivo cresce di pochissimo mentre il costo continua a salire:
+    #: senza tetto era una trappola economica, non una scelta.
+    MAX_FORTIFICATION_LEVEL = 4
+
     def place_fortification(
         self,
         entity: Occupation,
@@ -801,17 +806,19 @@ class GameMap:
     ) -> Cell:
         """Aumenta il livello di fortificazione su una cella controllata e idonea.
 
-        `max_level` serve al castello, che ha un tetto dedicato: sulle celle
-        normali resta None e il comportamento è invariato.
+        `max_level` permette al castello di imporre il proprio tetto dedicato;
+        se non viene passato vale quello generale delle celle normali.
         """
         cell = self.get_cell(row, col)
         if cell is None:
             raise ValueError("Cella fuori dalla mappa.")
         if cell.occupation != entity:
             raise ValueError("Puoi fortificare solo celle che controlli.")
-        if max_level is not None and cell.fortification_level >= max_level:
+
+        cap = self.MAX_FORTIFICATION_LEVEL if max_level is None else max_level
+        if cell.fortification_level >= cap:
             raise ValueError(
-                f"Fortificazione già al livello massimo ({max_level}) su questa cella."
+                f"Fortificazione già al livello massimo ({cap}) su questa cella."
             )
 
         cell.fortification_level += 1
