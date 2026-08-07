@@ -190,12 +190,14 @@
                     </div>`;
             }).join('');
 
-        // Checkbox toggle
+        // Checkbox toggle: selezionare una truppa la prende TUTTA.
+        // Il caso normale è "mandane venti", non "mandane una": chi ne vuole
+        // meno scende col − (che tenendolo premuto va veloce).
         picker.querySelectorAll('.legion-unit-cb').forEach(cb => {
             cb.addEventListener('change', () => {
                 const uid = cb.dataset.uid;
                 if (cb.checked) {
-                    if (!legionDraft.units[uid]) legionDraft.units[uid] = 1;
+                    legionDraft.units[uid] = counts.get(uid) || 0;
                 } else {
                     delete legionDraft.units[uid];
                 }
@@ -204,31 +206,68 @@
             });
         });
 
-        // Qty buttons
+        /* Aggiorna la singola riga senza ri-renderizzare tutto il picker:
+         * durante una pressione prolungata il bottone non deve sparire da
+         * sotto il dito. Ritorna false quando ha toccato il limite. */
+        function applyQtyDelta(uid, delta, max) {
+            const cur = legionDraft.units[uid] || 0;
+            const next = Math.max(0, Math.min(cur + delta, max));
+            if (next === cur) return false;
+
+            if (next === 0) delete legionDraft.units[uid];
+            else legionDraft.units[uid] = next;
+
+            const valEl = document.getElementById(`legionQty_${uid}`);
+            if (valEl) valEl.textContent = next;
+            const cb = document.getElementById(`lcb_${uid}`);
+            if (cb) cb.checked = next > 0;
+            const row = picker.querySelector(`.legion-unit-pick-row[data-uid="${uid}"]`);
+            if (row) row.classList.toggle('selected', next > 0);
+
+            updateSendButton();
+            return true;
+        }
+
+        // Bottoni ± con ripetizione accelerata tenendo premuto.
+        const HOLD_START_MS = 350;   // pausa prima che parta la ripetizione
+        const HOLD_TICK_MS = 60;     // cadenza della ripetizione
+        const HOLD_BOOST_MS = 2000;  // dopo 2s di pressione va a blocchi
+        const HOLD_BOOST_STEP = 5;
+
         picker.querySelectorAll('.legion-qty-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const uid = btn.dataset.uid;
-                const op = btn.dataset.op;
-                const max = parseInt(btn.dataset.max || '999', 10);
-                const cur = legionDraft.units[uid] || 0;
-                if (op === 'inc') {
-                    legionDraft.units[uid] = Math.min(cur + 1, max);
-                    // Auto-check
-                    const cb = document.getElementById(`lcb_${uid}`);
-                    if (cb) cb.checked = true;
-                } else {
-                    const next = Math.max(cur - 1, 0);
-                    if (next === 0) {
-                        delete legionDraft.units[uid];
-                    } else {
-                        legionDraft.units[uid] = next;
-                    }
-                    // Auto-uncheck if 0
-                    const cb = document.getElementById(`lcb_${uid}`);
-                    if (cb) cb.checked = next > 0;
-                }
-                renderLegionUnitPicker(sessionData);
-                updateSendButton();
+            const uid = btn.dataset.uid;
+            const max = parseInt(btn.dataset.max || '999', 10);
+            const delta = btn.dataset.op === 'inc' ? 1 : -1;
+            let startTimer = null;
+            let repeatTimer = null;
+
+            const stopHold = () => {
+                clearTimeout(startTimer);
+                clearInterval(repeatTimer);
+                startTimer = repeatTimer = null;
+                document.removeEventListener('pointerup', stopHold);
+                document.removeEventListener('pointercancel', stopHold);
+            };
+
+            btn.addEventListener('pointerdown', (event) => {
+                if (event.button !== 0 && event.pointerType === 'mouse') return;
+                event.preventDefault();   // niente selezione del testo tenendo premuto
+
+                applyQtyDelta(uid, delta, max);   // il primo scatto è immediato
+
+                const pressedAt = Date.now();
+                startTimer = setTimeout(() => {
+                    repeatTimer = setInterval(() => {
+                        const held = Date.now() - pressedAt;
+                        const step = held >= HOLD_BOOST_MS ? HOLD_BOOST_STEP : 1;
+                        if (!applyQtyDelta(uid, delta * step, max)) stopHold();
+                    }, HOLD_TICK_MS);
+                }, HOLD_START_MS);
+
+                // Su document, non sul bottone: il rilascio va intercettato
+                // anche se nel frattempo il dito è scivolato fuori.
+                document.addEventListener('pointerup', stopHold);
+                document.addEventListener('pointercancel', stopHold);
             });
         });
     }

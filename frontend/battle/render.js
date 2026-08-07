@@ -13,6 +13,8 @@
             renderTacticalLegionSelect(sessionData);
             updateBattleStatusModePill(sessionData);
             updateTacticalActionButtons(sessionData);
+            renderStrategyLegionSelect(sessionData);
+            syncStrategySelectToLegion(sessionData);
 
             const playerLegion = buildLegionInfo(sessionData.player.units || []);
             const aiLegion = buildLegionInfo(sessionData.ai.units || []);
@@ -90,11 +92,11 @@
                 applyDifficultyBtn.disabled = gameOver;
             }
 
-            const strategySelect = document.getElementById('strategySelect');
+            // Il menu strategia NON viene più forzato sulla strategia globale:
+            // ogni legione ha la sua, e ci pensa `syncStrategySelectToLegion`.
+            // Questa riga è ciò che riportava la selezione ad Assalto Frontale
+            // a ogni render, subito dopo averla cambiata.
             const strategyInfoBtn = document.getElementById('strategyInfoBtn');
-            if (strategySelect && sessionData.player?.strategy_id) {
-                strategySelect.value = sessionData.player.strategy_id;
-            }
             if (strategyInfoBtn) {
                 strategyInfoBtn.disabled = gameOver;
             }
@@ -222,6 +224,87 @@
             }
         }
 
+        /** Valore "generale": nessuna legione, si tocca la strategia di sessione. */
+        const STRATEGY_SCOPE_GENERAL = '';
+
+        function getStrategyTargetLegionId() {
+            const selector = document.getElementById('strategyLegionSelect');
+            return selector && selector.value ? selector.value : null;
+        }
+
+        function getStrategyTargetLegion(sessionData) {
+            const legionId = getStrategyTargetLegionId();
+            if (!legionId) return null;
+            return (sessionData?.player?.legions || {})[legionId] || null;
+        }
+
+        /** Popola il selettore legioni della tab strategia.
+         *  Ricostruisce le opzioni ma conserva la selezione: rigenerarla
+         *  senza riassegnare il valore la farebbe tornare alla prima voce. */
+        function renderStrategyLegionSelect(sessionData) {
+            const selector = document.getElementById('strategyLegionSelect');
+            if (!selector) return;
+
+            const legions = Object.values(sessionData?.player?.legions || {});
+            const previousValue = selector.value;
+
+            const options = [
+                `<option value="${STRATEGY_SCOPE_GENERAL}">Generale (riserva e nuove legioni)</option>`,
+                ...legions.map((legion) => {
+                    const typeLabel = TACTICAL_LEGION_TYPE_LABELS[legion.legion_type] || 'Esercito';
+                    const strategyLabel = legion.strategy_name ? ` — ${legion.strategy_name}` : '';
+                    return `<option value="${legion.id}">${legion.name} (${typeLabel})${strategyLabel}</option>`;
+                }),
+            ];
+            selector.innerHTML = options.join('');
+            selector.disabled = sessionData.state === 'game_over';
+
+            const stillThere = previousValue === STRATEGY_SCOPE_GENERAL
+                || legions.some((legion) => legion.id === previousValue);
+            selector.value = stillThere ? previousValue : STRATEGY_SCOPE_GENERAL;
+        }
+
+        /** Allinea il menu strategia a quella della legione scelta.
+         *  Ogni legione ha la sua: senza questo il menu mostrerebbe sempre
+         *  l'ultima scelta invece di ciò che quella legione sta davvero usando. */
+        function syncStrategySelectToLegion(sessionData) {
+            const strategySelect = document.getElementById('strategySelect');
+            if (!strategySelect || !strategySelect.options.length) return;
+
+            const legion = getStrategyTargetLegion(sessionData);
+            const strategyId = legion
+                ? legion.strategy_id
+                : sessionData?.player?.strategy_id;
+            if (!strategyId) return;
+
+            if ([...strategySelect.options].some((opt) => opt.value === strategyId)) {
+                strategySelect.value = strategyId;
+            }
+
+            // Evidenzia il menu quando mostra la strategia realmente in uso:
+            // così si distingue a colpo d'occhio "questa è attiva" da
+            // "sto scegliendo qualcosa che non ho ancora applicato".
+            strategySelect.classList.add('strategy-select-active');
+            strategySelect.dataset.activeStrategy = strategyId;
+
+            const label = document.getElementById('strategyScopeHint');
+            if (label) {
+                const nome = legion ? `'${legion.name}'` : 'Generale';
+                const attiva = legion ? legion.strategy_name : sessionData?.player?.strategy_name;
+                label.textContent = `${nome} — in uso: ${attiva || '---'}`;
+            }
+        }
+
+        /** Toglie l'evidenziazione appena l'utente sceglie una voce diversa
+         *  da quella attiva: il menu smette di dire "questa è la strategia in
+         *  uso" e torna a dire "questa è la strategia che stai per applicare". */
+        function markStrategySelectDirty() {
+            const strategySelect = document.getElementById('strategySelect');
+            if (!strategySelect) return;
+            const active = strategySelect.dataset.activeStrategy;
+            strategySelect.classList.toggle('strategy-select-active', strategySelect.value === active);
+        }
+
         function updateBattleStatusModePill(sessionData) {
             const pill = document.getElementById('battleStatusMode');
             if (!pill) return;
@@ -237,16 +320,27 @@
 
         function updateTacticalActionButtons(sessionData) {
             const gameOver = sessionData.state === 'game_over';
-            const legion = getSelectedTacticalLegion(sessionData);
-            const unitsCount = legion ? (legion.units || []).length : 0;
+            const legions = Object.values(sessionData?.player?.legions || {});
 
-            const garrisonBtn = document.getElementById('actionGarrisonBtn');
-            const mineBtn = document.getElementById('actionMineBtn');
-            const fortifyBtn = document.getElementById('actionFortifyBtn');
+            // Un'azione è disponibile se esiste ALMENO UNA legione idonea in campo,
+            // non se lo è quella nel menu a tendina: quale usare lo decide il click
+            // sulla cella, quindi legarlo alla selezione bloccava azioni possibili.
+            const hasGarrisonable = legions.some((lg) => (lg.units || []).length >= 2);
+            const hasMining = legions.some((lg) => lg.legion_type === 'mining');
+            const hasConstruction = legions.some((lg) => lg.legion_type === 'construction');
 
-            if (garrisonBtn) garrisonBtn.disabled = gameOver || !legion || unitsCount < 2;
-            if (mineBtn) mineBtn.disabled = gameOver || !legion || legion.legion_type !== 'mining';
-            if (fortifyBtn) fortifyBtn.disabled = gameOver || !legion || legion.legion_type !== 'construction';
+            const buttons = [
+                ['actionGarrisonBtn', hasGarrisonable, 'garrison'],
+                ['actionMineBtn', hasMining, 'mine'],
+                ['actionFortifyBtn', hasConstruction, 'fortify'],
+            ];
+
+            for (const [id, available, mode] of buttons) {
+                const btn = document.getElementById(id);
+                if (!btn) continue;
+                btn.disabled = gameOver || !available;
+                btn.classList.toggle('action-btn-armed', buildMode === mode);
+            }
         }
 
         function evaluateUnitBattleValue(unitId, terrainName) {
@@ -465,6 +559,11 @@
             const aiTransit = getEntityTransitState('ai', mapData);
             const cellRefs = new Map();
 
+            // In modalità puntamento la mappa torna cliccabile: le celle con una
+            // legione idonea all'azione vengono evidenziate.
+            const buildConfig = typeof getBuildModeConfig === 'function' ? getBuildModeConfig() : null;
+            const eligibleCells = buildConfig ? getEligibleBuildCells(currentBattleState) : new Map();
+
             mapData.grid.forEach((row, rowIndex) => {
                 row.forEach((cell, colIndex) => {
                     const button = document.createElement('button');
@@ -473,7 +572,18 @@
                     button.dataset.row = String(rowIndex);
                     button.dataset.col = String(colIndex);
                     button.title = `${cell.terrain} (${rowIndex}, ${colIndex})`;
-                    button.disabled = true;
+                    button.disabled = !buildConfig;
+
+                    if (buildConfig) {
+                        button.classList.add('cell-build-target');
+                        const eligibleLegion = eligibleCells.get(`${rowIndex},${colIndex}`);
+                        if (eligibleLegion) {
+                            button.classList.add('cell-build-ready');
+                            button.title =
+                                `${buildConfig.icon} ${buildConfig.label} con '${eligibleLegion.name}' — ${cell.terrain} (${rowIndex}, ${colIndex})`;
+                        }
+                        button.onclick = () => handleBuildCellClick(rowIndex, colIndex);
+                    }
 
                     if (cell.is_strategic) button.classList.add('cell-strategic');
                     if (cell.occupation === 'player') button.classList.add('cell-player');

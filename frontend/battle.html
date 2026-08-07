@@ -31,9 +31,9 @@
                         <select id="tacticalLegionSelect"></select>
                     </div>
                     <div class="action-row">
-                        <button class="action-btn" id="actionGarrisonBtn" type="button" onclick="placeGarrisonWithSelectedLegion()">Presidio [1]</button>
-                        <button class="action-btn" id="actionMineBtn" type="button" onclick="placeMineWithSelectedLegion()">Miniera [2]</button>
-                        <button class="action-btn" id="actionFortifyBtn" type="button" onclick="placeFortificationWithSelectedLegion()">Fortifica [3]</button>
+                        <button class="action-btn" id="actionGarrisonBtn" type="button" onclick="enterGarrisonMode()">🛡 Presidio [1]</button>
+                        <button class="action-btn" id="actionMineBtn" type="button" onclick="enterMineMode()">⛏ Miniera [2]</button>
+                        <button class="action-btn" id="actionFortifyBtn" type="button" onclick="enterFortifyMode()">🧱 Fortifica [3]</button>
                         <div class="garrison-select-wrap">
                             <label for="garrisonUnitSelect">Unità presidio</label>
                             <select id="garrisonUnitSelect"></select>
@@ -56,6 +56,8 @@
                         </div>
                     </div>
                     <div class="toolbar-strategy">
+                        <span class="strategy-scope-hint" id="strategyScopeHint">Strategia generale</span>
+                        <select id="strategyLegionSelect" title="A quale legione applicare la strategia"></select>
                         <select id="strategySelect"></select>
                         <button type="button" onclick="applyBattleStrategy()">Applica Strategia</button>
                         <button id="strategyInfoBtn" type="button" onclick="openInGameAdvisorMenu()">Info Strategie</button>
@@ -91,7 +93,7 @@
             </div>
 
             <div class="shortcuts-panel" id="shortcutsPanel">
-                1: Presidio (legione attiva) | 2: Miniera (legione attiva) | 3: Fortifica (legione attiva) | A: Ricerca Abilità | V: Cambia vista layout | E: Esegui turno | R: Recluta
+                1: Presidio | 2: Miniera | 3: Fortifica — poi clicca la cella della legione (Esc annulla) | A: Ricerca Abilità | V: Cambia vista layout | E: Esegui turno | R: Recluta
             </div>
 
             <div class="battle-layout layout-with-divider" id="battleLayoutRoot">
@@ -235,48 +237,21 @@
                     </div>
                     <button class="strategy-advisor-close" type="button" onclick="closeInGameAdvisorMenu()">Chiudi</button>
                 </div>
-                <div class="strategy-advisor-body">
-                    <div class="strategy-advisor-reliability" id="strategyAdvisorReliability">
-                        Affidabilità report: ---
-                    </div>
-                    <div class="strategy-advisor-note" id="strategyAdvisorNote">
-                        Rapporto parziale: analisi non completamente affidabile.
-                    </div>
-                    <div class="strategy-advisor-cards">
-                        <div class="advisor-card best">
-                            <div class="advisor-card-label">Consigliata ora</div>
-                            <h4 id="advisorTopName">---</h4>
-                            <p id="advisorTopScore">Compatibilità stimata: ---</p>
-                            <p id="advisorTopDesc">---</p>
-                        </div>
-                        <div class="advisor-card alt">
-                            <div class="advisor-card-label">Alternativa</div>
-                            <h4 id="advisorSecondName">---</h4>
-                            <p id="advisorSecondScore">Compatibilità stimata: ---</p>
-                            <p id="advisorSecondDesc">---</p>
-                        </div>
-                        <div class="advisor-card worst">
-                            <div class="advisor-card-label">Sconsigliata</div>
-                            <h4 id="advisorWorstName">---</h4>
-                            <p id="advisorWorstScore">Compatibilità stimata: ---</p>
-                            <p id="advisorWorstDesc">---</p>
-                        </div>
-                    </div>
-                    <div class="strategy-advisor-chart-wrap">
-                        <canvas id="strategyAdvisorRadarChart"></canvas>
-                    </div>
-                    <div class="strategy-advisor-warnings" id="strategyAdvisorWarnings"></div>
+                <!-- Un blocco per la riserva e uno per ogni legione: il contenuto
+                     è lo stesso di prima, ripetuto e scorrevole. -->
+                <div class="strategy-advisor-body" id="strategyAdvisorBody">
+                    <div class="strategy-advisor-note">Raccolta dati tattici in corso...</div>
                 </div>
             </div>
         </div>
     </div>
 
-    <script src="/static/battle/bootstrap.js?v=2"></script>
-    <script src="/static/battle/render.js?v=2"></script>
-    <script src="/static/battle/interaction.js?v=2"></script>
-    <script src="/static/battle/features.js?v=2"></script>
-    <script src="/static/battle/legions/legions_panel.js?v=2"></script>
-    <script src="/static/battle_bar.js?v=2"></script>
+    <script src="/static/battle/bootstrap.js"></script>
+    <script src="/static/battle/render.js"></script>
+    <script src="/static/battle/interaction.js"></script>
+    <script src="/static/battle/features.js"></script>
+    <script src="/static/battle/legions/legions_panel.js"></script>
+    <script src="/static/battle_bar.js"></script>
     <script>
         // Hook: ogni volta che renderBattleState aggiorna la UI,
         // propaga lo stato anche al pannello Legioni (se visibile)

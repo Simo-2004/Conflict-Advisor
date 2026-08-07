@@ -6,7 +6,8 @@
         let layoutSplitRatio = 0.7;
         let splitterDragging = false;
         let sidebarCollapsed = false;
-        let inGameAdvisorRadarChart = null;
+        let buildMode = null;   // null | 'garrison' | 'mine' | 'fortify'
+        let inGameAdvisorCharts = [];   // un radar per legione, più quello della riserva
         const ADVISOR_ATTRIBUTE_NAMES = {
             U1_attack: 'Attacco',
             U2_defense: 'Difesa',
@@ -53,6 +54,20 @@
                     updateTacticalActionButtons(currentBattleState);
                     renderGarrisonUnitSelector(currentBattleState);
                 });
+            }
+
+            // Tab strategia: cambiando legione il menu mostra la SUA strategia.
+            const strategyLegionSelect = document.getElementById('strategyLegionSelect');
+            if (strategyLegionSelect) {
+                strategyLegionSelect.addEventListener('change', () => {
+                    if (!currentBattleState) return;
+                    syncStrategySelectToLegion(currentBattleState);
+                });
+            }
+
+            const strategySelect = document.getElementById('strategySelect');
+            if (strategySelect) {
+                strategySelect.addEventListener('change', markStrategySelectDirty);
             }
 
             const autoRecruitUnitSelect = document.getElementById('autoRecruitUnitSelect');

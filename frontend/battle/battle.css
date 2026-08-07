@@ -340,6 +340,50 @@
             opacity: 0.95;
         }
 
+        /* ── Modalità puntamento: si sceglie la cella dove costruire ──────────
+           Il cursore dice cosa stai per piazzare; le celle con una legione
+           idonea sono le uniche evidenziate. */
+        body.build-mode-mine .map-cell {
+            cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'><text y='24' font-size='24'>⛏</text></svg>") 4 28, crosshair;
+        }
+
+        body.build-mode-fortify .map-cell {
+            cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'><text y='24' font-size='24'>🧱</text></svg>") 4 28, crosshair;
+        }
+
+        body.build-mode-garrison .map-cell {
+            cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'><text y='24' font-size='24'>🛡</text></svg>") 4 28, crosshair;
+        }
+
+        .map-cell.cell-build-target {
+            opacity: 0.55;
+        }
+
+        .map-cell.cell-build-ready {
+            opacity: 1;
+            outline: 3px solid #f59e0b;
+            outline-offset: -3px;
+            box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.28);
+            animation: build-target-pulse 1.4s ease-in-out infinite;
+        }
+
+        .map-cell.cell-build-ready:hover {
+            outline-color: #b45309;
+            transform: translateY(-2px);
+        }
+
+        @keyframes build-target-pulse {
+            0%, 100% { box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.28); }
+            50%      { box-shadow: 0 0 0 7px rgba(245, 158, 11, 0.12); }
+        }
+
+        .action-btn.action-btn-armed {
+            background: #f59e0b;
+            border-color: #b45309;
+            color: #1f2937;
+            box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.25);
+        }
+
 
 
         .terrain-pianura { background: #e9dfc8; }
@@ -713,20 +757,31 @@
         .toolbar-strategy {
             margin-top: 8px;
             display: grid;
-            grid-template-columns: minmax(220px, 1fr) auto auto;
+            grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto auto;
             gap: 8px;
             align-items: center;
-            max-width: 640px;
+            max-width: 780px;
         }
 
         .toolbar-strategy select {
             width: 100%;
-            min-width: 200px;
+            min-width: 170px;
             padding: 8px 10px;
             border-radius: 8px;
             border: 1px solid var(--border);
             font-size: 0.9em;
             background: #fff;
+        }
+
+        /* Il menu è evidenziato quando mostra la strategia realmente in uso
+           dalla legione scelta; sceglierne un'altra toglie l'evidenza finché
+           non si preme "Applica". */
+        .toolbar-strategy select.strategy-select-active {
+            border-color: #047857;
+            background: #ecfdf5;
+            box-shadow: inset 0 0 0 1px #a7f3d0;
+            font-weight: 700;
+            color: #065f46;
         }
 
         .toolbar-strategy button {
@@ -1255,11 +1310,67 @@
         }
 
         .strategy-advisor-body {
-            overflow: auto;
+            overflow-y: auto;
+            overscroll-behavior: contain;
             padding: 14px;
             background: #f8fafc;
             display: grid;
             gap: 10px;
+            align-content: start;
+        }
+
+        /* Una sezione per la riserva e una per ogni legione: servono confini
+           visivi netti, altrimenti scorrendo non si capisce dove finisce una
+           legione e dove comincia la successiva. */
+        .advisor-section {
+            display: grid;
+            gap: 10px;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: #ffffff;
+        }
+
+        .advisor-section + .advisor-section {
+            margin-top: 4px;
+        }
+
+        .advisor-section-head {
+            border-bottom: 1px dashed var(--border);
+            padding-bottom: 8px;
+        }
+
+        .advisor-section-head h4 {
+            margin: 0;
+            font-size: 1.02em;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .advisor-section-head p {
+            margin: 4px 0 0;
+            font-size: 0.82em;
+            color: var(--muted, #64748b);
+        }
+
+        .advisor-current-strategy {
+            font-size: 0.74em;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            padding: 3px 8px;
+            border-radius: 999px;
+            background: #ecfdf5;
+            border: 1px solid #a7f3d0;
+            color: #047857;
+        }
+
+        .strategy-scope-hint {
+            grid-column: 1 / -1;
+            font-size: 0.78em;
+            font-weight: 700;
+            color: #0f766e;
         }
 
         .strategy-advisor-reliability {

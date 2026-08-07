@@ -3,7 +3,7 @@ War Advisor - FastAPI Backend
 API per il sistema di raccomandazione strategica per wargame
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
@@ -49,6 +49,29 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def disable_static_cache(request: Request, call_next):
+    """Impedisce al browser di tenere in cache frontend e pagine di gioco.
+
+    Senza questo il browser serviva JS/CSS vecchi dopo ogni modifica e serviva
+    aprire una scheda in incognito (o incrementare a mano un `?v=` negli URL)
+    per vedere i cambiamenti.
+    """
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/static") or path in ("/", "/battle"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        # StaticFiles usa ETag/Last-Modified per rispondere 304: vanno tolti,
+        # altrimenti il browser riuserebbe comunque la copia locale.
+        # (MutableHeaders non ha .pop(): serve del con controllo di presenza.)
+        for header in ("etag", "last-modified"):
+            if header in response.headers:
+                del response.headers[header]
+    return response
+
 
 # Monta la cartella statica per il frontend
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR, html=True), name="static")
@@ -290,6 +313,12 @@ class AutoRecruitRequest(BaseModel):
 class StrategyChangeRequest(BaseModel):
     """Richiesta per cambiare strategia del player durante la battaglia."""
     strategy_id: str = Field(..., description="ID strategia da impostare")
+
+
+class LegionStrategyRequest(BaseModel):
+    """Richiesta per assegnare una strategia a una singola legione."""
+    legion_id: str   = Field(..., description="ID della legione da aggiornare")
+    strategy_id: str = Field(..., description="ID strategia da impostare su quella legione")
 
 
 class AIDifficultyRequest(BaseModel):
@@ -596,6 +625,20 @@ async def game_set_strategy(request: StrategyChangeRequest):
 
     try:
         return _active_session.set_player_strategy(request.strategy_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/game/legions/set-strategy")
+async def game_set_legion_strategy(request: LegionStrategyRequest):
+    """Assegna una strategia a una singola legione: ognuna combatte con la propria."""
+    if _active_session is None:
+        raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
+
+    try:
+        return _active_session.set_legion_strategy(request.legion_id, request.strategy_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

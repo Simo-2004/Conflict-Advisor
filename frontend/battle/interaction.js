@@ -138,17 +138,22 @@
 
             if (event.key === '1') {
                 event.preventDefault();
-                placeGarrisonWithSelectedLegion();
+                enterGarrisonMode();
                 return;
             }
             if (event.key === '2') {
                 event.preventDefault();
-                placeMineWithSelectedLegion();
+                enterMineMode();
                 return;
             }
             if (event.key === '3') {
                 event.preventDefault();
-                placeFortificationWithSelectedLegion();
+                enterFortifyMode();
+                return;
+            }
+            if (event.key === 'Escape' && buildMode) {
+                event.preventDefault();
+                cancelBuildMode();
                 return;
             }
             if (event.key.toLowerCase() === 'r') {
@@ -307,88 +312,159 @@
             }
         }
 
-        async function placeMineWithSelectedLegion() {
-            const legionId = getSelectedTacticalLegionId();
-            if (!legionId) {
-                document.getElementById('battleStatusHint').textContent = 'Seleziona prima una legione Mineraria.';
-                return;
+        // ──────────────────────────────────────────────────────────
+        // MODALITÀ PUNTAMENTO (Presidio / Miniera / Fortifica)
+        //
+        // Le azioni non agiscono più sulla legione del menu a tendina: con più
+        // legioni in campo era impossibile capire su quale stessero agendo, e
+        // bastava avere un'Esercito selezionata per non poter piazzare miniere.
+        // Ora si punta la cella: la legione giusta viene dedotta da lì.
+        // ──────────────────────────────────────────────────────────
+
+        const BUILD_MODES = {
+            garrison: {
+                legionType: null,               // qualsiasi tipo, serve solo 2+ truppe
+                label: 'Presidio',
+                icon: '🛡',
+                hint: 'Clicca la cella della legione che deve lasciare il presidio (serve almeno 2 truppe).',
+            },
+            mine: {
+                legionType: 'mining',
+                label: 'Miniera',
+                icon: '⛏',
+                hint: 'Clicca la cella dove si trova una legione Mineraria.',
+            },
+            fortify: {
+                legionType: 'construction',
+                label: 'Fortificazione',
+                icon: '🧱',
+                hint: 'Clicca la cella dove si trova una legione di Costruzione.',
+            },
+        };
+
+        function getBuildModeConfig() {
+            return buildMode ? BUILD_MODES[buildMode] : null;
+        }
+
+        /** Legioni player idonee all'azione corrente, indicizzate per "riga,colonna". */
+        function getEligibleBuildCells(sessionData) {
+            const config = getBuildModeConfig();
+            const eligible = new Map();
+            if (!config) return eligible;
+
+            const legions = Object.values(sessionData?.player?.legions || {});
+            for (const legion of legions) {
+                const pos = legion.pos || [];
+                if (pos.length !== 2) continue;
+                if (config.legionType && legion.legion_type !== config.legionType) continue;
+                if (buildMode === 'garrison' && (legion.units || []).length < 2) continue;
+
+                const key = `${pos[0]},${pos[1]}`;
+                if (!eligible.has(key)) eligible.set(key, legion);
             }
-            try {
-                const response = await fetch('http://127.0.0.1:8000/game/place-mine', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ legion_id: legionId })
-                });
+            return eligible;
+        }
 
-                if (!response.ok) {
-                    const err = await response.json();
-                    throw new Error(err.detail || 'Errore nel piazzare la miniera');
-                }
+        function setBuildMode(mode) {
+            const previous = buildMode;
+            buildMode = previous === mode ? null : mode;
 
-                await response.json();
-                transientLogLines = [];
-                await refreshStateFromServer();
-            } catch (error) {
-                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
-                transientLogLines = [`Errore PLAYER miniera: ${error.message}`];
-                renderBattleState(currentBattleState);
+            document.body.classList.remove('build-mode-garrison', 'build-mode-mine', 'build-mode-fortify');
+            const config = getBuildModeConfig();
+            if (config) document.body.classList.add(`build-mode-${buildMode}`);
+
+            // Prima il re-render (che riscrive il messaggio di stato), poi il
+            // messaggio della modalità: altrimenti verrebbe subito sovrascritto.
+            if (currentBattleState) renderBattleState(currentBattleState);
+
+            const hintEl = document.getElementById('battleStatusHint');
+            if (config) {
+                const eligible = getEligibleBuildCells(currentBattleState);
+                hintEl.textContent = eligible.size === 0
+                    ? `${config.icon} ${config.label}: nessuna legione idonea in campo. ${config.hint}`
+                    : `${config.icon} ${config.label}: ${config.hint} (Esc per annullare)`;
+            } else if (previous) {
+                hintEl.textContent = 'Modalità costruzione annullata.';
             }
         }
 
-        async function placeFortificationWithSelectedLegion() {
-            const legionId = getSelectedTacticalLegionId();
-            if (!legionId) {
-                document.getElementById('battleStatusHint').textContent = 'Seleziona prima una legione Costruzione.';
-                return;
-            }
-            try {
-                const response = await fetch('http://127.0.0.1:8000/game/place-fortification', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ legion_id: legionId })
-                });
-
-                if (!response.ok) {
-                    const err = await response.json();
-                    throw new Error(err.detail || 'Errore nella fortificazione');
-                }
-
-                await response.json();
-                transientLogLines = [];
-                await refreshStateFromServer();
-            } catch (error) {
-                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
-                transientLogLines = [`Errore PLAYER fortificazione: ${error.message}`];
-                renderBattleState(currentBattleState);
-            }
+        function cancelBuildMode() {
+            if (buildMode) setBuildMode(buildMode);
         }
 
-        async function placeGarrisonWithSelectedLegion() {
-            const legionId = getSelectedTacticalLegionId();
-            if (!legionId) {
-                document.getElementById('battleStatusHint').textContent = 'Seleziona prima una legione.';
+        function enterGarrisonMode() { setBuildMode('garrison'); }
+        function enterMineMode() { setBuildMode('mine'); }
+        function enterFortifyMode() { setBuildMode('fortify'); }
+
+        /** Click su una cella della mappa mentre si è in modalità puntamento. */
+        async function handleBuildCellClick(row, col) {
+            const config = getBuildModeConfig();
+            if (!config) return;
+
+            const eligible = getEligibleBuildCells(currentBattleState);
+            const legion = eligible.get(`${row},${col}`);
+            const hintEl = document.getElementById('battleStatusHint');
+
+            if (!legion) {
+                // Spiega perché quella cella non va bene, invece di fallire in silenzio.
+                const onCell = Object.values(currentBattleState?.player?.legions || {})
+                    .filter((lg) => (lg.pos || []).length === 2 && lg.pos[0] === row && lg.pos[1] === col);
+                if (onCell.length === 0) {
+                    hintEl.textContent =
+                        `${config.icon} Nessuna tua legione su (${row},${col}). ${config.hint}`;
+                } else if (buildMode === 'garrison') {
+                    hintEl.textContent =
+                        `${config.icon} La legione '${onCell[0].name}' ha una sola truppa: non può lasciare un presidio.`;
+                } else {
+                    const tipi = onCell
+                        .map((lg) => `'${lg.name}' (${TACTICAL_LEGION_TYPE_LABELS[lg.legion_type] || 'Esercito'})`)
+                        .join(', ');
+                    hintEl.textContent =
+                        `${config.icon} Su (${row},${col}) c'è ${tipi}: serve una legione ` +
+                        `${TACTICAL_LEGION_TYPE_LABELS[config.legionType]}.`;
+                }
                 return;
             }
+
+            // La legione puntata diventa anche quella attiva: il pannello resta coerente.
+            const selector = document.getElementById('tacticalLegionSelect');
+            if (selector) {
+                selector.value = legion.id;
+                renderGarrisonUnitSelector(currentBattleState);
+            }
+
+            const endpoints = {
+                garrison: 'place-garrison-here',
+                mine: 'place-mine',
+                fortify: 'place-fortification',
+            };
+            const payload = buildMode === 'garrison'
+                ? { legion_id: legion.id, unit_id: getSelectedGarrisonUnitId() }
+                : { legion_id: legion.id };
+
             try {
-                const selectedGarrisonUnitId = getSelectedGarrisonUnitId();
-                const response = await fetch('http://127.0.0.1:8000/game/place-garrison-here', {
+                const response = await fetch(`http://127.0.0.1:8000/game/${endpoints[buildMode]}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ legion_id: legionId, unit_id: selectedGarrisonUnitId })
+                    body: JSON.stringify(payload),
                 });
 
                 if (!response.ok) {
                     const err = await response.json();
-                    throw new Error(err.detail || 'Errore nel piazzare il presidio');
+                    throw new Error(err.detail || `Errore: ${config.label}`);
                 }
 
                 await response.json();
                 transientLogLines = [];
+                buildMode = null;
+                document.body.classList.remove('build-mode-garrison', 'build-mode-mine', 'build-mode-fortify');
                 await refreshStateFromServer();
             } catch (error) {
-                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
-                transientLogLines = [`Errore PLAYER presidio: ${error.message}`];
+                // Il re-render riscrive il messaggio di stato: va fatto prima,
+                // altrimenti il motivo del rifiuto sparisce senza che si veda.
+                transientLogLines = [`Errore PLAYER ${config.label.toLowerCase()}: ${error.message}`];
                 renderBattleState(currentBattleState);
+                hintEl.textContent = `${config.icon} ${error.message}`;
             }
         }
 
