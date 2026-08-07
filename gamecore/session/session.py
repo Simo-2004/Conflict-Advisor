@@ -397,6 +397,8 @@ class GameSession:
             "pos": spawn_pos,
             "target": target,
             "legion_type": legion_type,
+            # Nasce con la strategia generale, poi la si cambia per legione.
+            "strategy_id": self.player_strategy_id,
             "path": [],
             "path_step": 0,
             "movement": self.movement_system.export_legion_state(
@@ -1275,16 +1277,20 @@ class GameSession:
             stack_bonus += min(bonus, value * count * 0.55)
 
         # 3. Strategia ed effetti ambientali sul terreno dello scontro.
-        army_vector = self.player_army if entity == PLAYER else self.ai_army
+        #    Si valuta la composizione DI QUESTA legione, non l'esercito globale:
+        #    è ciò che rende sensata una strategia per legione (la cavalleria
+        #    manovra, la fanteria tiene) invece di una sola per tutto il campo.
         troop_status = self.player_troop_status if entity == PLAYER else self.ai_troop_status
         modified, _ = apply_modifiers(
-            army_vector=army_vector,
+            army_vector=aggregate_army(unit_ids, self.data["units"]),
             terrain_name=terrain,
             weather_name=self.weather,
             troop_status_name=troop_status,
             modifiers_data=self.data,
         )
-        strategy_factor = self._strategy_factor(entity, terrain, modified)
+        strategy_factor = self._strategy_factor(
+            entity, terrain, modified, self._legion_strategy_id(entity, legion)
+        )
         context_factor = max(0.75, min(1.25, (sum(modified.values()) / 4.6)))
 
         strength = (base_total + stack_bonus) * strategy_factor * context_factor
@@ -3018,9 +3024,15 @@ class GameSession:
         preposition = prepositions.get(terrain_lower, "su")
         return f"⚔ Battaglia {preposition} {terrain_lower}"
 
-    def _strategy_factor(self, entity: Occupation, terrain: str, modified_vector: Dict[str, float]) -> float:
+    def _strategy_factor(
+        self,
+        entity: Occupation,
+        terrain: str,
+        modified_vector: Dict[str, float],
+        strategy_id: Optional[str] = None,
+    ) -> float:
         """Fattore tattico legato alla qualità della manovra scelta rispetto all'esercito corrente."""
-        compatibility = self._strategy_compatibility(entity, modified_vector)
+        compatibility = self._strategy_compatibility(entity, modified_vector, strategy_id)
 
         # Impatto strategico intenzionalmente forte:
         # - strategia affine => moltiplicatore molto alto
@@ -3043,9 +3055,19 @@ class GameSession:
         factor = base_factor + critical_bonus - critical_malus
         return max(0.30, min(2.35, factor))
 
-    def _strategy_compatibility(self, entity: Occupation, modified_vector: Dict[str, float]) -> float:
-        """Compatibilità [0..1] tra esercito modificato e strategia corrente."""
-        strategy_id = self.player_strategy_id if entity == PLAYER else self.ai_strategy_id
+    def _strategy_compatibility(
+        self,
+        entity: Occupation,
+        modified_vector: Dict[str, float],
+        strategy_id: Optional[str] = None,
+    ) -> float:
+        """Compatibilità [0..1] tra esercito modificato e strategia.
+
+        `strategy_id` permette di valutare la strategia di una singola legione
+        invece di quella globale dello schieramento.
+        """
+        if strategy_id is None:
+            strategy_id = self.player_strategy_id if entity == PLAYER else self.ai_strategy_id
         strategy = next((s for s in self.data["strategies"] if s["id"] == strategy_id), None)
         if strategy is None:
             return 0.5
@@ -3061,6 +3083,72 @@ class GameSession:
             if cell is not None:
                 return cell.terrain
         return self.player_home_terrain if entity == PLAYER else self.ai_home_terrain
+
+    def _legions_with_strategy(self, entity: Occupation) -> Dict[str, Dict[str, Any]]:
+        """Legioni per il payload, con strategia risolta e nome leggibile.
+
+        Il frontend deve poter mostrare la strategia di ogni legione senza
+        rifare il ripiego sulla strategia globale.
+        """
+        source = self.player_legions if entity == PLAYER else self.ai_legions
+        out: Dict[str, Dict[str, Any]] = {}
+        for legion_id, legion in source.items():
+            strategy_id = self._legion_strategy_id(entity, legion)
+            out[legion_id] = {
+                **legion,
+                "strategy_id": strategy_id,
+                "strategy_name": self.strategies_map.get(strategy_id, {}).get(
+                    "name", strategy_id
+                ),
+            }
+        return out
+
+    def _legion_strategy_id(self, entity: Occupation, legion: Dict[str, Any]) -> str:
+        """Strategia di una legione, con ripiego su quella generale dello schieramento.
+
+        Le legioni nate prima che le strategie diventassero individuali non
+        hanno il campo: per loro vale ancora quella globale.
+        """
+        default = self.player_strategy_id if entity == PLAYER else self.ai_strategy_id
+        strategy_id = legion.get("strategy_id") or default
+        return strategy_id if strategy_id in self.strategies_map else default
+
+    def set_legion_strategy(self, legion_id: str, strategy_id: str) -> Dict[str, Any]:
+        """Assegna una strategia a una singola legione player."""
+        if self.state != SessionState.ACTIVE:
+            raise ValueError("La partita è terminata.")
+
+        legion = self._get_player_legion_or_raise(legion_id)
+        strategy = self.strategies_map.get(strategy_id)
+        if strategy is None:
+            raise ValueError("Strategia non valida.")
+
+        legion["strategy_id"] = strategy_id
+
+        pos = tuple(legion.get("pos", ()))
+        cell = self.game_map.get_cell(*pos) if len(pos) == 2 else None
+        terrain = cell.terrain if cell is not None else self.player_home_terrain
+        breakdown = self._legion_battle_strength(
+            PLAYER, legion, terrain,
+            defending=False, cell=cell, enemy_strength=0.0, movement_key=None,
+        )
+
+        log_entry = (
+            f"[Turno {self.game_map.turn}] 🎯 PLAYER: legione '{legion['name']}' adotta "
+            f"{strategy['name']} → forza {int(round(breakdown['strength']))} su {terrain}"
+        )
+        self.battle_log.append(log_entry)
+        return {
+            "ok": True,
+            "message": log_entry,
+            "legion_id": legion_id,
+            "strategy_id": strategy_id,
+            "strategy_name": strategy["name"],
+            "strength": int(round(breakdown["strength"])),
+            "strategy_factor": round(breakdown["strategy_factor"], 3),
+            "state": self.state.value,
+            "session": self.to_dict(),
+        }
 
     def set_player_strategy(self, strategy_id: str) -> Dict[str, Any]:
         """Aggiorna la strategia corrente del player e logga snapshot forza attuale."""
@@ -3103,12 +3191,17 @@ class GameSession:
         }
 
     def get_in_game_advisor(self) -> Dict[str, Any]:
-        """Restituisce un report advisor in-battle basato sullo stato corrente del player."""
+        """Report advisor in-battle: uno per la riserva, uno per ogni legione in campo.
+
+        Ogni legione ha la propria composizione, il proprio terreno e la propria
+        strategia, quindi il consiglio va calcolato su di lei: un solo report
+        globale descriveva un esercito che sul campo non esiste più.
+        """
         if self.state != SessionState.ACTIVE:
             raise ValueError("La partita è terminata.")
 
         terrain_name = self._current_army_terrain(PLAYER)
-        return build_in_game_advisor_payload(
+        payload = build_in_game_advisor_payload(
             data=self.data,
             turn=self.game_map.turn,
             player_units=list(self.player_units),
@@ -3118,6 +3211,82 @@ class GameSession:
             terrain_name=terrain_name,
             weather_name=self.weather,
         )
+        payload["scope"] = "reserve"
+        payload["legion_id"] = None
+        payload["legion_name"] = "Riserva nel castello"
+        payload["current_strategy_id"] = self.player_strategy_id
+        payload["current_strategy_name"] = self.strategies_map.get(
+            self.player_strategy_id, {}
+        ).get("name", self.player_strategy_id)
+        payload["units_count"] = len(self.player_units)
+
+        payload["legions"] = [
+            self._legion_advisor_payload(legion_id, legion)
+            for legion_id, legion in self.player_legions.items()
+        ]
+        return payload
+
+    def _legion_advisor_payload(self, legion_id: str, legion: Dict[str, Any]) -> Dict[str, Any]:
+        """Report advisor calcolato sulla singola legione."""
+        unit_ids = list(legion.get("units", []))
+        pos = tuple(legion.get("pos", ()))
+        cell = self.game_map.get_cell(*pos) if len(pos) == 2 else None
+        terrain_name = cell.terrain if cell is not None else self.player_home_terrain
+        strategy_id = self._legion_strategy_id(PLAYER, legion)
+
+        if not unit_ids:
+            return {
+                "scope": "legion",
+                "legion_id": legion_id,
+                "legion_name": legion.get("name", legion_id),
+                "legion_type": legion.get("legion_type", LEGION_TYPE_ARMY),
+                "legion_type_label": LEGION_TYPE_LABELS.get(
+                    legion.get("legion_type", LEGION_TYPE_ARMY), ""
+                ),
+                "pos": list(pos) if len(pos) == 2 else None,
+                "terrain_name": terrain_name,
+                "units_count": 0,
+                "current_strategy_id": strategy_id,
+                "current_strategy_name": self.strategies_map.get(strategy_id, {}).get(
+                    "name", strategy_id
+                ),
+                "empty": True,
+                "ranking": [],
+            }
+
+        payload = build_in_game_advisor_payload(
+            data=self.data,
+            turn=self.game_map.turn,
+            player_units=unit_ids,
+            player_army=aggregate_army(unit_ids, self.data["units"]),
+            player_strategy_id=strategy_id,
+            troop_status_name=self.player_troop_status,
+            terrain_name=terrain_name,
+            weather_name=self.weather,
+        )
+        breakdown = self._legion_battle_strength(
+            PLAYER, legion, terrain_name,
+            defending=False, cell=cell, enemy_strength=0.0, movement_key=None,
+        )
+        payload.update({
+            "scope": "legion",
+            "legion_id": legion_id,
+            "legion_name": legion.get("name", legion_id),
+            "legion_type": legion.get("legion_type", LEGION_TYPE_ARMY),
+            "legion_type_label": LEGION_TYPE_LABELS.get(
+                legion.get("legion_type", LEGION_TYPE_ARMY), ""
+            ),
+            "pos": list(pos) if len(pos) == 2 else None,
+            "units_count": len(unit_ids),
+            "current_strategy_id": strategy_id,
+            "current_strategy_name": self.strategies_map.get(strategy_id, {}).get(
+                "name", strategy_id
+            ),
+            "current_strength": int(round(breakdown["strength"])),
+            "current_strategy_factor": round(breakdown["strategy_factor"], 3),
+            "empty": False,
+        })
+        return payload
 
     def _available_mine_slots(self, entity: Occupation) -> int:
         """Slot miniera disponibili in base alle celle controllate."""
@@ -4380,7 +4549,7 @@ class GameSession:
                 "army":          self.player_army,
                 "modified":      self.player_modified,
                 "troop_status":  self.player_troop_status,
-                "legions":       self.player_legions,
+                "legions":       self._legions_with_strategy(PLAYER),
                 "castle": {
                     "hp": self.castle_hp.get(PLAYER, self.castle_hp_max.get(PLAYER, CASTLE_BASE_HP)),
                     "max_hp": self.castle_hp_max.get(PLAYER, CASTLE_BASE_HP),

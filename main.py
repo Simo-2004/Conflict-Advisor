@@ -315,6 +315,12 @@ class StrategyChangeRequest(BaseModel):
     strategy_id: str = Field(..., description="ID strategia da impostare")
 
 
+class LegionStrategyRequest(BaseModel):
+    """Richiesta per assegnare una strategia a una singola legione."""
+    legion_id: str   = Field(..., description="ID della legione da aggiornare")
+    strategy_id: str = Field(..., description="ID strategia da impostare su quella legione")
+
+
 class AIDifficultyRequest(BaseModel):
     """Richiesta per cambiare la difficoltà runtime dell'IA."""
     difficulty: str = Field(..., description="ID difficoltà IA (es: easy, normal)")
@@ -619,6 +625,20 @@ async def game_set_strategy(request: StrategyChangeRequest):
 
     try:
         return _active_session.set_player_strategy(request.strategy_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/game/legions/set-strategy")
+async def game_set_legion_strategy(request: LegionStrategyRequest):
+    """Assegna una strategia a una singola legione: ognuna combatte con la propria."""
+    if _active_session is None:
+        raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
+
+    try:
+        return _active_session.set_legion_strategy(request.legion_id, request.strategy_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

@@ -289,13 +289,9 @@
             }
 
             const overlay = document.getElementById('strategyAdvisorOverlay');
-            const reliability = document.getElementById('strategyAdvisorReliability');
-            const note = document.getElementById('strategyAdvisorNote');
-            if (reliability) {
-                reliability.textContent = 'Affidabilità report: analisi in corso...';
-            }
-            if (note) {
-                note.textContent = 'Raccolta dati tattici in corso...';
+            const body = document.getElementById('strategyAdvisorBody');
+            if (body) {
+                body.innerHTML = '<div class="strategy-advisor-note">Raccolta dati tattici in corso...</div>';
             }
 
             if (overlay) {
@@ -312,8 +308,8 @@
                 const advisor = await response.json();
                 renderInGameAdvisor(advisor);
             } catch (error) {
-                if (note) {
-                    note.textContent = `Errore advisor: ${error.message}`;
+                if (body) {
+                    body.innerHTML = `<div class="strategy-advisor-note">Errore advisor: ${error.message}</div>`;
                 }
                 document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
             }
@@ -331,69 +327,132 @@
             }
         }
 
+        function escapeAdvisorText(value) {
+            return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+            }[ch]));
+        }
+
+        function advisorCardHtml(cssClass, label, strategy) {
+            const s = strategy || {};
+            return `
+                <div class="advisor-card ${cssClass}">
+                    <div class="advisor-card-label">${label}</div>
+                    <h4>${escapeAdvisorText(s.name || '---')}</h4>
+                    <p>Compatibilità stimata: ${formatAdvisorPct(s.compatibility)} ·
+                       Confidenza: ${formatAdvisorPct(s.confidence)} ·
+                       Distanza: ${formatAdvisorDistance(s.distance)}</p>
+                    <p>${escapeAdvisorText(s.description || 'Nessuna descrizione disponibile.')}</p>
+                </div>`;
+        }
+
+        /** Un blocco advisor: stesso contenuto di sempre, ora ripetuto per ogni legione. */
+        function advisorSectionHtml(report, chartId, weatherLabel, troopStatusLabel) {
+            const top = report?.top_strategy || {};
+            const second = report?.second_strategy || top;
+            const worst = report?.worst_strategy || top;
+            const reliability = report?.reliability || {};
+            const isLegion = report?.scope === 'legion';
+
+            const titolo = isLegion
+                ? `⚔ ${escapeAdvisorText(report.legion_name)}`
+                : `🏰 ${escapeAdvisorText(report.legion_name || 'Riserva nel castello')}`;
+
+            const dettagli = [];
+            if (isLegion && report.legion_type_label) dettagli.push(escapeAdvisorText(report.legion_type_label));
+            if (report.units_count != null) dettagli.push(`${report.units_count} truppe`);
+            if (isLegion && report.pos) dettagli.push(`posizione (${report.pos[0]},${report.pos[1]})`);
+            dettagli.push(`terreno ${escapeAdvisorText(report.terrain_name || 'N/D')}`);
+            if (report.current_strength != null) dettagli.push(`forza ${report.current_strength}`);
+
+            const attiva = report.current_strategy_name
+                ? `<span class="advisor-current-strategy">In uso: ${escapeAdvisorText(report.current_strategy_name)}</span>`
+                : '';
+
+            if (report?.empty) {
+                return `
+                    <section class="advisor-section">
+                        <header class="advisor-section-head">
+                            <h4>${titolo}</h4>
+                            <p>${dettagli.join(' · ')}</p>
+                        </header>
+                        <div class="strategy-advisor-note">
+                            Legione senza truppe: nessuna valutazione tattica possibile.
+                        </div>
+                    </section>`;
+            }
+
+            const warnings = report?.critical_warnings || [];
+            const warningsHtml = warnings.length > 0
+                ? `<div class="strategy-advisor-warnings active">
+                       <strong>⚠️ Avvisi CRITICAL:</strong><br>${warnings.map(escapeAdvisorText).join('<br>')}
+                   </div>`
+                : '';
+
+            return `
+                <section class="advisor-section">
+                    <header class="advisor-section-head">
+                        <h4>${titolo} ${attiva}</h4>
+                        <p>${dettagli.join(' · ')} · Meteo ${escapeAdvisorText(weatherLabel)} ·
+                           Stato truppe ${escapeAdvisorText(troopStatusLabel)}</p>
+                    </header>
+                    <div class="strategy-advisor-reliability">
+                        Affidabilità report: ${reliability.score_pct ?? '--'}% ·
+                        Incertezza: ${reliability.uncertainty_pct ?? '--'}%
+                        (${escapeAdvisorText(reliability.label || 'stima in-battle')})
+                    </div>
+                    <div class="strategy-advisor-note">
+                        ${escapeAdvisorText(reliability.note || 'Analisi tattica preliminare.')}
+                    </div>
+                    <div class="strategy-advisor-cards">
+                        ${advisorCardHtml('best', 'Consigliata ora', top)}
+                        ${advisorCardHtml('alt', 'Alternativa', second)}
+                        ${advisorCardHtml('worst', 'Sconsigliata', worst)}
+                    </div>
+                    <div class="strategy-advisor-chart-wrap">
+                        <canvas id="${chartId}"></canvas>
+                    </div>
+                    ${warningsHtml}
+                </section>`;
+        }
+
         function renderInGameAdvisor(advisor) {
-            const top = advisor?.top_strategy || {};
-            const second = advisor?.second_strategy || top;
-            const worst = advisor?.worst_strategy || top;
-            const reliability = advisor?.reliability || {};
+            const body = document.getElementById('strategyAdvisorBody');
+            if (!body) return;
 
             const weatherLabel = advisor?.weather_name || 'Nessuno';
             const troopStatusLabel = advisor?.troop_status_name || 'N/D';
+
             const meta = document.getElementById('strategyAdvisorMeta');
+            const legioni = advisor?.legions || [];
             if (meta) {
-                meta.textContent = `Turno ${advisor?.turn || '?'} · Terreno: ${advisor?.terrain_name || 'N/D'} · Meteo: ${weatherLabel} · Stato truppe: ${troopStatusLabel}`;
+                meta.textContent =
+                    `Turno ${advisor?.turn || '?'} · Meteo: ${weatherLabel} · ` +
+                    `Stato truppe: ${troopStatusLabel} · ` +
+                    `${legioni.length} legion${legioni.length === 1 ? 'e' : 'i'} in campo`;
             }
 
-            const reliabilityEl = document.getElementById('strategyAdvisorReliability');
-            if (reliabilityEl) {
-                reliabilityEl.textContent =
-                    `Affidabilità report: ${reliability.score_pct ?? '--'}% · ` +
-                    `Incertezza: ${reliability.uncertainty_pct ?? '--'}% (${reliability.label || 'stima in-battle'})`;
-            }
+            // Riserva prima, poi una sezione per legione nell'ordine in cui esistono.
+            const reports = [advisor, ...legioni];
+            body.innerHTML = reports
+                .map((report, index) => advisorSectionHtml(
+                    report, `advisorRadar_${index}`, weatherLabel, troopStatusLabel,
+                ))
+                .join('');
 
-            const noteEl = document.getElementById('strategyAdvisorNote');
-            if (noteEl) {
-                noteEl.textContent = reliability.note || 'Analisi tattica preliminare.';
-            }
+            // I grafici vanno ricreati dopo che i canvas sono nel DOM.
+            destroyInGameAdvisorCharts();
+            reports.forEach((report, index) => {
+                if (report?.empty) return;
+                updateInGameAdvisorChart(
+                    `advisorRadar_${index}`,
+                    report?.army_profile || {},
+                    report?.modified_profile || {},
+                    (report?.top_strategy || {}).ideal_attributes || {},
+                );
+            });
 
-            document.getElementById('advisorTopName').textContent = top.name || '---';
-            document.getElementById('advisorTopScore').textContent =
-                `Compatibilità stimata: ${formatAdvisorPct(top.compatibility)} · ` +
-                `Confidenza: ${formatAdvisorPct(top.confidence)} · ` +
-                `Distanza: ${formatAdvisorDistance(top.distance)}`;
-            document.getElementById('advisorTopDesc').textContent = top.description || 'Nessuna descrizione disponibile.';
-
-            document.getElementById('advisorSecondName').textContent = second.name || '---';
-            document.getElementById('advisorSecondScore').textContent =
-                `Compatibilità stimata: ${formatAdvisorPct(second.compatibility)} · ` +
-                `Confidenza: ${formatAdvisorPct(second.confidence)} · ` +
-                `Distanza: ${formatAdvisorDistance(second.distance)}`;
-            document.getElementById('advisorSecondDesc').textContent = second.description || 'Nessuna descrizione disponibile.';
-
-            document.getElementById('advisorWorstName').textContent = worst.name || '---';
-            document.getElementById('advisorWorstScore').textContent =
-                `Compatibilità stimata: ${formatAdvisorPct(worst.compatibility)} · ` +
-                `Confidenza: ${formatAdvisorPct(worst.confidence)} · ` +
-                `Distanza: ${formatAdvisorDistance(worst.distance)}`;
-            document.getElementById('advisorWorstDesc').textContent = worst.description || 'Nessuna descrizione disponibile.';
-
-            const warnings = advisor?.critical_warnings || [];
-            const warningsBox = document.getElementById('strategyAdvisorWarnings');
-            if (warningsBox) {
-                if (warnings.length > 0) {
-                    warningsBox.classList.add('active');
-                    warningsBox.innerHTML = `<strong>⚠️ Avvisi CRITICAL:</strong><br>${warnings.join('<br>')}`;
-                } else {
-                    warningsBox.classList.remove('active');
-                    warningsBox.innerHTML = '';
-                }
-            }
-
-            updateInGameAdvisorChart(
-                advisor?.army_profile || {},
-                advisor?.modified_profile || {},
-                top.ideal_attributes || {},
-            );
+            body.scrollTop = 0;
         }
 
         function formatAdvisorPct(value) {
@@ -408,8 +467,16 @@
             return n.toFixed(4);
         }
 
-        function updateInGameAdvisorChart(originalArmy, modifiedArmy, topStrategyIdeal) {
-            const canvas = document.getElementById('strategyAdvisorRadarChart');
+        /** Distrugge i radar aperti: con una sezione per legione sono più d'uno. */
+        function destroyInGameAdvisorCharts() {
+            for (const chart of inGameAdvisorCharts) {
+                try { chart.destroy(); } catch (_) { /* già smontato */ }
+            }
+            inGameAdvisorCharts = [];
+        }
+
+        function updateInGameAdvisorChart(canvasId, originalArmy, modifiedArmy, topStrategyIdeal) {
+            const canvas = document.getElementById(canvasId);
             if (!canvas || typeof Chart === 'undefined') {
                 return;
             }
@@ -424,12 +491,8 @@
             const modifiedValues = keys.map(key => Number(modifiedArmy[key] || 0));
             const idealValues = keys.map(key => Number(topStrategyIdeal[key] || 0));
 
-            if (inGameAdvisorRadarChart) {
-                inGameAdvisorRadarChart.destroy();
-            }
-
             const ctx = canvas.getContext('2d');
-            inGameAdvisorRadarChart = new Chart(ctx, {
+            const chart = new Chart(ctx, {
                 type: 'radar',
                 data: {
                     labels,
@@ -496,6 +559,7 @@
                     },
                 },
             });
+            inGameAdvisorCharts.push(chart);
         }
 
         function renderSkillTree(sessionData) {
@@ -580,10 +644,22 @@
         async function applyBattleStrategy() {
             try {
                 const strategyId = document.getElementById('strategySelect').value;
-                const response = await fetch('http://127.0.0.1:8000/game/set-strategy', {
+                // Il bersaglio è il selettore legioni della tab strategia: con una
+                // legione scelta la strategia è sua, ognuna combatte con la propria.
+                // Su "Generale" resta quella di sessione, che vale per la riserva
+                // e per le legioni che nasceranno.
+                const legionId = getStrategyTargetLegionId();
+                const endpoint = legionId
+                    ? 'http://127.0.0.1:8000/game/legions/set-strategy'
+                    : 'http://127.0.0.1:8000/game/set-strategy';
+                const payload = legionId
+                    ? { legion_id: legionId, strategy_id: strategyId }
+                    : { strategy_id: strategyId };
+
+                const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ strategy_id: strategyId })
+                    body: JSON.stringify(payload)
                 });
 
                 if (!response.ok) {

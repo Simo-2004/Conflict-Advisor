@@ -13,6 +13,8 @@
             renderTacticalLegionSelect(sessionData);
             updateBattleStatusModePill(sessionData);
             updateTacticalActionButtons(sessionData);
+            renderStrategyLegionSelect(sessionData);
+            syncStrategySelectToLegion(sessionData);
 
             const playerLegion = buildLegionInfo(sessionData.player.units || []);
             const aiLegion = buildLegionInfo(sessionData.ai.units || []);
@@ -90,11 +92,11 @@
                 applyDifficultyBtn.disabled = gameOver;
             }
 
-            const strategySelect = document.getElementById('strategySelect');
+            // Il menu strategia NON viene più forzato sulla strategia globale:
+            // ogni legione ha la sua, e ci pensa `syncStrategySelectToLegion`.
+            // Questa riga è ciò che riportava la selezione ad Assalto Frontale
+            // a ogni render, subito dopo averla cambiata.
             const strategyInfoBtn = document.getElementById('strategyInfoBtn');
-            if (strategySelect && sessionData.player?.strategy_id) {
-                strategySelect.value = sessionData.player.strategy_id;
-            }
             if (strategyInfoBtn) {
                 strategyInfoBtn.disabled = gameOver;
             }
@@ -220,6 +222,87 @@
             if (previousValue && legions.some((legion) => legion.id === previousValue)) {
                 selector.value = previousValue;
             }
+        }
+
+        /** Valore "generale": nessuna legione, si tocca la strategia di sessione. */
+        const STRATEGY_SCOPE_GENERAL = '';
+
+        function getStrategyTargetLegionId() {
+            const selector = document.getElementById('strategyLegionSelect');
+            return selector && selector.value ? selector.value : null;
+        }
+
+        function getStrategyTargetLegion(sessionData) {
+            const legionId = getStrategyTargetLegionId();
+            if (!legionId) return null;
+            return (sessionData?.player?.legions || {})[legionId] || null;
+        }
+
+        /** Popola il selettore legioni della tab strategia.
+         *  Ricostruisce le opzioni ma conserva la selezione: rigenerarla
+         *  senza riassegnare il valore la farebbe tornare alla prima voce. */
+        function renderStrategyLegionSelect(sessionData) {
+            const selector = document.getElementById('strategyLegionSelect');
+            if (!selector) return;
+
+            const legions = Object.values(sessionData?.player?.legions || {});
+            const previousValue = selector.value;
+
+            const options = [
+                `<option value="${STRATEGY_SCOPE_GENERAL}">Generale (riserva e nuove legioni)</option>`,
+                ...legions.map((legion) => {
+                    const typeLabel = TACTICAL_LEGION_TYPE_LABELS[legion.legion_type] || 'Esercito';
+                    const strategyLabel = legion.strategy_name ? ` — ${legion.strategy_name}` : '';
+                    return `<option value="${legion.id}">${legion.name} (${typeLabel})${strategyLabel}</option>`;
+                }),
+            ];
+            selector.innerHTML = options.join('');
+            selector.disabled = sessionData.state === 'game_over';
+
+            const stillThere = previousValue === STRATEGY_SCOPE_GENERAL
+                || legions.some((legion) => legion.id === previousValue);
+            selector.value = stillThere ? previousValue : STRATEGY_SCOPE_GENERAL;
+        }
+
+        /** Allinea il menu strategia a quella della legione scelta.
+         *  Ogni legione ha la sua: senza questo il menu mostrerebbe sempre
+         *  l'ultima scelta invece di ciò che quella legione sta davvero usando. */
+        function syncStrategySelectToLegion(sessionData) {
+            const strategySelect = document.getElementById('strategySelect');
+            if (!strategySelect || !strategySelect.options.length) return;
+
+            const legion = getStrategyTargetLegion(sessionData);
+            const strategyId = legion
+                ? legion.strategy_id
+                : sessionData?.player?.strategy_id;
+            if (!strategyId) return;
+
+            if ([...strategySelect.options].some((opt) => opt.value === strategyId)) {
+                strategySelect.value = strategyId;
+            }
+
+            // Evidenzia il menu quando mostra la strategia realmente in uso:
+            // così si distingue a colpo d'occhio "questa è attiva" da
+            // "sto scegliendo qualcosa che non ho ancora applicato".
+            strategySelect.classList.add('strategy-select-active');
+            strategySelect.dataset.activeStrategy = strategyId;
+
+            const label = document.getElementById('strategyScopeHint');
+            if (label) {
+                const nome = legion ? `'${legion.name}'` : 'Generale';
+                const attiva = legion ? legion.strategy_name : sessionData?.player?.strategy_name;
+                label.textContent = `${nome} — in uso: ${attiva || '---'}`;
+            }
+        }
+
+        /** Toglie l'evidenziazione appena l'utente sceglie una voce diversa
+         *  da quella attiva: il menu smette di dire "questa è la strategia in
+         *  uso" e torna a dire "questa è la strategia che stai per applicare". */
+        function markStrategySelectDirty() {
+            const strategySelect = document.getElementById('strategySelect');
+            if (!strategySelect) return;
+            const active = strategySelect.dataset.activeStrategy;
+            strategySelect.classList.toggle('strategy-select-active', strategySelect.value === active);
         }
 
         function updateBattleStatusModePill(sessionData) {
