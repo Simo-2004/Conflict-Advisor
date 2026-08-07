@@ -41,6 +41,7 @@ MINE_INCOME_MULTIPLIER = 1.02   # +2% sulle miniere rispetto al player
 CASTLE_RING_MAX_FORT_LEVEL = 4   # quanto alza le fortificazioni sull'anello
 CASTLE_RING_TARGET_GARRISON = 2  # unità di presidio volute per casella dell'anello
 CASTLE_RING_RESERVE_GRUX = 60    # non svuota le casse: sotto questa soglia non compra presidi
+CASTLE_GARRISON_TARGET = 4       # presidi sul proprio castello: il massimo consentito
 
 # ── Commutazione di fase ───────────────────────────────────────────
 DOMINATION_MIN_TURN = 18         # non commuta prima di essersi costruita
@@ -81,6 +82,8 @@ PHASE_ANNIHILATION = "annientamento"
 
 class NightmareAIDifficultyPolicy:
     """Policy runtime IA: due fasi, nessuna esitazione, adattamento continuo."""
+
+    castle_garrison_target = CASTLE_GARRISON_TARGET
 
     def __init__(self, seed: Optional[int] = None) -> None:
         self.rng = random.Random(seed)

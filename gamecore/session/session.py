@@ -86,6 +86,36 @@ PLAYER_BUILD_ORDERS = set(PLAYER_BUILD_ORDER_OPTIONS)
 CASTLE_BASE_HP = 220
 CASTLE_HP_PER_UNIT = 8
 
+# ── Difesa del castello ────────────────────────────────────────────
+# Blocco isolato apposta: è la manopola unica per bilanciare gli assedi,
+# pensata per essere rivista senza toccare il resto del motore.
+#
+# Il castello si difende in due modi indipendenti, entrambi con un tetto:
+#   1. PRESIDI sulla cella → al massimo 4, altrimenti bastava impilare truppe
+#      per rendere il castello imprendibile;
+#   2. FORTIFICAZIONI sul castello → al massimo 4 livelli, ognuno taglia i
+#      danni in percentuale.
+# Le legioni ferme sul castello NON contano come difesa: erano cumulabili
+# senza limite e rendevano l'assedio impossibile.
+#
+# La fortificazione del castello è una meccanica a sé: sulle celle normali
+# le fortificazioni continuano a funzionare come prima (nessun tetto, bonus
+# calcolato in `_legion_battle_strength`).
+CASTLE_MAX_FORTIFICATION_LEVEL = 4        # tetto di costruzioni sul castello
+CASTLE_FORT_DAMAGE_REDUCTION_PER_LEVEL = 0.10   # -10% danni per livello (max -40%)
+CASTLE_MAX_GARRISON_UNITS = 4             # tetto di presidi sulla cella del castello
+CASTLE_DEFENDER_WEIGHT = 0.50             # quanto vale in difesa una truppa di presidio
+CASTLE_DEFENSE_BASE = 44.0                # difesa di un castello completamente sguarnito
+# La riserva non difende: finché contava, formare una legione toglieva difesa
+# al castello e il gioco puniva chi giocava invece di accumulare truppe.
+
+# Danno da assedio: dipende dal RAPPORTO forza/difesa, non dalla differenza.
+# Con la differenza, oltre le ~10 unità l'assalto saturava sempre il tetto e
+# da lì in poi né l'esercito attaccante né la difesa cambiavano più nulla.
+CASTLE_DAMAGE_MAX = 65.0                  # danno massimo per assalto
+CASTLE_DAMAGE_MIN = 8                     # pavimento: garantisce che il castello cada sempre
+CASTLE_DAMAGE_HALF_RATIO = 15.0           # rapporto forza/difesa a metà del danno massimo
+
 LEGION_TYPE_ARMY = "army"
 LEGION_TYPE_MINING = "mining"
 LEGION_TYPE_CONSTRUCTION = "construction"
@@ -268,10 +298,16 @@ class GameSession:
         return income
 
     def _compute_castle_damage(self, attacker_strength: float, defender_score: float) -> int:
-        """Danno inflitto al castello quando l'assalto supera la difesa statica."""
-        overflow = max(0.0, attacker_strength - defender_score)
-        raw_damage = (overflow * 0.12) + (attacker_strength * 0.02)
-        return max(8, min(65, int(round(raw_damage))))
+        """Danno inflitto al castello, in funzione del rapporto forza/difesa.
+
+        Curva satura: più truppe porti all'assalto, più danno fai, ma con
+        rendimenti decrescenti; più difesa c'è, meno ne fai. Il tetto e il
+        pavimento restano gli estremi, non il caso normale.
+        """
+        ratio = attacker_strength / max(1.0, defender_score)
+        intensity = ratio / (ratio + CASTLE_DAMAGE_HALF_RATIO)
+        raw_damage = CASTLE_DAMAGE_MAX * intensity
+        return max(CASTLE_DAMAGE_MIN, min(int(CASTLE_DAMAGE_MAX), int(round(raw_damage))))
 
     # ──────────────────────────────────────────────────────────
     # LEGIONI
@@ -910,6 +946,48 @@ class GameSession:
             return max(1, int(getter()))
         return 3
 
+    def _castle_defense(self, defender: Occupation, castle_pos: Tuple[int, int]) -> Dict[str, Any]:
+        """Difesa del castello: presidi (max 4) e fortificazioni.
+
+        Le legioni ferme sulla cella non contano: erano accumulabili senza
+        limite e bastavano a rendere il castello imprendibile. Chi vuole
+        difendere il castello deve *distaccare* presidi, che sono contati e
+        limitati a `CASTLE_MAX_GARRISON_UNITS`.
+
+        Nemmeno la riserva conta: finché contava, formare una legione
+        *sottraeva* difesa al castello, cioè giocare puniva.
+
+        Returns:
+            score              — punteggio difensivo da confrontare con l'attaccante
+            damage_multiplier  — riduzione danni delle fortificazioni (1.0 = nessuna)
+            defenders          — presidi che difendono la cella
+            fortification_level— livelli di fortificazione sul castello
+        """
+        cell = self.game_map.get_cell(*castle_pos)
+
+        # 1. Solo i presidi difendono la cella, e non oltre il tetto.
+        defender_units: List[str] = []
+        if cell is not None:
+            defender_units = list(cell.garrison_unit_ids)[:CASTLE_MAX_GARRISON_UNITS]
+
+        # 2. Ogni presidio vale una frazione del suo valore in battaglia.
+        troop_score = sum(
+            self._unit_battle_value(uid) * CASTLE_DEFENDER_WEIGHT for uid in defender_units
+        )
+
+        # 3. Fortificazioni: solo quelle sul castello, e con tetto dedicato.
+        fortification_level = 0
+        if cell is not None:
+            fortification_level = min(int(cell.fortification_level), CASTLE_MAX_FORTIFICATION_LEVEL)
+        reduction = fortification_level * CASTLE_FORT_DAMAGE_REDUCTION_PER_LEVEL
+
+        return {
+            "score": CASTLE_DEFENSE_BASE + troop_score,
+            "damage_multiplier": max(0.0, 1.0 - reduction),
+            "defenders": len(defender_units),
+            "fortification_level": fortification_level,
+        }
+
     def _apply_legion_castle_assault(
         self,
         attacker: Occupation,
@@ -927,8 +1005,12 @@ class GameSession:
         hp_before = self.castle_hp.get(defender, self.castle_hp_max.get(defender, CASTLE_BASE_HP))
         legion_unit_ids = legion.get("units", [])
         attacker_strength = max(20.0, sum(self._unit_battle_value(uid) for uid in legion_unit_ids))
-        defender_score = 44.0 + (len(self._entity_units(defender)) * 1.2)
-        damage = self._compute_castle_damage(attacker_strength, defender_score)
+
+        defense = self._castle_defense(defender, to_pos)
+        damage = self._compute_castle_damage(attacker_strength, defense["score"])
+        # Le fortificazioni del castello tagliano i danni in percentuale, DOPO il
+        # calcolo base: così l'effetto è leggibile ("con 4 livelli incasso il 60%").
+        damage = max(8, int(round(damage * defense["damage_multiplier"])))
         hp_after = max(0, hp_before - damage)
         self.castle_hp[defender] = hp_after
 
@@ -1912,6 +1994,7 @@ class GameSession:
             logs.append(strategy_log)
 
         logs.extend(self._reinforce_ai_castle_ring())
+        logs.extend(self._garrison_ai_castle())
         if self.ai_policy.should_start_research(self.game_map.turn):
             self._start_ability_research(AI, DOMAIN_ENGINEERING_ID)
 
@@ -2528,6 +2611,13 @@ class GameSession:
             if auto:
                 return {"unit_id": None, "unit_name": ""}
             raise ValueError("Cella presidio non valida.")
+        if self._castle_garrison_full(cell):
+            if auto:
+                return {"unit_id": None, "unit_name": ""}
+            raise ValueError(
+                f"Il castello ha già il massimo di presidi "
+                f"({CASTLE_MAX_GARRISON_UNITS}): oltre questo limite sarebbe imprendibile."
+            )
 
         units.remove(selected_unit_id)
         cell.garrison_unit_ids.append(selected_unit_id)
@@ -2946,6 +3036,12 @@ class GameSession:
             "player_grux": self.grux_balance[PLAYER],
         }
 
+    def _castle_garrison_full(self, cell: Optional[Any]) -> bool:
+        """True se la cella è il castello e ha già il massimo di presidi consentito."""
+        if cell is None or not cell.is_castle:
+            return False
+        return len(cell.garrison_unit_ids) >= CASTLE_MAX_GARRISON_UNITS
+
     def _detach_unit_from_legion_to_garrison(
         self,
         legion: Dict[str, Any],
@@ -2970,6 +3066,11 @@ class GameSession:
         cell = self.game_map.get_cell(*cell_pos)
         if cell is None:
             raise ValueError("Cella presidio non valida.")
+        if self._castle_garrison_full(cell):
+            raise ValueError(
+                f"Il castello ha già il massimo di presidi "
+                f"({CASTLE_MAX_GARRISON_UNITS}): oltre questo limite sarebbe imprendibile."
+            )
 
         units.remove(selected_unit_id)
         cell.garrison_unit_ids.append(selected_unit_id)
@@ -3023,8 +3124,18 @@ class GameSession:
             raise ValueError("Cella fuori dalla mappa.")
         if cell.occupation != PLAYER:
             raise ValueError("Puoi fortificare solo celle controllate dal PLAYER.")
-        if cell.is_castle:
-            raise ValueError("Il castello centrale non è fortificabile.")
+
+        # Il castello è fortificabile, ma con un tetto suo: ogni livello riduce
+        # i danni da assedio, quindi senza limite diventerebbe imprendibile.
+        is_own_castle = bool(cell.is_castle)
+        max_level = CASTLE_MAX_FORTIFICATION_LEVEL if is_own_castle else None
+        if is_own_castle and cell.fortification_level >= CASTLE_MAX_FORTIFICATION_LEVEL:
+            raise ValueError(
+                f"Il castello è già fortificato al massimo "
+                f"(livello {CASTLE_MAX_FORTIFICATION_LEVEL}): "
+                f"riduce i danni da assedio del "
+                f"{int(CASTLE_MAX_FORTIFICATION_LEVEL * CASTLE_FORT_DAMAGE_REDUCTION_PER_LEVEL * 100)}%."
+            )
 
         current_level = cell.fortification_level
         cost = self._fortification_cost(current_level)
@@ -3032,13 +3143,22 @@ class GameSession:
             raise ValueError(f"Grux insufficienti per fortificare: servono {cost}, disponibili {self.grux_balance[PLAYER]}")
 
         self.grux_balance[PLAYER] -= cost
-        cell = self.game_map.place_fortification(PLAYER, row, col)
+        cell = self.game_map.place_fortification(PLAYER, row, col, max_level=max_level)
         next_cost = self._fortification_cost(cell.fortification_level)
 
-        log_entry = (
-            f"[Turno {self.game_map.turn}] 🧱 PLAYER fortifica ({row},{col}) con la legione "
-            f"'{legion['name']}' → livello {cell.fortification_level} (costo {cost} grux)"
-        )
+        if is_own_castle:
+            riduzione = int(cell.fortification_level * CASTLE_FORT_DAMAGE_REDUCTION_PER_LEVEL * 100)
+            log_entry = (
+                f"[Turno {self.game_map.turn}] 🏰 PLAYER fortifica il CASTELLO con la legione "
+                f"'{legion['name']}' → livello {cell.fortification_level}/"
+                f"{CASTLE_MAX_FORTIFICATION_LEVEL} (costo {cost} grux, "
+                f"-{riduzione}% danni da assedio)"
+            )
+        else:
+            log_entry = (
+                f"[Turno {self.game_map.turn}] 🧱 PLAYER fortifica ({row},{col}) con la legione "
+                f"'{legion['name']}' → livello {cell.fortification_level} (costo {cost} grux)"
+            )
         self.battle_log.append(log_entry)
         return {
             "ok": True,
@@ -3091,6 +3211,47 @@ class GameSession:
                 continue
             ring.append(cell)
         return ring
+
+    def _garrison_ai_castle(self) -> List[str]:
+        """L'IA presidia il proprio castello, come può fare il giocatore.
+
+        Le legioni non difendono più il castello: senza questo, solo il player
+        avrebbe potuto guarnirlo e il bilanciamento penderebbe da una parte.
+        Quante truppe schierare è una manopola per difficoltà
+        (`castle_garrison_target`): i profili che non la espongono non presidiano.
+        """
+        target = int(getattr(self.ai_policy, "castle_garrison_target", 0) or 0)
+        if target <= 0:
+            return []
+
+        castle_pos = self.game_map.castle_positions.get(AI)
+        cell = self.game_map.get_cell(*castle_pos) if castle_pos else None
+        if cell is None:
+            return []
+
+        target = min(target, CASTLE_MAX_GARRISON_UNITS)
+        if len(cell.garrison_unit_ids) >= target:
+            return []
+
+        affordable = [
+            unit for unit in self.data["units"]
+            if self.unit_costs[unit["id"]] <= self.grux_balance[AI]
+        ]
+        if not affordable:
+            return []
+
+        best_unit = max(
+            affordable,
+            key=lambda unit: self._garrison_unit_defense_value(unit["id"], cell.terrain),
+        )
+        cost = self.unit_costs[best_unit["id"]]
+        self.grux_balance[AI] -= cost
+        cell.garrison_unit_ids.append(best_unit["id"])
+        cell.garrison_strength = max(cell.garrison_strength, len(cell.garrison_unit_ids))
+        return [
+            f"[Turno {self.game_map.turn}] 🛡 IA arruola {best_unit['name']} a presidio "
+            f"del CASTELLO — {cost} grux ({len(cell.garrison_unit_ids)}/{target})"
+        ]
 
     def _reinforce_ai_castle_ring(self) -> List[str]:
         """Trincera l'IA sulle caselle adiacenti al proprio castello.
@@ -3172,7 +3333,12 @@ class GameSession:
         best: Optional[Tuple[float, Any, int]] = None
         for row in self.game_map.grid:
             for cell in row:
-                if cell.occupation != AI or cell.is_castle:
+                if cell.occupation != AI:
+                    continue
+                # Il castello ora è fortificabile e riduce i danni da assedio:
+                # l'IA deve poterlo fare come il player, o l'asimmetria falserebbe
+                # tutto il bilanciamento delle difficoltà.
+                if cell.is_castle and cell.fortification_level >= CASTLE_MAX_FORTIFICATION_LEVEL:
                     continue
                 if not ai_can_build_anywhere and (cell.row, cell.col) not in ai_build_positions:
                     continue
@@ -3183,6 +3349,10 @@ class GameSession:
                     continue
 
                 score = 0.0
+                if cell.is_castle:
+                    # Difendere il proprio castello è la priorità: è la condizione
+                    # di sconfitta, e i livelli disponibili sono solo 4.
+                    score += 4.0
                 if cell.is_strategic:
                     score += 2.4
                 if cell.is_mine:
@@ -3200,7 +3370,15 @@ class GameSession:
 
         _, cell, cost = best
         self.grux_balance[AI] -= cost
-        placed = self.game_map.place_fortification(AI, cell.row, cell.col)
+        max_level = CASTLE_MAX_FORTIFICATION_LEVEL if cell.is_castle else None
+        placed = self.game_map.place_fortification(AI, cell.row, cell.col, max_level=max_level)
+        if placed.is_castle:
+            riduzione = int(placed.fortification_level * CASTLE_FORT_DAMAGE_REDUCTION_PER_LEVEL * 100)
+            return (
+                f"[Turno {self.game_map.turn}] 🏰 IA fortifica il CASTELLO → livello "
+                f"{placed.fortification_level}/{CASTLE_MAX_FORTIFICATION_LEVEL} "
+                f"(costo {cost} grux, -{riduzione}% danni da assedio)"
+            )
         return (
             f"[Turno {self.game_map.turn}] 🧱 IA fortifica ({placed.row},{placed.col}) "
             f"→ livello {placed.fortification_level} (costo {cost} grux)"

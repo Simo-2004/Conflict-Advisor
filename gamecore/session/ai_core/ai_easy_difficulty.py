@@ -35,9 +35,14 @@ INTRUDER_FOCUS_CHANCE = 0.0  # ignora chi entra in casa: continua la sua corsa
 TARGET_LOCK_TURNS = 3        # cambia obiettivo di rado: sembra più indeciso
 FORTIFY_TURN_GATE = 3        # fortifica un turno su tre
 
+# ── Difesa del castello ────────────────────────────────────────────
+CASTLE_GARRISON_TARGET = 1   # presidi sul proprio castello (tetto di gioco: 4)
+
 
 class EasyAIDifficultyPolicy:
     """Policy runtime per rendere il comportamento IA meno oppressivo."""
+
+    castle_garrison_target = CASTLE_GARRISON_TARGET
 
     def __init__(self, seed: Optional[int] = None) -> None:
         self.rng = random.Random(seed)

@@ -51,9 +51,14 @@ SECOND_LEGION_MIN_UNITS = 6    # solo se l'esercito regge la divisione in due
 TARGET_LOCK_TURNS = 2        # come il normale: non zig-zaga
 FORTIFY_TURN_GATE = 2        # fortifica un turno su due
 
+# ── Difesa del castello ────────────────────────────────────────────
+CASTLE_GARRISON_TARGET = 3   # presidi sul proprio castello (tetto di gioco: 4)
+
 
 class HardAIDifficultyPolicy:
     """Policy runtime IA: più solida del normale, ancora lontana dall'ottimo."""
+
+    castle_garrison_target = CASTLE_GARRISON_TARGET
 
     def __init__(self, seed: Optional[int] = None) -> None:
         self.rng = random.Random(seed)

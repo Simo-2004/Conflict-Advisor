@@ -792,15 +792,27 @@ class GameMap:
         cell.is_mine = True
         return cell
 
-    def place_fortification(self, entity: Occupation, row: int, col: int) -> Cell:
-        """Aumenta il livello di fortificazione su una cella controllata e idonea."""
+    def place_fortification(
+        self,
+        entity: Occupation,
+        row: int,
+        col: int,
+        max_level: Optional[int] = None,
+    ) -> Cell:
+        """Aumenta il livello di fortificazione su una cella controllata e idonea.
+
+        `max_level` serve al castello, che ha un tetto dedicato: sulle celle
+        normali resta None e il comportamento è invariato.
+        """
         cell = self.get_cell(row, col)
         if cell is None:
             raise ValueError("Cella fuori dalla mappa.")
         if cell.occupation != entity:
             raise ValueError("Puoi fortificare solo celle che controlli.")
-        if cell.is_castle:
-            raise ValueError("Non puoi fortificare il castello centrale.")
+        if max_level is not None and cell.fortification_level >= max_level:
+            raise ValueError(
+                f"Fortificazione già al livello massimo ({max_level}) su questa cella."
+            )
 
         cell.fortification_level += 1
         return cell
