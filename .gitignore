@@ -1,7 +1,9 @@
 # --- Progetto: cartelle locali/generate, non da versionare ---
-.claude/
-debug/
-reports/
+# Ancorate alla radice con "/": senza, "debug/" escludeva anche
+# frontend/battle/debug/, che invece è codice sorgente da versionare.
+/.claude/
+/debug/
+/reports/
 
 # --- Byte-compiled / optimized / DLL files ---
 __pycache__/
@@ -43,3 +45,4 @@ ENV/
 .idea/
 .DS_Store
 Thumbs.db
+gamecore/debug_module/README.md

@@ -659,18 +659,18 @@ async def game_set_ai_difficulty(request: AIDifficultyRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/game/debug/ai-kill-switch")
-async def game_debug_ai_kill_switch():
-    """DEBUG TEMPORANEO (DA RIMUOVERE): toggle pausa completa IA."""
-    if _active_session is None:
-        raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
+# ── [DEBUG-MODULE] Aggancio del modulo debug ───────────────────────
+# Unico punto di contatto lato server: registra le rotte /game/debug/*.
+# Il try/except rende la cartella cancellabile senza toccare questo file
+# (il server parte comunque, il modulo semplicemente non si registra).
+# Istruzioni complete: gamecore/debug_module/README.md
+try:
+    from gamecore.debug_module import build_debug_router
 
-    try:
-        return _active_session.toggle_debug_ai_kill_switch()
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    app.include_router(build_debug_router(lambda: _active_session))
+except ImportError:
+    pass
+# ── [DEBUG-MODULE] fine aggancio ───────────────────────────────────
 
 
 @app.delete("/game/reset")
