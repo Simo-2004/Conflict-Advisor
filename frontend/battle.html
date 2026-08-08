@@ -64,7 +64,6 @@
                     </div>
                 </div>
                 <div class="button-row">
-                    <button class="debug-switch-btn" id="aiKillSwitchBtn" type="button" onclick="toggleAiKillSwitch()">🧪 IA ON</button>
                     <div class="difficulty-inline">
                         <select id="aiDifficultySelect" class="difficulty-select"></select>
                         <button id="applyAiDifficultyBtn" class="difficulty-apply-btn" type="button" onclick="applyAiDifficulty()">Applica IA</button>
@@ -252,6 +251,10 @@
     <script src="/static/battle/features.js"></script>
     <script src="/static/battle/legions/legions_panel.js"></script>
     <script src="/static/battle_bar.js"></script>
+    <!-- [DEBUG-MODULE] Unico aggancio lato pagina: il pannello crea da sé tab,
+         markup e CSS. Per rimuoverlo, cancella questa riga e la cartella
+         frontend/battle/debug/. Istruzioni: gamecore/debug_module/README.md -->
+    <script src="/static/battle/debug/debug_panel.js"></script>
     <script>
         // Hook: ogni volta che renderBattleState aggiorna la UI,
         // propaga lo stato anche al pannello Legioni (se visibile)

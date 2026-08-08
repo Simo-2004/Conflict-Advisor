@@ -106,7 +106,6 @@
             document.getElementById('layoutLogsBtn'),
         ];
         const settingsButton = qs(systemPane, '.settings-trigger');
-        const aiButton = document.getElementById('aiKillSwitchBtn');
 
         if (recruitButton) recruitButton.addEventListener('click', () => activateBattleBarTab('war'));
         if (autoRecruitButton) autoRecruitButton.addEventListener('click', () => activateBattleBarTab('war'));
@@ -115,7 +114,6 @@
             if (btn) btn.addEventListener('click', () => activateBattleBarTab('view'));
         });
         if (settingsButton) settingsButton.addEventListener('click', () => activateBattleBarTab('system'));
-        if (aiButton) aiButton.addEventListener('click', () => activateBattleBarTab('system'));
     }
 
     function initDockResize(bar) {

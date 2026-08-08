@@ -709,30 +709,6 @@
             }
         }
 
-        async function toggleAiKillSwitch() {
-            try {
-                const response = await fetch('http://127.0.0.1:8000/game/debug/ai-kill-switch', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-
-                if (!response.ok) {
-                    const err = await response.json();
-                    throw new Error(err.detail || 'Errore nel toggle kill switch IA');
-                }
-
-                const result = await response.json();
-                transientLogLines = [];
-                renderBattleState(result.session);
-                const stateLabel = result.enabled ? 'attivato' : 'disattivato';
-                document.getElementById('battleStatusHint').textContent = `DEBUG TEMPORANEO: kill switch IA ${stateLabel}.`;
-            } catch (error) {
-                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
-                transientLogLines = [`Errore kill switch IA: ${error.message}`];
-                renderBattleState(currentBattleState);
-            }
-        }
-
         async function resetBattleSession() {
             await fetch('http://127.0.0.1:8000/game/reset', { method: 'DELETE' });
             transientLogLines = [];

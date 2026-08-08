@@ -1575,23 +1575,6 @@
             align-items: center;
         }
 
-        .debug-switch-btn {
-            border: 1px solid #f59e0b;
-            background: #fffbeb;
-            color: #92400e;
-            padding: 9px 12px;
-            border-radius: 10px;
-            font-size: 0.82em;
-            font-weight: 800;
-            cursor: pointer;
-        }
-
-        .debug-switch-btn.active {
-            background: #fef3c7;
-            border-color: #d97706;
-            color: #7c2d12;
-        }
-
         .difficulty-inline {
             display: inline-flex;
             align-items: center;

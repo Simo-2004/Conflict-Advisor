@@ -247,6 +247,9 @@ class GameSession:
             PLAYER: None,
             AI: None,
         }
+        # [DEBUG-MODULE] Flag del kill switch IA, pilotato da gamecore/debug_module.
+        # Senza il modulo resta False per sempre e il gioco si comporta come se
+        # non esistesse. Rimozione: gamecore/debug_module/README.md
         self.debug_ai_kill_switch: bool = False
         self.ai_difficulty: str = normalize_ai_difficulty(ai_difficulty)
         self.ai_policy = build_ai_policy(self.ai_difficulty, seed=map_seed)
@@ -1986,7 +1989,10 @@ class GameSession:
         return logs
 
     def toggle_debug_ai_kill_switch(self) -> Dict[str, Any]:
-        """DEBUG TEMPORANEO (DA RIMUOVERE): pausa/riprende totalmente l'IA."""
+        """[DEBUG-MODULE] Pausa/riprende totalmente l'IA.
+
+        Chiamato solo da gamecore/debug_module: rimuovibile insieme a esso.
+        """
         self.debug_ai_kill_switch = not self.debug_ai_kill_switch
         status = "ATTIVO" if self.debug_ai_kill_switch else "DISATTIVO"
         log_entry = (
@@ -2654,6 +2660,7 @@ class GameSession:
         # 2. Movimento Legioni IA
         ai_moved = False
         ai_skipped = False
+        # [DEBUG-MODULE] Gate del kill switch nel ciclo vivo dell'IA.
         if self.state == SessionState.ACTIVE and self.debug_ai_kill_switch:
             # Kill switch: l'IA è completamente congelata. Il controllo va qui,
             # nel ciclo vivo: quello storico stava in `_ai_turn`, cioè nel vecchio
@@ -4604,8 +4611,9 @@ class GameSession:
             "movement": self.movement_system.export_config(),
             "map":        self.game_map.to_dict(),
             "battle_log": self.battle_log,
+            # [DEBUG-MODULE] Letto dal pannello debug per mostrare lo stato dello
+            # switch. Rimuovibile con il modulo: nessun'altra parte lo consuma.
             "debug": {
                 "ai_kill_switch_active": self.debug_ai_kill_switch,
-                "kill_switch_notice": "DEBUG TEMPORANEO - rimuovere endpoint, flag e pulsante kill switch IA in produzione",
             },
         }

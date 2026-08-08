@@ -62,13 +62,6 @@
                 abilityCard.classList.toggle('is-researching', researching);
             }
 
-            const killSwitchBtn = document.getElementById('aiKillSwitchBtn');
-            const killSwitchActive = Boolean(sessionData.debug?.ai_kill_switch_active);
-            if (killSwitchBtn) {
-                killSwitchBtn.classList.toggle('active', killSwitchActive);
-                killSwitchBtn.textContent = killSwitchActive ? '🧪 IA OFF (PAUSA)' : '🧪 IA ON';
-            }
-
             const gameOver = sessionData.state === 'game_over';
 
             const garrisonUnitSelect = document.getElementById('garrisonUnitSelect');
