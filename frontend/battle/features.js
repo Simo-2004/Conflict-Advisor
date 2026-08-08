@@ -358,22 +358,30 @@
                 ? `⚔ ${escapeAdvisorText(report.legion_name)}`
                 : `🏰 ${escapeAdvisorText(report.legion_name || 'Riserva nel castello')}`;
 
+            // Lo stato truppe è quello DI QUESTA legione, non più uno globale.
+            const statoTruppe = report.troop_status_name || troopStatusLabel;
+            const cond = report.troop_condition || null;
+
             const dettagli = [];
             if (isLegion && report.legion_type_label) dettagli.push(escapeAdvisorText(report.legion_type_label));
             if (report.units_count != null) dettagli.push(`${report.units_count} truppe`);
             if (isLegion && report.pos) dettagli.push(`posizione (${report.pos[0]},${report.pos[1]})`);
             dettagli.push(`terreno ${escapeAdvisorText(report.terrain_name || 'N/D')}`);
             if (report.current_strength != null) dettagli.push(`forza ${report.current_strength}`);
+            if (cond) dettagli.push(`fatica ${cond.fatigue} · morale ${cond.morale}`);
 
             const attiva = report.current_strategy_name
                 ? `<span class="advisor-current-strategy">In uso: ${escapeAdvisorText(report.current_strategy_name)}</span>`
+                : '';
+            const badgeStato = statoTruppe
+                ? `<span class="advisor-troop-status status-${escapeAdvisorText(statoTruppe)}">${escapeAdvisorText(statoTruppe)}</span>`
                 : '';
 
             if (report?.empty) {
                 return `
                     <section class="advisor-section">
                         <header class="advisor-section-head">
-                            <h4>${titolo}</h4>
+                            <h4>${titolo} ${badgeStato}</h4>
                             <p>${dettagli.join(' · ')}</p>
                         </header>
                         <div class="strategy-advisor-note">
@@ -392,9 +400,8 @@
             return `
                 <section class="advisor-section">
                     <header class="advisor-section-head">
-                        <h4>${titolo} ${attiva}</h4>
-                        <p>${dettagli.join(' · ')} · Meteo ${escapeAdvisorText(weatherLabel)} ·
-                           Stato truppe ${escapeAdvisorText(troopStatusLabel)}</p>
+                        <h4>${titolo} ${attiva} ${badgeStato}</h4>
+                        <p>${dettagli.join(' · ')} · Meteo ${escapeAdvisorText(weatherLabel)}</p>
                     </header>
                     <div class="strategy-advisor-reliability">
                         Affidabilità report: ${reliability.score_pct ?? '--'}% ·
