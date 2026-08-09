@@ -94,6 +94,29 @@
         }
         .debug-killswitch.frozen { background: #b91c1c; }
 
+        .debug-weather-readout {
+            font-size: 0.74em;
+            line-height: 1.5;
+            color: #334155;
+            background: #f8fafc;
+            border: 1px solid var(--border, #ddd);
+            border-radius: 7px;
+            padding: 6px 8px;
+            white-space: pre-wrap;
+        }
+        .debug-chip {
+            padding: 5px 8px;
+            font-size: 0.74em;
+            font-weight: 700;
+            border: 1px solid var(--border, #ddd);
+            border-radius: 999px;
+            background: #fff;
+            color: #334155;
+            cursor: pointer;
+        }
+        .debug-chip:hover { border-color: #b45309; color: #b45309; }
+        .debug-chip.active { background: #b45309; border-color: #b45309; color: #fff; }
+
         .debug-feedback {
             font-size: 0.76em;
             color: #334155;
@@ -202,6 +225,107 @@
             : '🧪 IA attiva — clicca per congelare';
     }
 
+    /* ── Meteo e ciclo giorno/notte ──────────────────────────────── */
+
+    // Ultimo stato noto: serve al pulsante di blocco per sapere in che verso
+    // girare senza un giro in più sul server.
+    let weatherState = null;
+    let weatherOptionsReady = false;
+
+    /** Riempie menu e scorciatoie con i valori che arrivano dal backend:
+     *  quali condizioni esistano lo decide `weather_cycle.py`, non questo
+     *  pannello. Se ne aggiungi una là, qui compare da sola. */
+    function buildWeatherOptions(info) {
+        if (weatherOptionsReady) return;
+        const cycleSel = el('debugCycleSelect');
+        const weatherSel = el('debugWeatherSelect');
+        const quick = el('debugWeatherQuick');
+        if (!cycleSel || !weatherSel || !quick) return;
+
+        cycleSel.innerHTML = (info.cycles || []).map(c => `<option value="${c}">${c}</option>`).join('');
+        weatherSel.innerHTML = (info.weathers || []).map(w => `<option value="${w}">${w}</option>`).join('');
+
+        quick.innerHTML = '';
+        for (const cycle of info.cycles || []) {
+            for (const weather of info.weathers || []) {
+                const chip = document.createElement('button');
+                chip.type = 'button';
+                chip.className = 'debug-chip';
+                chip.dataset.cycle = cycle;
+                chip.dataset.weather = weather;
+                chip.textContent = `${cycle[0]}·${weather}`;
+                chip.addEventListener('click', () => applyWeather(cycle, weather));
+                quick.appendChild(chip);
+            }
+        }
+        weatherOptionsReady = true;
+    }
+
+    function syncWeatherControls(info) {
+        if (!info) return;
+        weatherState = info;
+        buildWeatherOptions(info);
+
+        const cycleSel = el('debugCycleSelect');
+        const weatherSel = el('debugWeatherSelect');
+        if (cycleSel) cycleSel.value = info.cycle;
+        if (weatherSel) weatherSel.value = info.weather;
+
+        const button = el('debugWeatherFreezeBtn');
+        if (button) {
+            button.classList.toggle('frozen', Boolean(info.frozen));
+            button.textContent = info.frozen
+                ? '🕒 TEMPO BLOCCATO — clicca per farlo ripartire'
+                : '🕒 Tempo che scorre — clicca per bloccare';
+        }
+
+        document.querySelectorAll('#debugWeatherQuick .debug-chip').forEach(chip => {
+            chip.classList.toggle(
+                'active',
+                chip.dataset.cycle === info.cycle && chip.dataset.weather === info.weather
+            );
+        });
+
+        const readout = el('debugWeatherReadout');
+        if (readout) {
+            const righe = [`${info.emoji || ''} ${info.label}`];
+            righe.push(info.frozen
+                ? 'orologio bloccato: non cambia da solo, nemmeno saltando turni'
+                : `cambia fra ${info.changes_in} turni`);
+            const truppe = (info.unit_effects || [])
+                .slice(0, 4)
+                .map(r => `${r.unit_name} ${r.percent > 0 ? '+' : ''}${r.percent}%`)
+                .join(', ');
+            righe.push(truppe ? `effetto truppe: ${truppe}` : 'nessun effetto sulle truppe');
+            readout.textContent = righe.join('\n');
+        }
+    }
+
+    /** Imposta le condizioni. Senza argomenti prende quelle dei due menu. */
+    async function applyWeather(cycle, weather) {
+        const cycleSel = el('debugCycleSelect');
+        const weatherSel = el('debugWeatherSelect');
+        const result = await call('weather', {
+            cycle: cycle || (cycleSel ? cycleSel.value : undefined),
+            weather: weather || (weatherSel ? weatherSel.value : undefined),
+        });
+        if (!result) return;
+        applySession(result.session);   // mappa, pillola e atmosfera seguono da sole
+        feedback(`✔ ${result.message}`);
+        syncWeatherControls(result.weather);
+        refreshSnapshot();
+    }
+
+    async function toggleWeatherFreeze() {
+        const frozen = Boolean(weatherState && weatherState.frozen);
+        const result = await call('weather', { freeze: !frozen });
+        if (!result) return;
+        applySession(result.session);
+        feedback(`✔ ${result.message}`);
+        syncWeatherControls(result.weather);
+        refreshSnapshot();
+    }
+
     /* ── Snapshot ────────────────────────────────────────────────── */
 
     async function refreshSnapshot() {
@@ -210,6 +334,7 @@
         const snap = await call('snapshot');
         if (!snap) return;
         syncKillSwitchButton(snap.ai_kill_switch);
+        syncWeatherControls(snap.weather);
 
         const side = (label, s) => [
             `${label}`,
@@ -305,6 +430,18 @@
                     <div class="debug-snapshot" id="debugSnapshot">—</div>
                 </div>
 
+                <div class="debug-group">
+                    <h4>Meteo e ciclo giorno/notte</h4>
+                    <button class="debug-killswitch" id="debugWeatherFreezeBtn" type="button">🕒 Tempo che scorre — clicca per bloccare</button>
+                    <div class="debug-row">
+                        <select id="debugCycleSelect"></select>
+                        <select id="debugWeatherSelect"></select>
+                        <button class="debug-btn" id="debugWeatherApplyBtn" type="button">Applica</button>
+                    </div>
+                    <div class="debug-row" id="debugWeatherQuick"></div>
+                    <div class="debug-weather-readout" id="debugWeatherReadout">—</div>
+                </div>
+
                 <div class="debug-feedback" id="debugFeedback">Pronto.</div>
             </div>
         `;
@@ -334,6 +471,9 @@
         on('debugLoseBtn', () => action('force-outcome', { winner: 'ai' }));
 
         on('debugSnapshotBtn', refreshSnapshot);
+
+        on('debugWeatherApplyBtn', () => applyWeather());
+        on('debugWeatherFreezeBtn', toggleWeatherFreeze);
     }
 
     /** Riempie il menu unità dalla config del gioco. */

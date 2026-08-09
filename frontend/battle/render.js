@@ -214,8 +214,22 @@
             pill.style.borderColor = meteo.border;
             pill.classList.toggle('is-night', Boolean(meteo.is_night));
 
-            const effetti = (meteo.effects || []).join(' · ');
-            pill.title = `${effetti}\nCondizioni successive fra ${meteo.changes_in} turni`;
+            // Nel tooltip anche l'effetto in numeri sulle singole truppe: è la
+            // stessa tabella che il motore applica in battaglia, così si può
+            // decidere quale legione muovere senza tirare a indovinare.
+            const righe = [(meteo.effects || []).join(' · ')];
+            const truppe = meteo.unit_effects || [];
+            if (truppe.length) {
+                righe.push('');
+                righe.push('Effetto sulle truppe:');
+                for (const riga of truppe) {
+                    const segno = riga.percent > 0 ? '+' : '';
+                    righe.push(`  ${riga.unit_name}: ${segno}${riga.percent}%`);
+                }
+            }
+            righe.push('');
+            righe.push(`Condizioni successive fra ${meteo.changes_in} turni`);
+            pill.title = righe.join('\n');
         }
 
         /** Riepilogo leggibile della condizione delle truppe in riserva.

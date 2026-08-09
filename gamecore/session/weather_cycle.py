@@ -76,6 +76,97 @@ EFFECT_HINTS = {
 }
 
 
+# ── Effetto sulla singola unità ────────────────────────────────────
+# `engine.apply_modifiers` applica i moltiplicatori al vettore MEDIO della
+# legione: è la valutazione strategica e resta esattamente com'era. Ma sul
+# valore in battaglia della singola unità il meteo non arrivava, quindi
+# artiglieria e picchieri prendevano la stessa pioggia. Qui si legge la stessa
+# tabella, con la stessa regola CRITICAL, applicata agli attributi di UNA unità.
+CRITICAL_MARK = "CRITICAL"
+CRITICAL_THRESHOLD = 0.5
+CRITICAL_PENALTY = 0.5
+
+#: Quanto pesa il meteo sul valore della singola unità.
+#: 1.0 = esattamente lo scarto che esce dai moltiplicatori. A 1.0 l'effetto si
+#: notava appena (l'artiglieria perdeva il 6% sotto la pioggia) perché il tiro
+#: è una voce su otto nel valore di combattimento: 1.8 lo rende una scelta
+#: tattica vera senza ribaltare gli scontri. È l'unica manopola da toccare per
+#: alzare o abbassare il peso del meteo.
+UNIT_IMPACT = 1.8
+#: Rete di sicurezza: nessuna condizione può dimezzare o raddoppiare un'unità.
+UNIT_FACTOR_MIN = 0.60
+UNIT_FACTOR_MAX = 1.40
+
+
+def unit_weather_factor(
+    attributes: Dict[str, float],
+    weather_key: Optional[str],
+    modifiers_data: Dict[str, Any],
+    weights: Dict[str, float],
+) -> float:
+    """Quanto le condizioni correnti alzano o abbassano il valore di UNA unità.
+
+    `weights` sono i pesi con cui gli attributi formano il valore in battaglia:
+    passandoli si ottiene lo scarto reale su quel valore, non su una media
+    astratta. Un'unità che non ha nulla a che fare con gli attributi toccati
+    dal meteo torna 1.0 e non viene disturbata.
+    """
+    modifiers = (modifiers_data.get("weather") or {}).get(weather_key or "") or {}
+    if not modifiers:
+        return 1.0
+
+    base = 0.0
+    modified = 0.0
+    for key, weight in weights.items():
+        value = float(attributes.get(key, 0.0))
+        base += value * weight
+
+        modifier = modifiers.get(key)
+        if modifier == CRITICAL_MARK:
+            # Stessa soglia dell'engine, ma letta sulla singola unità: di notte
+            # a rischiare è chi ha poca disciplina, non tutta la legione.
+            if value < CRITICAL_THRESHOLD:
+                value *= CRITICAL_PENALTY
+        elif isinstance(modifier, (int, float)):
+            value *= float(modifier)
+        modified += value * weight
+
+    if base <= 0.0:
+        return 1.0
+
+    raw = modified / base
+    return max(UNIT_FACTOR_MIN, min(UNIT_FACTOR_MAX, 1.0 + ((raw - 1.0) * UNIT_IMPACT)))
+
+
+def unit_effects(
+    units_list: List[Dict[str, Any]],
+    weather_key: Optional[str],
+    modifiers_data: Dict[str, Any],
+    weights: Dict[str, float],
+    *,
+    limit: int = 0,
+) -> List[Dict[str, Any]]:
+    """Chi guadagna e chi perde con le condizioni correnti, per UI e log."""
+    rows: List[Dict[str, Any]] = []
+    for unit in units_list:
+        factor = unit_weather_factor(
+            unit.get("attributes", {}), weather_key, modifiers_data, weights
+        )
+        if abs(factor - 1.0) < 0.005:
+            continue
+        rows.append(
+            {
+                "unit_id": unit.get("id"),
+                "unit_name": unit.get("name", unit.get("id")),
+                "factor": round(factor, 3),
+                "percent": int(round((factor - 1.0) * 100)),
+            }
+        )
+
+    rows.sort(key=lambda row: -abs(row["factor"] - 1.0))
+    return rows[:limit] if limit else rows
+
+
 def combined_key(cycle: str, weather: str) -> str:
     """Nome della voce composta, usato come chiave meteo per l'engine."""
     return f"{cycle}{SEPARATOR}{weather}"

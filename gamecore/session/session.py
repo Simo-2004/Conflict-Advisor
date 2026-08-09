@@ -132,6 +132,22 @@ CELL_MAX_GARRISON_UNITS = 4               # tetto assoluto, fortificazioni compr
 # stessa cella. L'IA ha già il proprio limite nei file di difficoltà.
 MAX_LEGIONS_PER_SIDE = 4
 
+# ── Peso degli attributi nel valore di combattimento ───────────────
+# Erano scritti a mano dentro `_unit_battle_value`. Stanno qui perché li usa
+# anche il calcolo dell'effetto meteo sulla singola unità: i due conti devono
+# per forza pesare gli attributi allo stesso modo, altrimenti il fattore meteo
+# non corrisponderebbe allo scarto reale sul valore.
+UNIT_BATTLE_WEIGHTS: Dict[str, float] = {
+    "U1_attack": 24.0,
+    "U2_defense": 20.0,
+    "U3_mobility": 12.0,
+    "U4_stealth": 10.0,
+    "U5_discipline": 14.0,
+    "U6_terrain_adapt": 10.0,
+    "U7_range_power": 8.0,
+    "U8_support": 6.0,
+}
+
 LEGION_TYPE_ARMY = "army"
 LEGION_TYPE_MINING = "mining"
 LEGION_TYPE_CONSTRUCTION = "construction"
@@ -3058,20 +3074,38 @@ class GameSession:
         return losses
 
     def _unit_battle_value(self, unit_id: str) -> float:
-        """Valore base di una singola legione/unità in combattimento."""
-        unit = self.units_map[unit_id]
-        attrs = unit["attributes"]
-        weighted = (
-            attrs["U1_attack"] * 24
-            + attrs["U2_defense"] * 20
-            + attrs["U3_mobility"] * 12
-            + attrs["U4_stealth"] * 10
-            + attrs["U5_discipline"] * 14
-            + attrs["U6_terrain_adapt"] * 10
-            + attrs["U7_range_power"] * 8
-            + attrs["U8_support"] * 6
-        )
-        return weighted
+        """Valore base di una singola legione/unità in combattimento.
+
+        Include le condizioni ambientali correnti: l'artiglieria sotto la
+        pioggia vale meno, gli assassini di notte valgono di più. Passando da
+        qui l'effetto arriva ovunque si conti una truppa — legioni in campo,
+        presidi, difesa del castello, assalti, IA compresa — senza doverlo
+        ripetere in ogni formula.
+        """
+        attrs = self.units_map[unit_id]["attributes"]
+        weighted = sum(attrs[key] * weight for key, weight in UNIT_BATTLE_WEIGHTS.items())
+        return weighted * self._weather_unit_factor(unit_id)
+
+    def _weather_unit_factor(self, unit_id: str) -> float:
+        """Moltiplicatore meteo della singola unità, con cache per condizione.
+
+        `_unit_battle_value` viene chiamato migliaia di volte per turno e il
+        fattore dipende solo da (condizioni, unità): si calcola una volta per
+        combinazione e le condizioni cambiano ogni 20+ turni.
+        """
+        cache = getattr(self, "_weather_unit_cache", None)
+        if cache is None:
+            cache = self._weather_unit_cache = {}
+
+        key = (self.weather, unit_id)
+        if key not in cache:
+            cache[key] = wc.unit_weather_factor(
+                self.units_map[unit_id]["attributes"],
+                self.weather,
+                self.data,
+                UNIT_BATTLE_WEIGHTS,
+            )
+        return cache[key]
 
     def _garrison_unit_defense_value(self, unit_id: str, terrain: str) -> float:
         """Valore difensivo di una unità distaccata, modulato dal terreno corrente."""
@@ -3263,12 +3297,35 @@ class GameSession:
             f"{info['label']} — {effetti}"
         )
 
+        # Chi ci guadagna e chi ci perde davvero, in numeri: senza questa riga
+        # il cambio di condizioni restava una scritta senza conseguenze visibili.
+        movers = self._weather_unit_effects(limit=4)
+        if movers:
+            dettaglio = ", ".join(
+                f"{row['unit_name']} {row['percent']:+d}%" for row in movers
+            )
+            logs.append(f"[Turno {self.game_map.turn}] Effetto sulle truppe: {dettaglio}")
+
     def weather_state(self) -> Dict[str, Any]:
         """Payload dell'indicatore meteo (emoji, colori, effetti, countdown)."""
-        return wc.describe(
+        state = wc.describe(
             self.day_cycle,
             self.weather_base,
             changes_in=self.turns_to_weather_change,
+        )
+        # Chi guadagna e chi perde adesso, in chiaro: il giocatore deve poter
+        # decidere quale legione muovere senza andare a leggere il JSON.
+        state["unit_effects"] = self._weather_unit_effects()
+        return state
+
+    def _weather_unit_effects(self, limit: int = 0) -> List[Dict[str, Any]]:
+        """Effetto delle condizioni correnti su ogni tipo di unità."""
+        return wc.unit_effects(
+            self.data.get("units", []),
+            self.weather,
+            self.data,
+            UNIT_BATTLE_WEIGHTS,
+            limit=limit,
         )
 
     def _advance_troop_conditions(self, logs: List[str]) -> None:
