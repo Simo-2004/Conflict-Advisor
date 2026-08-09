@@ -115,7 +115,13 @@
                 autoRecruitBtn.classList.toggle('active', enabled);
                 autoRecruitBtn.textContent = enabled ? 'Ferma autoreclutamento' : 'Autoreclutamento';
                 if (enabled && autoRecruitState?.unit_name) {
-                    autoRecruitBtn.title = `${autoRecruitState.unit_name} (${autoRecruitState.turns_remaining} turni rimanenti)`;
+                    // Se il piano è in pausa il motivo va detto qui: il giocatore
+                    // vedeva solo il bottone acceso senza capire perché non compra.
+                    const motivo = autoRecruitState.last_result === 'skipped' && autoRecruitState.last_reason
+                        ? ` — in pausa: ${autoRecruitState.last_reason}`
+                        : '';
+                    autoRecruitBtn.title =
+                        `${autoRecruitState.unit_name} (${autoRecruitState.turns_remaining} turni rimanenti)${motivo}`;
                 } else {
                     autoRecruitBtn.title = 'Configura piano automatico di reclutamento';
                 }

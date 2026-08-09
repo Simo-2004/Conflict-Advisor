@@ -73,7 +73,12 @@
             const autoRecruitUnitSelect = document.getElementById('autoRecruitUnitSelect');
             const autoRecruitTurnsInput = document.getElementById('autoRecruitTurnsInput');
             if (autoRecruitUnitSelect) {
-                autoRecruitUnitSelect.addEventListener('change', () => renderAutoRecruitForecast());
+                autoRecruitUnitSelect.addEventListener('change', () => {
+                    // Da qui in poi comanda la scelta dell'utente: il menu non
+                    // deve più riproporre l'unità del reclutamento manuale.
+                    autoRecruitUnitSelect.dataset.userPicked = '1';
+                    renderAutoRecruitForecast();
+                });
             }
             if (autoRecruitTurnsInput) {
                 autoRecruitTurnsInput.addEventListener('input', () => renderAutoRecruitForecast());

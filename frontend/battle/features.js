@@ -45,6 +45,8 @@
             }
         }
 
+        const AUTO_RECRUIT_DEFAULT_TURNS = 6;
+
         function handleAutoRecruitButton() {
             if (!currentBattleState || currentBattleState.state === 'game_over') {
                 document.getElementById('battleStatusHint').textContent = 'Partita terminata: autoreclutamento non disponibile.';
@@ -69,19 +71,27 @@
             const turnsInput = document.getElementById('autoRecruitTurnsInput');
             const autoRecruitState = currentBattleState?.player?.auto_recruit;
 
-            if (autoSelect) {
-                if (autoRecruitState?.unit_id) {
+            if (autoSelect && autoSelect.options.length > 0) {
+                // Solo un piano ATTIVO detta l'unità: un piano concluso lascia
+                // `unit_id` valorizzato nel payload, e riproporlo qui cancellava
+                // in silenzio la scelta appena fatta dal giocatore.
+                if (autoRecruitState?.enabled && autoRecruitState.unit_id) {
                     autoSelect.value = autoRecruitState.unit_id;
-                } else if (recruitSelect && recruitSelect.value) {
+                } else if (!autoSelect.dataset.userPicked && recruitSelect && recruitSelect.value) {
+                    // Comodità solo alla prima apertura: dopo comanda l'utente.
                     autoSelect.value = recruitSelect.value;
                 }
             }
 
             if (turnsInput) {
-                const defaultTurns = Number.isFinite(autoRecruitState?.turns_remaining)
-                    ? Math.max(1, Math.min(40, Number(autoRecruitState.turns_remaining)))
-                    : 6;
-                turnsInput.value = String(defaultTurns);
+                // `turns_remaining` è 0 quando nessun piano è in corso: usarlo
+                // faceva partire ogni piano da 1 solo turno.
+                const remaining = Number(autoRecruitState?.turns_remaining) || 0;
+                const lastUsed = Number(turnsInput.dataset.lastUsed) || 0;
+                const defaultTurns = autoRecruitState?.enabled && remaining > 0
+                    ? remaining
+                    : (lastUsed > 0 ? lastUsed : AUTO_RECRUIT_DEFAULT_TURNS);
+                turnsInput.value = String(Math.max(1, Math.min(40, defaultTurns)));
             }
 
             renderAutoRecruitForecast();
@@ -234,8 +244,16 @@
             }
 
             try {
-                const unitId = document.getElementById('autoRecruitUnitSelect').value;
+                const unitSelect = document.getElementById('autoRecruitUnitSelect');
+                const unitId = unitSelect.value;
                 const turns = getAutoRecruitTurnsValue();
+                if (!unitId) {
+                    throw new Error('Seleziona un\'unità da autoreclutare.');
+                }
+                // Ricorda la durata scelta: alla prossima apertura si riparte da qui.
+                const turnsInput = document.getElementById('autoRecruitTurnsInput');
+                if (turnsInput) turnsInput.dataset.lastUsed = String(turns);
+
                 const response = await fetch('http://127.0.0.1:8000/game/auto-recruit/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },

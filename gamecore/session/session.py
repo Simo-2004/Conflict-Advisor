@@ -4092,17 +4092,25 @@ class GameSession:
         self.player_auto_recruit["attempted_turns"] = int(self.player_auto_recruit.get("attempted_turns") or 0) + 1
         self.player_auto_recruit["turns_remaining"] = turns_remaining - 1
 
-        recruit_log = self._recruit_unit(PLAYER, unit_id, auto=True)
+        # Il motivo va calcolato PRIMA del tentativo: `_recruit_unit` in modalità
+        # automatica restituisce None sia per cooldown sia per grux, e il log
+        # finiva per dire "cooldown o grux insufficienti" anche con le casse piene.
+        block_reason = self._recruit_block_reason(PLAYER, unit_id)
+        recruit_log = None if block_reason else self._recruit_unit(PLAYER, unit_id, auto=True)
+
         if recruit_log:
             self.player_auto_recruit["successful_recruits"] = int(self.player_auto_recruit.get("successful_recruits") or 0) + 1
             self.player_auto_recruit["last_result"] = "success"
+            self.player_auto_recruit["last_reason"] = None
             logs.append(
                 f"[Turno {self.game_map.turn}] 🤖 Autoreclutamento riuscito: {unit_name}"
             )
         else:
             self.player_auto_recruit["last_result"] = "skipped"
+            self.player_auto_recruit["last_reason"] = block_reason or "motivo sconosciuto"
             logs.append(
-                f"[Turno {self.game_map.turn}] 🤖 Autoreclutamento non riuscito: cooldown o grux insufficienti per {unit_name}"
+                f"[Turno {self.game_map.turn}] 🤖 Autoreclutamento in pausa ({unit_name}): "
+                f"{block_reason or 'motivo sconosciuto'}"
             )
 
         if int(self.player_auto_recruit.get("turns_remaining") or 0) <= 0:
@@ -4113,6 +4121,28 @@ class GameSession:
             )
 
         return logs
+
+    def _recruit_block_reason(self, entity: Occupation, unit_id: str) -> Optional[str]:
+        """Perché il reclutamento non è possibile adesso, o None se lo è.
+
+        Serve all'autoreclutamento per dire nel log cosa lo sta fermando davvero:
+        il tentativo automatico fallisce in silenzio e non distingue i due casi.
+        """
+        if unit_id not in self.unit_costs:
+            return f"unità sconosciuta ({unit_id})"
+
+        if not self._can_recruit_now(entity):
+            last_turn = self.last_recruit_turn.get(entity)
+            turns_passed = 0 if last_turn is None else (self.game_map.turn - last_turn)
+            remaining = max(0, self.recruit_cooldown_turns - turns_passed)
+            return f"reclutamento in cooldown, ancora {remaining} turno/i"
+
+        cost = self.unit_costs[unit_id]
+        balance = self.grux_balance.get(entity, 0)
+        if balance < cost:
+            return f"grux insufficienti: servono {cost}, disponibili {balance}"
+
+        return None
 
     def _recruit_unit(self, entity: Occupation, unit_id: str, auto: bool) -> Optional[str]:
         """Recluta una unità, scala il costo e ricalcola il vettore esercito."""
@@ -4765,6 +4795,7 @@ class GameSession:
                     "attempted_turns": int(self.player_auto_recruit.get("attempted_turns") or 0),
                     "successful_recruits": int(self.player_auto_recruit.get("successful_recruits") or 0),
                     "last_result": self.player_auto_recruit.get("last_result") or "inactive",
+                    "last_reason": self.player_auto_recruit.get("last_reason"),
                 },
                 "available_garrisons": self._available_garrisons(PLAYER),
                 "grux_balance":  self.grux_balance[PLAYER],
