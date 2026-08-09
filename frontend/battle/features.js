@@ -45,6 +45,8 @@
             }
         }
 
+        const AUTO_RECRUIT_DEFAULT_TURNS = 6;
+
         function handleAutoRecruitButton() {
             if (!currentBattleState || currentBattleState.state === 'game_over') {
                 document.getElementById('battleStatusHint').textContent = 'Partita terminata: autoreclutamento non disponibile.';
@@ -69,19 +71,27 @@
             const turnsInput = document.getElementById('autoRecruitTurnsInput');
             const autoRecruitState = currentBattleState?.player?.auto_recruit;
 
-            if (autoSelect) {
-                if (autoRecruitState?.unit_id) {
+            if (autoSelect && autoSelect.options.length > 0) {
+                // Solo un piano ATTIVO detta l'unità: un piano concluso lascia
+                // `unit_id` valorizzato nel payload, e riproporlo qui cancellava
+                // in silenzio la scelta appena fatta dal giocatore.
+                if (autoRecruitState?.enabled && autoRecruitState.unit_id) {
                     autoSelect.value = autoRecruitState.unit_id;
-                } else if (recruitSelect && recruitSelect.value) {
+                } else if (!autoSelect.dataset.userPicked && recruitSelect && recruitSelect.value) {
+                    // Comodità solo alla prima apertura: dopo comanda l'utente.
                     autoSelect.value = recruitSelect.value;
                 }
             }
 
             if (turnsInput) {
-                const defaultTurns = Number.isFinite(autoRecruitState?.turns_remaining)
-                    ? Math.max(1, Math.min(40, Number(autoRecruitState.turns_remaining)))
-                    : 6;
-                turnsInput.value = String(defaultTurns);
+                // `turns_remaining` è 0 quando nessun piano è in corso: usarlo
+                // faceva partire ogni piano da 1 solo turno.
+                const remaining = Number(autoRecruitState?.turns_remaining) || 0;
+                const lastUsed = Number(turnsInput.dataset.lastUsed) || 0;
+                const defaultTurns = autoRecruitState?.enabled && remaining > 0
+                    ? remaining
+                    : (lastUsed > 0 ? lastUsed : AUTO_RECRUIT_DEFAULT_TURNS);
+                turnsInput.value = String(Math.max(1, Math.min(40, defaultTurns)));
             }
 
             renderAutoRecruitForecast();
@@ -234,8 +244,16 @@
             }
 
             try {
-                const unitId = document.getElementById('autoRecruitUnitSelect').value;
+                const unitSelect = document.getElementById('autoRecruitUnitSelect');
+                const unitId = unitSelect.value;
                 const turns = getAutoRecruitTurnsValue();
+                if (!unitId) {
+                    throw new Error('Seleziona un\'unità da autoreclutare.');
+                }
+                // Ricorda la durata scelta: alla prossima apertura si riparte da qui.
+                const turnsInput = document.getElementById('autoRecruitTurnsInput');
+                if (turnsInput) turnsInput.dataset.lastUsed = String(turns);
+
                 const response = await fetch('http://127.0.0.1:8000/game/auto-recruit/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -358,22 +376,30 @@
                 ? `⚔ ${escapeAdvisorText(report.legion_name)}`
                 : `🏰 ${escapeAdvisorText(report.legion_name || 'Riserva nel castello')}`;
 
+            // Lo stato truppe è quello DI QUESTA legione, non più uno globale.
+            const statoTruppe = report.troop_status_name || troopStatusLabel;
+            const cond = report.troop_condition || null;
+
             const dettagli = [];
             if (isLegion && report.legion_type_label) dettagli.push(escapeAdvisorText(report.legion_type_label));
             if (report.units_count != null) dettagli.push(`${report.units_count} truppe`);
             if (isLegion && report.pos) dettagli.push(`posizione (${report.pos[0]},${report.pos[1]})`);
             dettagli.push(`terreno ${escapeAdvisorText(report.terrain_name || 'N/D')}`);
             if (report.current_strength != null) dettagli.push(`forza ${report.current_strength}`);
+            if (cond) dettagli.push(`fatica ${cond.fatigue} · morale ${cond.morale}`);
 
             const attiva = report.current_strategy_name
                 ? `<span class="advisor-current-strategy">In uso: ${escapeAdvisorText(report.current_strategy_name)}</span>`
+                : '';
+            const badgeStato = statoTruppe
+                ? `<span class="advisor-troop-status status-${escapeAdvisorText(statoTruppe)}">${escapeAdvisorText(statoTruppe)}</span>`
                 : '';
 
             if (report?.empty) {
                 return `
                     <section class="advisor-section">
                         <header class="advisor-section-head">
-                            <h4>${titolo}</h4>
+                            <h4>${titolo} ${badgeStato}</h4>
                             <p>${dettagli.join(' · ')}</p>
                         </header>
                         <div class="strategy-advisor-note">
@@ -392,9 +418,8 @@
             return `
                 <section class="advisor-section">
                     <header class="advisor-section-head">
-                        <h4>${titolo} ${attiva}</h4>
-                        <p>${dettagli.join(' · ')} · Meteo ${escapeAdvisorText(weatherLabel)} ·
-                           Stato truppe ${escapeAdvisorText(troopStatusLabel)}</p>
+                        <h4>${titolo} ${attiva} ${badgeStato}</h4>
+                        <p>${dettagli.join(' · ')} · Meteo ${escapeAdvisorText(weatherLabel)}</p>
                     </header>
                     <div class="strategy-advisor-reliability">
                         Affidabilità report: ${reliability.score_pct ?? '--'}% ·

@@ -27,7 +27,9 @@
             document.getElementById('playerFortInfo').textContent = `Fortificazioni: ${sessionData.map.stats.player_fortification_levels} livelli su ${sessionData.map.stats.player_fortified_cells} celle`;
             document.getElementById('playerReserveInfo').textContent = `Guarnigioni disponibili: ${sessionData.player.available_garrisons}`;
             document.getElementById('playerLegionSummary').textContent = `Unità sul campo: ${playerLegion.totalUnits} (${playerLegion.totalTypes} tipi)`;
-            document.getElementById('playerLegionMeta').textContent = `Strategia: ${sessionData.player.strategy_name || sessionData.player.strategy_id} · Stato: ${sessionData.player.troop_status || 'N/D'}`;
+            document.getElementById('playerLegionMeta').textContent =
+                `Strategia: ${sessionData.player.strategy_name || sessionData.player.strategy_id}`
+                + ` · Riserva: ${describeTroopCondition(sessionData.player)}`;
             document.getElementById('playerLegionComposition').textContent = `Composizione: ${playerLegion.compositionText}`;
 
             document.getElementById('aiGruxValue').textContent = formatGrux(sessionData.ai.grux_balance);
@@ -36,7 +38,9 @@
             document.getElementById('aiFortInfo').textContent = `Fortificazioni: ${sessionData.map.stats.ai_fortification_levels} livelli su ${sessionData.map.stats.ai_fortified_cells} celle`;
             document.getElementById('aiReserveInfo').textContent = `Guarnigioni disponibili: ${sessionData.ai.available_garrisons}`;
             document.getElementById('aiLegionSummary').textContent = `Unità sul campo: ${aiLegion.totalUnits} (${aiLegion.totalTypes} tipi)`;
-            document.getElementById('aiLegionMeta').textContent = `Strategia: ${sessionData.ai.strategy_name || sessionData.ai.strategy_id} · Stato: ${sessionData.ai.troop_status || 'N/D'}`;
+            document.getElementById('aiLegionMeta').textContent =
+                `Strategia: ${sessionData.ai.strategy_name || sessionData.ai.strategy_id}`
+                + ` · Riserva: ${describeTroopCondition(sessionData.ai)}`;
             document.getElementById('aiLegionComposition').textContent = `Composizione: ${aiLegion.compositionText}`;
 
             const abilityState = sessionData.player?.abilities?.domain_engineering;
@@ -111,7 +115,13 @@
                 autoRecruitBtn.classList.toggle('active', enabled);
                 autoRecruitBtn.textContent = enabled ? 'Ferma autoreclutamento' : 'Autoreclutamento';
                 if (enabled && autoRecruitState?.unit_name) {
-                    autoRecruitBtn.title = `${autoRecruitState.unit_name} (${autoRecruitState.turns_remaining} turni rimanenti)`;
+                    // Se il piano è in pausa il motivo va detto qui: il giocatore
+                    // vedeva solo il bottone acceso senza capire perché non compra.
+                    const motivo = autoRecruitState.last_result === 'skipped' && autoRecruitState.last_reason
+                        ? ` — in pausa: ${autoRecruitState.last_reason}`
+                        : '';
+                    autoRecruitBtn.title =
+                        `${autoRecruitState.unit_name} (${autoRecruitState.turns_remaining} turni rimanenti)${motivo}`;
                 } else {
                     autoRecruitBtn.title = 'Configura piano automatico di reclutamento';
                 }
@@ -180,6 +190,16 @@
                 return null;
             }
             return selector.value || null;
+        }
+
+        /** Riepilogo leggibile della condizione delle truppe in riserva.
+         *  Il backend valorizza sempre lo stato: "N/D" resta solo se il
+         *  payload arriva monco. */
+        function describeTroopCondition(side) {
+            const status = side?.troop_status || 'N/D';
+            const cond = side?.troop_condition;
+            if (!cond) return status;
+            return `${status} (fatica ${Math.round(cond.fatigue)}, morale ${Math.round(cond.morale)})`;
         }
 
         function getSelectedTacticalLegionId() {

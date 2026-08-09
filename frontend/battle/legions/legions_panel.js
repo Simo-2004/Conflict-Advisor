@@ -76,7 +76,56 @@
             path: Array.isArray(legion.path) ? legion.path : [],
             pathStep: Number(legion.path_step || 0),
             legionType: legion.legion_type || 'army',
+            troopStatus: legion.troop_status || null,
+            condition: legion.condition || null,
         }));
+    }
+
+    /* ── Condizione truppe ──────────────────────────────────── */
+
+    const CONDITION_CLASS = {
+        'Fresche': 'fresh',
+        'Stanche': 'tired',
+        'Demoralizzate': 'broken',
+        'Veterane': 'veteran',
+    };
+    const CONDITION_ICON = {
+        'Fresche': '🌿',
+        'Stanche': '😓',
+        'Demoralizzate': '💔',
+        'Veterane': '🎖',
+    };
+
+    /** Badge compatto con lo stato truppe. */
+    function conditionBadgeHtml(status, condition) {
+        if (!status) return '';
+        const cls = CONDITION_CLASS[status] || 'fresh';
+        const icon = CONDITION_ICON[status] || '•';
+        const grado = condition && condition.veteran ? ' · veterana' : '';
+        const titolo = condition
+            ? `Fatica ${condition.fatigue}/100 · Morale ${condition.morale}/100 · `
+              + `Vittorie ${condition.veteran_progress}`
+            : status;
+        return `<span class="condition-badge condition-${cls}" title="${titolo}">${icon} ${status}${grado}</span>`;
+    }
+
+    /** Barrette di fatica e morale: il dettaglio dietro il badge. */
+    function conditionBarsHtml(condition) {
+        if (!condition) return '';
+        const fatica = Math.max(0, Math.min(100, Number(condition.fatigue) || 0));
+        const morale = Math.max(0, Math.min(100, Number(condition.morale) || 0));
+        return `
+            <div class="condition-bar-row" title="Fatica: sale marciando e combattendo, scende stando fermi">
+                <span class="condition-bar-label">Fatica</span>
+                <span class="condition-bar"><i class="fill fatigue" style="width:${fatica}%"></i></span>
+                <span class="condition-bar-value">${Math.round(fatica)}</span>
+            </div>
+            <div class="condition-bar-row" title="Morale: scende perdendo scontri, risale vincendo e riposando">
+                <span class="condition-bar-label">Morale</span>
+                <span class="condition-bar"><i class="fill morale" style="width:${morale}%"></i></span>
+                <span class="condition-bar-value">${Math.round(morale)}</span>
+            </div>
+            <div class="condition-veteran">Vittorie verso il grado: ${condition.veteran_progress}</div>`;
     }
 
     /* ── Tab switching (sotto-tab) ─────────────────────────── */
@@ -107,7 +156,10 @@
         const totalUnits = units.length;
         const armyCost = player.army_cost || 0;
         const strategyName = player.strategy_name || player.strategy_id || '---';
+        // Stato della riserva nel castello: il backend lo valorizza sempre,
+        // quindi "N/D" resta solo come rete di sicurezza.
         const troopStatus = player.troop_status || 'N/D';
+        const reserveCondition = player.troop_condition || null;
 
         const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
         const maxCount = sorted.length > 0 ? sorted[0][1] : 1;
@@ -149,6 +201,10 @@
                 <span class="army-strategy-dot"></span>
                 <span class="army-strategy-text">Strategia: ${strategyName} · Stato: ${troopStatus}</span>
             </div>
+            ${reserveCondition ? `
+            <div class="condition-detail" title="Condizione delle truppe ferme in castello">
+                ${conditionBarsHtml(reserveCondition)}
+            </div>` : ''}
 
             <div class="army-composition-list">
                 <p class="army-composition-title">Composizione</p>
@@ -423,12 +479,16 @@
                             <button class="legion-card-recall" type="button" data-idx="${idx}">Richiama</button>
                         </div>
                     </div>
-                    <div class="legion-card-type-badge legion-type-${leg.legionType}">${typeIcon} ${typeLabel}</div>
+                    <div class="legion-card-badges">
+                        <span class="legion-card-type-badge legion-type-${leg.legionType}">${typeIcon} ${typeLabel}</span>
+                        ${conditionBadgeHtml(leg.troopStatus, leg.condition)}
+                    </div>
                     <div class="legion-card-dest">
                         <span class="legion-card-dest-pin">&#9654;</span>
                         ${dest}
                     </div>
                     <div class="legion-card-comp">${compParts || 'Composizione vuota'}</div>
+                    ${leg.condition ? `<div class="condition-detail">${conditionBarsHtml(leg.condition)}</div>` : ''}
                 </div>`;
         }).join('');
 

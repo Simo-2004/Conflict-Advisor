@@ -30,6 +30,7 @@ from gamecore.session.ai_core.ai_builder import (
 from gamecore.session.ai_core.ai_easy_difficulty import AI_EASY_ID
 from gamecore.session.in_game_advisor import build_in_game_advisor_payload
 from gamecore.session.movement_points import MovementPointsSystem
+from gamecore.session import troop_condition as tc
 
 try:
     from debug.strength_debug import log_strength_debug
@@ -215,6 +216,16 @@ class GameSession:
         self.ai_modified      = ai_data["modified_vector"]
         self.ai_troop_status  = ai_data["troop_status"]
         self.ai_army_cost     = ai_data.get("army_cost", 0)
+
+        # Condizione della riserva nel castello. Le legioni la ereditano alla
+        # nascita e ci rifondono la propria quando vengono richiamate: senza,
+        # richiamare e riformare una legione sarebbe un azzeramento gratuito
+        # della stanchezza. Parte dallo stato scelto nella schermata iniziale,
+        # così quella scelta continua a contare anche in partita.
+        self.reserve_condition: Dict[Occupation, Dict[str, Any]] = {
+            PLAYER: tc.new_condition(player_troop_status),
+            AI: tc.new_condition(self.ai_troop_status),
+        }
 
         # --- Ambiente ---
         self.weather = weather
@@ -402,6 +413,13 @@ class GameSession:
             "legion_type": legion_type,
             # Nasce con la strategia generale, poi la si cambia per legione.
             "strategy_id": self.player_strategy_id,
+            # Eredita la condizione della riserva da cui è stata formata.
+            "condition": tc.new_condition(
+                fatigue=self.reserve_condition[PLAYER]["fatigue"],
+                morale=self.reserve_condition[PLAYER]["morale"],
+                veteran=self.reserve_condition[PLAYER]["veteran"],
+                victories=self.reserve_condition[PLAYER].get("victories", 0),
+            ),
             "path": [],
             "path_step": 0,
             "movement": self.movement_system.export_legion_state(
@@ -437,12 +455,17 @@ class GameSession:
 
         name = legion.get("name", legion_id)
         legion_units = legion.get("units", [])
+        # La condizione va fusa PRIMA di versare le truppe in riserva, così la
+        # media pesa sulla riserva com'era: le truppe stanche che rientrano
+        # stancano la riserva, e riformare la legione non azzera nulla.
+        stato = self._legion_troop_status(PLAYER, legion)
+        self._merge_legion_into_reserve(PLAYER, legion)
         self.player_units.extend(legion_units)
         del self.player_legions[legion_id]
 
         log_entry = (
             f"[Turno {self.game_map.turn}] 🏳 PLAYER: Legione '{name}' richiamata "
-            f"— {len(legion_units)} unità tornano in riserva."
+            f"— {len(legion_units)} unità ({stato}) tornano in riserva."
         )
         self.battle_log.append(log_entry)
 
@@ -540,6 +563,13 @@ class GameSession:
             "legion_type": LEGION_TYPE_ARMY,
             "path": [],
             "path_step": 0,
+            # Come per il player: eredita la condizione della riserva IA.
+            "condition": tc.new_condition(
+                fatigue=self.reserve_condition[AI]["fatigue"],
+                morale=self.reserve_condition[AI]["morale"],
+                veteran=self.reserve_condition[AI]["veteran"],
+                victories=self.reserve_condition[AI].get("victories", 0),
+            ),
             "movement": self.movement_system.export_legion_state(
                 self._legion_movement_key(AI, legion_id)
             ),
@@ -573,6 +603,11 @@ class GameSession:
         legion["movement"] = self.movement_system.export_legion_state(key)
         if not block["blocked"]:
             return False
+
+        # Anche restare impantanati a metà guado costa: senza questo un terreno
+        # duro sarebbe MENO faticoso di uno facile, perché blocca la legione per
+        # più turni e i turni fermi verrebbero contati come riposo.
+        legion["traversing_terrain"] = block["last_terrain"]
 
         icon = "⚔️" if entity == PLAYER else "🤖"
         remaining = int(block["remaining_blocked_turns"]) + 1
@@ -1199,6 +1234,17 @@ class GameSession:
         hp_after = max(0, hp_before - damage)
         self.castle_hp[defender] = hp_after
 
+        # L'assedio logora comunque: costa fatica e, se respinto, morale — ma
+        # in proporzione a quanto poco ha ottenuto.
+        status_before = tc.resolve_status(self._legion_condition(attacker, legion))
+        castle_max = max(1, self.castle_hp_max.get(defender, CASTLE_BASE_HP))
+        tc.apply_siege(
+            self._legion_condition(attacker, legion),
+            breached=hp_after <= 0,
+            damage_ratio=damage / castle_max,
+        )
+        legion["acted_this_turn"] = True
+
         castle_cell = self.game_map.get_cell(*to_pos)
         if hp_after <= 0:
             if castle_cell is not None:
@@ -1210,6 +1256,8 @@ class GameSession:
                 f"con {damage} danni (HP {hp_before}->{hp_after})."
             )
             return
+
+        self._log_condition_change(attacker, legion, status_before, logs)
 
         # Castello non distrutto: assalto respinto, le truppe rientrano subito al castello d'origine
         # (niente spam di assalti: il target viene azzerato, serve un nuovo ordine del giocatore/IA).
@@ -1283,7 +1331,9 @@ class GameSession:
         #    Si valuta la composizione DI QUESTA legione, non l'esercito globale:
         #    è ciò che rende sensata una strategia per legione (la cavalleria
         #    manovra, la fanteria tiene) invece di una sola per tutto il campo.
-        troop_status = self.player_troop_status if entity == PLAYER else self.ai_troop_status
+        #    Lo stato truppe è quello DI QUESTA legione: la stessa scala della
+        #    schermata iniziale, applicata dal solito `apply_modifiers`.
+        troop_status = self._legion_troop_status(entity, legion)
         modified, _ = apply_modifiers(
             army_vector=aggregate_army(unit_ids, self.data["units"]),
             terrain_name=terrain,
@@ -1444,6 +1494,26 @@ class GameSession:
 
         atk_name = atk_legion.get("name", atk_id)
         def_name = def_legion.get("name", def_id)
+
+        # Stato prima dello scontro: serve per annotare gli eventuali passaggi
+        # (una legione può uscire dalla battaglia demoralizzata o promossa).
+        atk_status_before = tc.resolve_status(self._legion_condition(attacker, atk_legion))
+        def_status_before = tc.resolve_status(self._legion_condition(defender, def_legion))
+
+        def registra_esito(vincitrice: Optional[Dict[str, Any]], perdente: Optional[Dict[str, Any]]) -> None:
+            """Applica fatica, morale e vittorie alle legioni sopravvissute."""
+            for legione, entita, vinto, prima in (
+                (vincitrice, attacker if vincitrice is atk_legion else defender, True,
+                 atk_status_before if vincitrice is atk_legion else def_status_before),
+                (perdente, attacker if perdente is atk_legion else defender, False,
+                 atk_status_before if perdente is atk_legion else def_status_before),
+            ):
+                if legione is None:
+                    continue
+                tc.apply_battle(self._legion_condition(entita, legione), won=vinto)
+                legione["acted_this_turn"] = True
+                self._log_condition_change(entita, legione, prima, logs)
+
         header = (
             f"{self._format_battle_location(terrain)} su {pos}: "
             f"{attacker.value.upper()} '{atk_name}' ({int(atk['strength'])}) contro "
@@ -1476,6 +1546,7 @@ class GameSession:
             logs.append(
                 f"   Esito: vince {attacker.value.upper()} — legione '{def_name}' distrutta."
             )
+            registra_esito(atk_legion, None)
             return
 
         if not atk_alive:
@@ -1484,6 +1555,7 @@ class GameSession:
             logs.append(
                 f"   Esito: assalto respinto — legione '{atk_name}' distrutta."
             )
+            registra_esito(def_legion, None)
             return
 
         # Entrambe sopravvivono: decide la forza, chi perde ripiega al proprio castello.
@@ -1513,6 +1585,7 @@ class GameSession:
             f"   Esito: vince {winner.value.upper()} — la legione '{loser_name}' "
             f"ripiega al proprio castello."
         )
+        registra_esito(winner_legion, loser_legion)
 
     # ──────────────────────────────────────────────────────────
     # MOSSA GIOCATORE (entry-point principale)
@@ -2645,6 +2718,8 @@ class GameSession:
 
             row, col = next_pos
             cell = self.game_map.get_cell(row, col)
+            # Terreno attraversato: la fatica viene contata a fine turno.
+            legion["marched_terrain"] = cell.terrain if cell is not None else "Pianura"
             if cell and getattr(cell, "occupation", None) != PLAYER:
                 cell.occupation = PLAYER
                 logs.append(f"⚔️ La legione PLAYER '{legion['name']}' conquista la cella ({row},{col}).")
@@ -2722,6 +2797,8 @@ class GameSession:
 
                     row, col = next_pos
                     cell = self.game_map.get_cell(row, col)
+                    # Stessa regola del player: la fatica si conta a fine turno.
+                    legion["marched_terrain"] = cell.terrain if cell is not None else "Pianura"
                     if cell and getattr(cell, "occupation", None) != AI:
                         cell.occupation = AI
                         logs.append(f"🤖 La legione IA '{legion['name']}' conquista la cella ({row},{col}).")
@@ -2742,6 +2819,11 @@ class GameSession:
             econ_logs = self._advance_round_economy()
             if econ_logs:
                 logs.extend(econ_logs)
+
+        # 4. Stanchezza, morale e gradi: una sola passata a fine turno, così
+        #    ogni legione paga la marcia o incassa il riposo esattamente una volta.
+        if self.state == SessionState.ACTIVE:
+            self._advance_troop_conditions(logs)
 
         self._prune_legion_movement_states()
 
@@ -3091,6 +3173,99 @@ class GameSession:
                 return cell.terrain
         return self.player_home_terrain if entity == PLAYER else self.ai_home_terrain
 
+    # ──────────────────────────────────────────────────────────
+    # CONDIZIONE TRUPPE (stanchezza / morale / grado)
+    # ──────────────────────────────────────────────────────────
+
+    def _initial_troop_status(self, entity: Occupation) -> str:
+        """Stato di riferimento dello schieramento, scelto prima della battaglia."""
+        chosen = self.player_troop_status if entity == PLAYER else self.ai_troop_status
+        return chosen if chosen in tc.ALL_STATUSES else tc.STATUS_FRESH
+
+    def _legion_condition(self, entity: Occupation, legion: Dict[str, Any]) -> Dict[str, Any]:
+        return tc.ensure_condition(legion, self._initial_troop_status(entity))
+
+    def _legion_troop_status(self, entity: Occupation, legion: Dict[str, Any]) -> str:
+        """Stato truppe di una legione: è il metro usato in combattimento."""
+        return tc.resolve_status(self._legion_condition(entity, legion))
+
+    def _distance_from_home(self, entity: Occupation, pos: Tuple[int, int]) -> int:
+        """Distanza dal proprio castello, in celle."""
+        castle = self.game_map.castle_positions.get(entity)
+        if castle is None or len(pos) != 2:
+            return 0
+        return abs(int(pos[0]) - int(castle[0])) + abs(int(pos[1]) - int(castle[1]))
+
+    def _log_condition_change(
+        self,
+        entity: Occupation,
+        legion: Dict[str, Any],
+        before: str,
+        logs: List[str],
+    ) -> None:
+        """Annota il passaggio di stato, che altrimenti resterebbe invisibile."""
+        after = tc.resolve_status(self._legion_condition(entity, legion))
+        if after == before:
+            return
+        condition = self._legion_condition(entity, legion)
+        icons = {
+            tc.STATUS_FRESH: "🌿",
+            tc.STATUS_TIRED: "😓",
+            tc.STATUS_DEMORALIZED: "💔",
+            tc.STATUS_VETERAN: "🎖",
+        }
+        extra = ""
+        if after == tc.STATUS_VETERAN and before != tc.STATUS_VETERAN and condition.get("veteran"):
+            extra = f" — {condition.get('victories', 0)} vittorie sul campo"
+        logs.append(
+            f"[Turno {self.game_map.turn}] {icons.get(after, '•')} {entity.value.upper()}: "
+            f"legione '{legion.get('name', '?')}' {before} → {after}{extra}"
+        )
+
+    def _advance_troop_conditions(self, logs: List[str]) -> None:
+        """Chiude il turno per ogni legione: marcia, riposo, cambio di stato.
+
+        Chi si è mosso paga la fatica del terreno attraversato; chi ha
+        combattuto ha già pagato nello scontro; chi è rimasto fermo recupera,
+        tanto meno quanto è lontano da casa.
+        """
+        for entity, legions in ((PLAYER, self.player_legions), (AI, self.ai_legions)):
+            for legion in list(legions.values()):
+                condition = self._legion_condition(entity, legion)
+                before = tc.resolve_status(condition)
+
+                terrain = legion.pop("marched_terrain", None)
+                traversing = legion.pop("traversing_terrain", None)
+                acted = bool(legion.pop("acted_this_turn", False))
+
+                if terrain is not None:
+                    tc.apply_march(condition, terrain)
+                elif traversing is not None:
+                    tc.apply_traversal(condition, traversing)
+                elif not acted:
+                    tc.apply_rest(
+                        condition,
+                        self._distance_from_home(entity, tuple(legion.get("pos", ()))),
+                    )
+
+                # Il morale risale piano in ogni turno senza combattimenti,
+                # anche marciando: si perde per le sconfitte, non per la strada.
+                if not acted:
+                    tc.apply_morale_drift(condition)
+
+                self._log_condition_change(entity, legion, before, logs)
+
+    def _merge_legion_into_reserve(self, entity: Occupation, legion: Dict[str, Any]) -> None:
+        """Le truppe richiamate si mescolano alla riserva, condizione compresa."""
+        condition = self._legion_condition(entity, legion)
+        reserve = self._entity_units(entity)
+        tc.merge_into_pool(
+            self.reserve_condition[entity],
+            len(reserve),
+            condition,
+            len(legion.get("units", [])),
+        )
+
     def _legions_with_strategy(self, entity: Occupation) -> Dict[str, Dict[str, Any]]:
         """Legioni per il payload, con strategia risolta e nome leggibile.
 
@@ -3101,12 +3276,15 @@ class GameSession:
         out: Dict[str, Dict[str, Any]] = {}
         for legion_id, legion in source.items():
             strategy_id = self._legion_strategy_id(entity, legion)
+            condition = self._legion_condition(entity, legion)
             out[legion_id] = {
                 **legion,
                 "strategy_id": strategy_id,
                 "strategy_name": self.strategies_map.get(strategy_id, {}).get(
                     "name", strategy_id
                 ),
+                "troop_status": tc.resolve_status(condition),
+                "condition": tc.describe(condition),
             }
         return out
 
@@ -3208,16 +3386,18 @@ class GameSession:
             raise ValueError("La partita è terminata.")
 
         terrain_name = self._current_army_terrain(PLAYER)
+        reserve_status = tc.resolve_status(self.reserve_condition[PLAYER])
         payload = build_in_game_advisor_payload(
             data=self.data,
             turn=self.game_map.turn,
             player_units=list(self.player_units),
             player_army=dict(self.player_army),
             player_strategy_id=self.player_strategy_id,
-            troop_status_name=self.player_troop_status,
+            troop_status_name=reserve_status,
             terrain_name=terrain_name,
             weather_name=self.weather,
         )
+        payload["troop_condition"] = tc.describe(self.reserve_condition[PLAYER])
         payload["scope"] = "reserve"
         payload["legion_id"] = None
         payload["legion_name"] = "Riserva nel castello"
@@ -3240,6 +3420,8 @@ class GameSession:
         cell = self.game_map.get_cell(*pos) if len(pos) == 2 else None
         terrain_name = cell.terrain if cell is not None else self.player_home_terrain
         strategy_id = self._legion_strategy_id(PLAYER, legion)
+        condition = self._legion_condition(PLAYER, legion)
+        troop_status = tc.resolve_status(condition)
 
         if not unit_ids:
             return {
@@ -3257,6 +3439,8 @@ class GameSession:
                 "current_strategy_name": self.strategies_map.get(strategy_id, {}).get(
                     "name", strategy_id
                 ),
+                "troop_status_name": troop_status,
+                "troop_condition": tc.describe(condition),
                 "empty": True,
                 "ranking": [],
             }
@@ -3267,7 +3451,7 @@ class GameSession:
             player_units=unit_ids,
             player_army=aggregate_army(unit_ids, self.data["units"]),
             player_strategy_id=strategy_id,
-            troop_status_name=self.player_troop_status,
+            troop_status_name=troop_status,
             terrain_name=terrain_name,
             weather_name=self.weather,
         )
@@ -3291,6 +3475,8 @@ class GameSession:
             ),
             "current_strength": int(round(breakdown["strength"])),
             "current_strategy_factor": round(breakdown["strategy_factor"], 3),
+            "troop_status_name": troop_status,
+            "troop_condition": tc.describe(condition),
             "empty": False,
         })
         return payload
@@ -3906,17 +4092,25 @@ class GameSession:
         self.player_auto_recruit["attempted_turns"] = int(self.player_auto_recruit.get("attempted_turns") or 0) + 1
         self.player_auto_recruit["turns_remaining"] = turns_remaining - 1
 
-        recruit_log = self._recruit_unit(PLAYER, unit_id, auto=True)
+        # Il motivo va calcolato PRIMA del tentativo: `_recruit_unit` in modalità
+        # automatica restituisce None sia per cooldown sia per grux, e il log
+        # finiva per dire "cooldown o grux insufficienti" anche con le casse piene.
+        block_reason = self._recruit_block_reason(PLAYER, unit_id)
+        recruit_log = None if block_reason else self._recruit_unit(PLAYER, unit_id, auto=True)
+
         if recruit_log:
             self.player_auto_recruit["successful_recruits"] = int(self.player_auto_recruit.get("successful_recruits") or 0) + 1
             self.player_auto_recruit["last_result"] = "success"
+            self.player_auto_recruit["last_reason"] = None
             logs.append(
                 f"[Turno {self.game_map.turn}] 🤖 Autoreclutamento riuscito: {unit_name}"
             )
         else:
             self.player_auto_recruit["last_result"] = "skipped"
+            self.player_auto_recruit["last_reason"] = block_reason or "motivo sconosciuto"
             logs.append(
-                f"[Turno {self.game_map.turn}] 🤖 Autoreclutamento non riuscito: cooldown o grux insufficienti per {unit_name}"
+                f"[Turno {self.game_map.turn}] 🤖 Autoreclutamento in pausa ({unit_name}): "
+                f"{block_reason or 'motivo sconosciuto'}"
             )
 
         if int(self.player_auto_recruit.get("turns_remaining") or 0) <= 0:
@@ -3927,6 +4121,28 @@ class GameSession:
             )
 
         return logs
+
+    def _recruit_block_reason(self, entity: Occupation, unit_id: str) -> Optional[str]:
+        """Perché il reclutamento non è possibile adesso, o None se lo è.
+
+        Serve all'autoreclutamento per dire nel log cosa lo sta fermando davvero:
+        il tentativo automatico fallisce in silenzio e non distingue i due casi.
+        """
+        if unit_id not in self.unit_costs:
+            return f"unità sconosciuta ({unit_id})"
+
+        if not self._can_recruit_now(entity):
+            last_turn = self.last_recruit_turn.get(entity)
+            turns_passed = 0 if last_turn is None else (self.game_map.turn - last_turn)
+            remaining = max(0, self.recruit_cooldown_turns - turns_passed)
+            return f"reclutamento in cooldown, ancora {remaining} turno/i"
+
+        cost = self.unit_costs[unit_id]
+        balance = self.grux_balance.get(entity, 0)
+        if balance < cost:
+            return f"grux insufficienti: servono {cost}, disponibili {balance}"
+
+        return None
 
     def _recruit_unit(self, entity: Occupation, unit_id: str, auto: bool) -> Optional[str]:
         """Recluta una unità, scala il costo e ricalcola il vettore esercito."""
@@ -3958,6 +4174,10 @@ class GameSession:
         before_breakdown = self._strength_breakdown(entity, home_terrain)
 
         self.grux_balance[entity] -= cost
+
+        # La recluta entra riposata e abbassa la stanchezza media della riserva:
+        # è il modo lento ma legittimo di rimettere in sesto un esercito logoro.
+        tc.dilute_pool(self.reserve_condition[entity], len(self._entity_units(entity)))
 
         if entity == PLAYER:
             self.player_units.append(unit_id)
@@ -4555,7 +4775,12 @@ class GameSession:
                 "strategy_name": self.strategies_map.get(self.player_strategy_id, {}).get("name", self.player_strategy_id),
                 "army":          self.player_army,
                 "modified":      self.player_modified,
-                "troop_status":  self.player_troop_status,
+                # Stato della riserva nel castello: non è più il valore fisso
+                # scelto a inizio partita (che restava "n/d" se non sceglievi),
+                # ma la condizione viva delle truppe ferme in castello.
+                "troop_status":  tc.resolve_status(self.reserve_condition[PLAYER]),
+                "troop_condition": tc.describe(self.reserve_condition[PLAYER]),
+                "initial_troop_status": self.player_troop_status,
                 "legions":       self._legions_with_strategy(PLAYER),
                 "castle": {
                     "hp": self.castle_hp.get(PLAYER, self.castle_hp_max.get(PLAYER, CASTLE_BASE_HP)),
@@ -4570,6 +4795,7 @@ class GameSession:
                     "attempted_turns": int(self.player_auto_recruit.get("attempted_turns") or 0),
                     "successful_recruits": int(self.player_auto_recruit.get("successful_recruits") or 0),
                     "last_result": self.player_auto_recruit.get("last_result") or "inactive",
+                    "last_reason": self.player_auto_recruit.get("last_reason"),
                 },
                 "available_garrisons": self._available_garrisons(PLAYER),
                 "grux_balance":  self.grux_balance[PLAYER],
@@ -4589,14 +4815,16 @@ class GameSession:
                 "strategy_name": self.ai_strategy_name,
                 "difficulty":    self.ai_difficulty,
                 "difficulty_labels": get_ai_difficulty_labels(),
-                "legions":       self.ai_legions,
+                "legions":       self._legions_with_strategy(AI),
                 "castle": {
                     "hp": self.castle_hp.get(AI, self.castle_hp_max.get(AI, CASTLE_BASE_HP)),
                     "max_hp": self.castle_hp_max.get(AI, CASTLE_BASE_HP),
                 },
                 "army":          self.ai_army,
                 "modified":      self.ai_modified,
-                "troop_status":  self.ai_troop_status,
+                "troop_status":  tc.resolve_status(self.reserve_condition[AI]),
+                "troop_condition": tc.describe(self.reserve_condition[AI]),
+                "initial_troop_status": self.ai_troop_status,
                 "available_garrisons": self._available_garrisons(AI),
                 "grux_balance":  self.grux_balance[AI],
                 "army_cost":     self.ai_army_cost,

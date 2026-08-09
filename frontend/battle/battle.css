@@ -1355,6 +1355,21 @@
             color: var(--muted, #64748b);
         }
 
+        /* Stato truppe nell'advisor: un colore per condizione, così si legge
+           a colpo d'occhio quale legione è in forma e quale è logora. */
+        .advisor-troop-status {
+            font-size: 0.72em;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+            padding: 3px 8px;
+            border-radius: 999px;
+            border: 1px solid transparent;
+        }
+        .advisor-troop-status.status-Fresche       { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
+        .advisor-troop-status.status-Veterane      { background: #fefce8; border-color: #fde68a; color: #a16207; }
+        .advisor-troop-status.status-Stanche       { background: #fff7ed; border-color: #fed7aa; color: #c2410c; }
+        .advisor-troop-status.status-Demoralizzate { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+
         .advisor-current-strategy {
             font-size: 0.74em;
             font-weight: 700;
