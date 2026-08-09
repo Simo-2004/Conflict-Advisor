@@ -31,6 +31,7 @@ from gamecore.session.ai_core.ai_easy_difficulty import AI_EASY_ID
 from gamecore.session.in_game_advisor import build_in_game_advisor_payload
 from gamecore.session.movement_points import MovementPointsSystem
 from gamecore.session import troop_condition as tc
+from gamecore.session import weather_cycle as wc
 
 try:
     from debug.strength_debug import log_strength_debug
@@ -193,7 +194,10 @@ class GameSession:
         map_seed: Optional[int] = None,
         ai_difficulty: str = AI_EASY_ID,
     ) -> None:
-        self.data = data
+        # Mappa meteo arricchita con le combinazioni ciclo × meteo. È una copia:
+        # registrarle nel dizionario globale le farebbe comparire nel selettore
+        # meteo della schermata iniziale, che deve restare con le sue 4 voci.
+        self.data = wc.data_with_combined_weather(data)
         self.units_map = {unit["id"]: unit for unit in self.data["units"]}
         self.strategies_map = {strategy["id"]: strategy for strategy in self.data["strategies"]}
         self.unit_costs = get_unit_costs(self.data["units"])
@@ -228,7 +232,13 @@ class GameSession:
         }
 
         # --- Ambiente ---
-        self.weather = weather
+        # Due assi che si sommano: ciclo (Giorno/Notte) e meteo (Sereno/Pioggia/
+        # Nebbia). `self.weather` resta la chiave passata all'engine, ora composta,
+        # così ogni punto che la usava continua a funzionare senza modifiche.
+        self.day_cycle, self.weather_base = wc.split_key(weather)
+        self.weather = wc.combined_key(self.day_cycle, self.weather_base)
+        self.weather_rng = random.Random((map_seed or 0) * 977 + 13)
+        self.turns_to_weather_change = wc.next_change_delay(self.weather_rng)
 
         # --- Legioni (Nuovo Sistema) ---
         self.player_legions: Dict[str, Dict[str, Any]] = {}
@@ -2824,6 +2834,7 @@ class GameSession:
         #    ogni legione paga la marcia o incassa il riposo esattamente una volta.
         if self.state == SessionState.ACTIVE:
             self._advance_troop_conditions(logs)
+            self._advance_weather(logs)
 
         self._prune_legion_movement_states()
 
@@ -3220,6 +3231,44 @@ class GameSession:
         logs.append(
             f"[Turno {self.game_map.turn}] {icons.get(after, '•')} {entity.value.upper()}: "
             f"legione '{legion.get('name', '?')}' {before} → {after}{extra}"
+        )
+
+    # ──────────────────────────────────────────────────────────
+    # METEO E CICLO GIORNO/NOTTE
+    # ──────────────────────────────────────────────────────────
+
+    def _refresh_weather_key(self) -> None:
+        """Riallinea la chiave passata all'engine ai due assi correnti."""
+        self.weather = wc.combined_key(self.day_cycle, self.weather_base)
+
+    def _advance_weather(self, logs: List[str]) -> None:
+        """Fa scorrere ciclo e meteo sui loro due orologi indipendenti.
+
+        Cambiano di rado apposta: sotto i 20 turni diventerebbero rumore e
+        renderebbero imprevedibile ogni pianificazione a lungo termine.
+        """
+        self.turns_to_weather_change -= 1
+        if self.turns_to_weather_change > 0:
+            return
+
+        self.day_cycle, self.weather_base = wc.advance(
+            self.day_cycle, self.weather_base, self.weather_rng
+        )
+        self.turns_to_weather_change = wc.next_change_delay(self.weather_rng)
+        self._refresh_weather_key()
+        info = self.weather_state()
+        effetti = " · ".join(info["effects"])
+        logs.append(
+            f"[Turno {self.game_map.turn}] {info['emoji']} Condizioni: "
+            f"{info['label']} — {effetti}"
+        )
+
+    def weather_state(self) -> Dict[str, Any]:
+        """Payload dell'indicatore meteo (emoji, colori, effetti, countdown)."""
+        return wc.describe(
+            self.day_cycle,
+            self.weather_base,
+            changes_in=self.turns_to_weather_change,
         )
 
     def _advance_troop_conditions(self, logs: List[str]) -> None:
@@ -4769,6 +4818,9 @@ class GameSession:
             "state":   self.state.value,
             "winner":  self.winner,
             "weather": self.weather,
+            # Stato ambientale completo per l'indicatore: i due assi separati,
+            # emoji, colori, effetti in chiaro e quanti turni mancano al cambio.
+            "weather_state": self.weather_state(),
             "player": {
                 "units":         self.player_units,
                 "strategy_id":   self.player_strategy_id,
