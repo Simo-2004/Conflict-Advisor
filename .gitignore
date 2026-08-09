@@ -46,3 +46,4 @@ ENV/
 .DS_Store
 Thumbs.db
 gamecore/debug_module/README.md
+frontend/battle/atmosphere/README.md
