@@ -28,6 +28,7 @@ from gamecore.session.ai_core.ai_builder import (
     normalize_ai_difficulty,
 )
 from gamecore.session.ai_core.ai_easy_difficulty import AI_EASY_ID
+from gamecore.session.ai_core import ai_doctrine
 from gamecore.session.in_game_advisor import build_in_game_advisor_payload
 from gamecore.session.movement_points import MovementPointsSystem
 from gamecore.session import troop_condition as tc
@@ -140,6 +141,17 @@ CELL_MAX_GARRISON_UNITS = 4               # tetto assoluto, fortificazioni compr
 # legioni da una unità: conquista a sciame e legioni accatastate sulla
 # stessa cella. L'IA ha già il proprio limite nei file di difficoltà.
 MAX_LEGIONS_PER_SIDE = 4
+
+# Unità minime perché una legione IA in più sia un reparto e non un drappello.
+# Misurato: spezzare l'esercito in quattro gruppetti da tre rende l'IA più
+# debole, non più minacciosa — contro le mura ognuno fa il danno minimo.
+# L'accerchiamento vale solo con reparti veri dietro.
+AI_MIN_UNITS_PER_LEGION = 6
+
+# Caselle massime in un ordine di cattura d'area. Non è un limite tecnico: una
+# legione che deve prendere mezza mappa non torna più indietro, e l'ordine
+# diventa impossibile da leggere sulla carta.
+CAPTURE_AREA_MAX_CELLS = 40
 
 # ── Peso degli attributi nel valore di combattimento ───────────────
 # Erano scritti a mano dentro `_unit_battle_value`. Stanno qui perché li usa
@@ -300,6 +312,9 @@ class GameSession:
         self.ai_difficulty: str = normalize_ai_difficulty(ai_difficulty)
         self.ai_policy = build_ai_policy(self.ai_difficulty, seed=map_seed)
         self.ai_policy_seed = map_seed
+        # La dottrina è il "come manovra", separata dal "cosa vuole" dei profili
+        # di difficoltà: corsie, aggiramenti, giri larghi e attese.
+        self.ai_doctrine = ai_doctrine.for_difficulty(self.ai_difficulty, seed=map_seed)
         self.movement_system = MovementPointsSystem()
         self.player_control_mode: str = "manual"
         self.player_orders: Dict[str, str] = {
@@ -403,18 +418,64 @@ class GameSession:
         # accettare una sovrapposizione, che è proprio ciò che vogliamo evitare.
         return self._free_cell_for(entity, (r, c))
 
+    def _normalize_capture_area(
+        self,
+        cells: Optional[List[Any]],
+    ) -> List[Tuple[int, int]]:
+        """Valida l'area di cattura e la riduce a celle sensate.
+
+        Si buttano via i doppioni, le celle fuori mappa e quelle già nostre:
+        un ordine di cattura su roba che possediamo già è solo tempo perso.
+        """
+        if not cells:
+            return []
+
+        pulite: List[Tuple[int, int]] = []
+        viste = set()
+        for raw in cells:
+            if not isinstance(raw, (list, tuple)) or len(raw) != 2:
+                raise ValueError("Area di cattura non valida: servono coppie [riga, colonna].")
+            pos = (int(raw[0]), int(raw[1]))
+            if pos in viste:
+                continue
+            cell = self.game_map.get_cell(*pos)
+            if cell is None:
+                raise ValueError(f"La cella {pos} è fuori dalla mappa.")
+            viste.add(pos)
+            if cell.occupation == PLAYER:
+                continue
+            pulite.append(pos)
+
+        if len(pulite) > CAPTURE_AREA_MAX_CELLS:
+            raise ValueError(
+                f"Area troppo grande: {len(pulite)} caselle da conquistare, "
+                f"il massimo è {CAPTURE_AREA_MAX_CELLS}."
+            )
+        return pulite
+
     def create_player_legion(
         self,
         name: str,
         units_dict: Dict[str, int],
         target: Optional[Tuple[int, int]],
         legion_type: str = LEGION_TYPE_ARMY,
+        capture_area: Optional[List[Any]] = None,
     ) -> Dict[str, Any]:
         if self.state != SessionState.ACTIVE:
             raise ValueError("Partita terminata.")
 
         if legion_type not in LEGION_TYPES:
             raise ValueError(f"Tipo legione non valido: {legion_type}")
+
+        # O una destinazione o un'area, mai le due cose insieme: sono due ordini
+        # diversi e la legione ne può eseguire uno solo.
+        area = self._normalize_capture_area(capture_area)
+        if area and target is not None:
+            raise ValueError(
+                "Scegli una destinazione oppure un'area da catturare, non entrambe."
+            )
+        if capture_area and not area:
+            raise ValueError("Nell'area selezionata non c'è niente da conquistare: è già tua.")
 
         if len(self.player_legions) >= MAX_LEGIONS_PER_SIDE:
             raise ValueError(
@@ -444,12 +505,18 @@ class GameSession:
         legion_id = f"L_{self.next_legion_id}"
         self.next_legion_id += 1
         
+        # Con un'area assegnata la prima meta è la casella più vicina da prendere:
+        # da lì in poi ci pensa `_refresh_capture_area` a passare alla successiva.
+        if area:
+            target = min(area, key=lambda pos: self._order_distance(spawn_pos, pos))
+
         self.player_legions[legion_id] = {
             "id": legion_id,
             "name": name,
             "units": legion_units,
             "pos": spawn_pos,
             "target": target,
+            "capture_area": [list(pos) for pos in area],
             "legion_type": legion_type,
             # Nasce con la strategia generale, poi la si cambia per legione.
             "strategy_id": self.player_strategy_id,
@@ -529,11 +596,17 @@ class GameSession:
             raise ValueError("Cella di destinazione fuori dai limiti della mappa.")
 
         legion["target"] = target
+        # Una destinazione annulla l'ordine di cattura: sono due ordini diversi
+        # e la legione ne esegue uno solo, anche a legione già in campo.
+        area_annullata = len(legion.get("capture_area") or [])
+        legion["capture_area"] = []
         name = legion.get("name", legion_id)
 
         log_entry = (
             f"[Turno {self.game_map.turn}] 🧭 PLAYER: Legione '{name}' ridiretta verso {target}."
         )
+        if area_annullata:
+            log_entry += f" Ordine di cattura annullato ({area_annullata} caselle)."
         self.battle_log.append(log_entry)
 
         return {
@@ -542,27 +615,60 @@ class GameSession:
             "session": self.to_dict()
         }
 
+    def set_legion_capture_area(self, legion_id: str, cells: List[Any]) -> Dict[str, Any]:
+        """Assegna un nuovo ordine di cattura d'area a una legione già in campo."""
+        if self.state != SessionState.ACTIVE:
+            raise ValueError("Partita terminata.")
+
+        legion = self.player_legions.get(legion_id)
+        if legion is None:
+            raise ValueError(f"Legione non trovata: {legion_id}")
+
+        area = self._normalize_capture_area(cells)
+        if not area:
+            raise ValueError("Nell'area selezionata non c'è niente da conquistare: è già tua.")
+
+        current_pos = tuple(legion.get("pos", ()))
+        legion["capture_area"] = [list(pos) for pos in area]
+        # La prima meta è la più vicina: l'ordine parte da dove si trova adesso.
+        if len(current_pos) == 2:
+            legion["target"] = list(min(area, key=lambda pos: self._order_distance(current_pos, pos)))
+
+        name = legion.get("name", legion_id)
+        log_entry = (
+            f"[Turno {self.game_map.turn}] 🗺 PLAYER: Legione '{name}' riceve l'ordine di "
+            f"catturare {len(area)} caselle."
+        )
+        self.battle_log.append(log_entry)
+
+        return {"ok": True, "message": log_entry, "session": self.to_dict()}
+
     def _ai_desired_legion_count(self) -> int:
         """Quante legioni l'IA vuole in campo adesso (profilo di difficoltà + situazione)."""
         max_getter = getattr(self.ai_policy, "max_legions", None)
         max_legions = max(1, int(max_getter())) if callable(max_getter) else 1
         # Stesso tetto del player: i profili di difficoltà stanno già sotto,
         # ma la regola non deve dipendere da come sono tarati.
-        max_legions = min(max_legions, MAX_LEGIONS_PER_SIDE)
+        # La manovra può volerne più della difesa: con una legione sola non si
+        # accerchia nessuno, e l'accerchiamento è ciò che distingue i profili
+        # alti. Il tetto di gioco resta comunque l'ultima parola.
+        doctrine_wanted = self.ai_doctrine.offensive_legions(self.game_map.turn)
+        max_legions = min(MAX_LEGIONS_PER_SIDE, max(max_legions, doctrine_wanted))
         if max_legions < 2:
-            return 1
-
-        # La seconda legione è una risposta difensiva: serve un'incursione in corso
-        # e un esercito abbastanza grande da reggere la divisione.
-        if not self._ai_intruder_legions():
             return 1
 
         min_getter = getattr(self.ai_policy, "second_legion_min_units", None)
         min_units = max(2, int(min_getter())) if callable(min_getter) else 6
-        if len(self.ai_units) < min_units:
-            return 1
 
-        return 2
+        # Risposta difensiva: seconda legione se c'è un'incursione in corso e
+        # l'esercito regge la divisione.
+        defensive = 2 if (self._ai_intruder_legions() and len(self.ai_units) >= min_units) else 1
+
+        # Manovra: quante ne vuole la dottrina, purché ognuna resti un reparto
+        # vero e non un pugno di uomini sparso per la mappa.
+        maneuver = min(doctrine_wanted, len(self.ai_units) // AI_MIN_UNITS_PER_LEGION)
+
+        return max(1, min(max_legions, max(defensive, maneuver)))
 
     def _ensure_ai_legions_initialized(self) -> None:
         """Mantiene in campo il numero di legioni IA voluto, con cooldown dopo annientamento."""
@@ -958,46 +1064,115 @@ class GameSession:
                 queue.append((neighbor, dist + 1))
         return best
 
+    def _step_preference(
+        self,
+        current: Tuple[int, int],
+        start: Tuple[int, int],
+        goal: Tuple[int, int],
+        lane_col: Optional[int],
+    ) -> List[Tuple[int, int]]:
+        """I quattro vicini, ordinati da 'più sensato' a 'meno sensato'.
+
+        Serve al BFS: fra tutti i cammini minimi ne esistono tantissimi, e
+        quale esce dipende SOLO da quale vicino si guarda per primo. Con
+        l'ordine fisso (su, giù, sinistra, destra) vinceva sempre il cammino
+        che va prima in verticale: ogni legione scendeva lungo la colonna del
+        castello e girava soltanto alla fine. Da fuori sembrava che il gioco
+        costringesse tutti a passare dal centro — ed era esattamente così.
+
+        L'ordine qui è:
+          1. passi che avvicinano all'obiettivo (garantisce il cammino minimo);
+          2. a parità, chi si tiene sulla corsia assegnata;
+          3. a parità, chi resta più vicino alla retta partenza-obiettivo.
+
+        Il terzo criterio è quello che raddrizza la marcia: invece di scendere
+        tutto e poi girare, si va in diagonale. La lunghezza non cambia — il
+        BFS resta ottimo — cambia quale dei cammini minimi viene scelto.
+
+        Nota sul secondo criterio: può solo scegliere fra cammini di pari
+        lunghezza. Se partenza e arrivo stanno sulla stessa colonna il cammino
+        minimo è uno solo e nessuna corsia può piegarlo: per aggirare davvero
+        serve un obiettivo intermedio, ed è quello che assegna la dottrina.
+        """
+        r, c = current
+        goal_r, goal_c = goal
+        delta_r = goal_r - start[0]
+        delta_c = goal_c - start[1]
+
+        def chiave(neighbor: Tuple[int, int]) -> Tuple[int, int, int]:
+            nr, nc = neighbor
+            avvicina = abs(goal_r - nr) + abs(goal_c - nc)
+            corsia = abs(nc - lane_col) if lane_col is not None else 0
+            # Distanza dalla retta partenza→obiettivo (prodotto vettoriale).
+            scostamento = abs(delta_r * (nc - start[1]) - delta_c * (nr - start[0]))
+            return (avvicina, corsia, scostamento)
+
+        return sorted(((r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)), key=chiave)
+
     def _bfs_next_step(
         self,
         start: Tuple[int, int],
         goal: Tuple[int, int],
         blocked: set,
+        lane_col: Optional[int] = None,
+        origin: Optional[Tuple[int, int]] = None,
     ) -> Optional[Tuple[int, int]]:
-        """Primo passo del percorso più breve start->goal, evitando le celle in `blocked`."""
+        """Primo passo del percorso più breve start->goal, evitando le celle in `blocked`.
+
+        Il conto si fa AL CONTRARIO, partendo dal traguardo: si misura quanto
+        dista ogni cella dall'obiettivo, poi si sceglie fra i passi che
+        accorciano davvero la strada. Prima invece si seguivano i "padri"
+        lasciati da un BFS in avanti, e lì la forma del cammino non era
+        governabile: il padre lo assegna chi scopre per primo, non chi sarebbe
+        la scelta migliore. Ecco perché tutte le legioni scendevano lungo la
+        colonna del castello.
+
+        Fra i passi buoni — tutti ugualmente brevi — vince chi si tiene sulla
+        corsia `lane_col`, e a parità chi resta vicino alla retta
+        partenza-obiettivo. Il percorso resta minimo: cambia solo la sua forma.
+        """
         start = tuple(start)
         goal = tuple(goal)
         if start == goal:
             return start
 
+        distance = self._distance_map_from(goal, blocked)
+        here = distance.get(start)
+        if here is None:
+            return None
+
+        candidates = [
+            neighbor
+            for neighbor in self._step_preference(start, origin or start, goal, lane_col)
+            if distance.get(neighbor) == here - 1
+        ]
+        return candidates[0] if candidates else None
+
+    def _distance_map_from(
+        self,
+        goal: Tuple[int, int],
+        blocked: set,
+    ) -> Dict[Tuple[int, int], int]:
+        """Distanza in caselle di ogni cella raggiungibile dall'obiettivo.
+
+        Le celle bloccate non si attraversano; il traguardo invece è sempre
+        raggiungibile, anche se occupato — chi ci arriva ci combatte.
+        """
         rows, cols = self.game_map.rows, self.game_map.cols
-        visited = {start}
-        parent: Dict[Tuple[int, int], Tuple[int, int]] = {}
-        queue = deque([start])
+        distance: Dict[Tuple[int, int], int] = {goal: 0}
+        queue = deque([goal])
         while queue:
-            current = queue.popleft()
-            if current == goal:
-                break
-            r, c = current
+            r, c = queue.popleft()
+            step = distance[(r, c)] + 1
             for neighbor in ((r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)):
                 nr, nc = neighbor
                 if not (0 <= nr < rows and 0 <= nc < cols):
                     continue
-                if neighbor in visited:
+                if neighbor in distance or neighbor in blocked:
                     continue
-                if neighbor in blocked and neighbor != goal:
-                    continue
-                visited.add(neighbor)
-                parent[neighbor] = current
+                distance[neighbor] = step
                 queue.append(neighbor)
-
-        if goal not in visited:
-            return None
-
-        step = goal
-        while step in parent and parent[step] != start:
-            step = parent[step]
-        return step if step != start else None
+        return distance
 
     def _next_legion_step(
         self,
@@ -1005,6 +1180,8 @@ class GameSession:
         target_pos: Tuple[int, int],
         mover: Occupation,
         legion_id: Optional[str] = None,
+        lane_col: Optional[int] = None,
+        origin: Optional[Tuple[int, int]] = None,
     ) -> Tuple[Tuple[int, int], Dict[str, Any]]:
         """Passo verso il target, aggirando gli ostacoli e ripiegando se serve.
 
@@ -1025,6 +1202,10 @@ class GameSession:
         """
         current_pos = tuple(current_pos)
         target_pos = tuple(target_pos)
+        # Da dove è partita questa marcia. Serve a tenere la rotta dritta: senza
+        # memoria del punto di partenza, "il passo più diretto" è sempre quello
+        # sull'asse più lungo, e la legione scende tutta dritta prima di girare.
+        origin = tuple(origin) if origin and len(origin) == 2 else current_pos
         resolution: Dict[str, Any] = {"blocked_by": None, "fallback": None}
         if current_pos == target_pos:
             return current_pos, resolution
@@ -1038,7 +1219,7 @@ class GameSession:
 
         # 1. Rotta diretta: il BFS aggira già le alleate lungo il percorso.
         if target_pos not in allies:
-            next_step = self._bfs_next_step(current_pos, target_pos, blocked)
+            next_step = self._bfs_next_step(current_pos, target_pos, blocked, lane_col, origin)
             # Il BFS concede sempre la cella d'arrivo, anche se bloccata: qui la
             # regola del muro deve valere pure per l'ultimo passo.
             if next_step is not None and next_step not in allies:
@@ -1054,10 +1235,67 @@ class GameSession:
         if fallback == current_pos:
             return current_pos, resolution
 
-        next_step = self._bfs_next_step(current_pos, fallback, blocked)
+        next_step = self._bfs_next_step(current_pos, fallback, blocked, lane_col, origin)
         if next_step is None or next_step in allies:
             return current_pos, resolution
         return next_step, resolution
+
+    def _refresh_capture_area(self, legion: Dict[str, Any], logs: List[str]) -> None:
+        """Tiene aggiornato l'ordine di cattura d'area di una legione.
+
+        Toglie dalla coda le caselle ormai nostre — prese da questa legione, da
+        un'altra o da un presidio, non importa — e punta la legione sulla più
+        vicina di quelle che restano. Quando la coda si svuota l'ordine è
+        eseguito e la legione si ferma lì: non torna a casa da sola, resta a
+        presidiare quello che ha appena preso.
+        """
+        area = legion.get("capture_area")
+        if not area:
+            return
+
+        current_pos = tuple(legion.get("pos", ()))
+        rimaste = []
+        for raw in area:
+            pos = (int(raw[0]), int(raw[1]))
+            cell = self.game_map.get_cell(*pos)
+            if cell is not None and cell.occupation != PLAYER:
+                rimaste.append(pos)
+
+        if not rimaste:
+            legion["capture_area"] = []
+            legion["target"] = list(current_pos) if len(current_pos) == 2 else None
+            logs.append(
+                f"🗺 La legione PLAYER '{legion.get('name')}' ha completato la cattura dell'area."
+            )
+            return
+
+        legion["capture_area"] = [list(pos) for pos in rimaste]
+        if len(current_pos) == 2:
+            prossima = min(rimaste, key=lambda pos: self._order_distance(current_pos, pos))
+            legion["target"] = list(prossima)
+
+    def _march_origin(
+        self,
+        legion: Dict[str, Any],
+        current_pos: Tuple[int, int],
+        target_pos: Tuple[int, int],
+    ) -> Tuple[int, int]:
+        """Punto da cui è cominciata la marcia verso l'obiettivo corrente.
+
+        Si aggiorna solo quando l'obiettivo cambia. È la memoria che tiene
+        dritta la rotta: valutando ogni passo a partire da dove la legione si
+        trova adesso, la scelta più diretta è sempre quella sull'asse più
+        lungo, e viene fuori una L — tutto dritto e poi la svolta.
+        """
+        memorizzato = legion.get("march_target")
+        if tuple(memorizzato or ()) != tuple(target_pos):
+            legion["march_target"] = list(target_pos)
+            legion["march_origin"] = list(current_pos)
+
+        origin = legion.get("march_origin")
+        if isinstance(origin, (list, tuple)) and len(origin) == 2:
+            return (int(origin[0]), int(origin[1]))
+        return current_pos
 
     def _log_legion_fallback(
         self,
@@ -1195,6 +1433,36 @@ class GameSession:
             return own_castle or player_pos
 
         return enemy_castle or player_pos
+
+    def _ai_doctrine_plan(
+        self,
+        legion: Dict[str, Any],
+        legion_index: int,
+        current_pos: Tuple[int, int],
+        base_target: Tuple[int, int],
+        under_threat: bool,
+    ) -> Any:
+        """Passa l'obiettivo grezzo alla dottrina e ne ricava la manovra.
+
+        Il profilo di difficoltà ha già deciso *dove* andare; qui si decide
+        *come*: su quale corsia, se conviene aggirare, se è il caso di fermarsi.
+        """
+        def percorribile(pos: Tuple[int, int]) -> bool:
+            cell = self.game_map.get_cell(*pos)
+            return cell is not None and cell.terrain != "Fiume"
+
+        return self.ai_doctrine.plan(
+            legion=legion,
+            legion_index=legion_index,
+            ai_pos=current_pos,
+            base_target=base_target,
+            enemy_castle=self.game_map.castle_positions.get(PLAYER),
+            rows=self.game_map.rows,
+            cols=self.game_map.cols,
+            turn=self.game_map.turn,
+            under_threat=under_threat,
+            is_walkable=percorribile,
+        )
 
     def _ai_legion_target_lock_turns(self) -> int:
         """Numero turni minimi prima del retarget IA per evitare zig-zag e inseguimenti artificiali.
@@ -2210,6 +2478,9 @@ class GameSession:
 
         self.ai_difficulty = normalized
         self.ai_policy = build_ai_policy(self.ai_difficulty, seed=None)
+        # Cambia difficoltà, cambia manovra: le corsie già assegnate alle
+        # legioni restano, la dottrina nuova vale dal prossimo obiettivo.
+        self.ai_doctrine = ai_doctrine.for_difficulty(self.ai_difficulty, seed=None)
         log_entry = f"[Turno {self.game_map.turn}] ⚙ Sistema: difficoltà IA impostata su {self.ai_difficulty.upper()}"
         self.battle_log.append(log_entry)
 
@@ -2765,6 +3036,10 @@ class GameSession:
 
         # 1. Movimento Legioni Player
         for legion_id, legion in list(self.player_legions.items()):
+            # Ordine di cattura d'area: la meta di questo turno esce dalla coda
+            # delle caselle che restano da prendere.
+            self._refresh_capture_area(legion, logs)
+
             target = legion.get("target")
             target_pos = tuple(target) if target is not None else None
             current_pos = tuple(legion.get("pos", ()))
@@ -2778,7 +3053,8 @@ class GameSession:
                 continue
 
             next_pos, resolution = self._next_legion_step(
-                current_pos, target_pos, PLAYER, legion_id
+                current_pos, target_pos, PLAYER, legion_id,
+                origin=self._march_origin(legion, current_pos, target_pos),
             )
             self._log_legion_fallback(legion, "PLAYER", target_pos, next_pos, resolution, logs)
             if next_pos == current_pos:
@@ -2825,7 +3101,9 @@ class GameSession:
                 ai_skipped = True
                 logs.append(f"[Turno {self.game_map.turn}] IA esita e mantiene la posizione.")
             else:
-                for legion_id, legion in list(self.ai_legions.items()):
+                # Nemico dentro casa: la dottrina sospende manovre e attese.
+                under_threat = bool(self._ai_intruder_legions())
+                for legion_index, (legion_id, legion) in enumerate(list(self.ai_legions.items())):
                     current_pos = tuple(legion.get("pos", ()))
                     if len(current_pos) != 2:
                         continue
@@ -2837,6 +3115,21 @@ class GameSession:
                     target_pos = self._pick_ai_legion_target(legion)
                     if target_pos is None:
                         continue
+
+                    # La dottrina trasforma l'obiettivo in manovra: corsia,
+                    # aggiramento, giro largo o sosta.
+                    plan = self._ai_doctrine_plan(
+                        legion, legion_index, current_pos, target_pos, under_threat
+                    )
+                    if plan.hold:
+                        ai_moved = True   # è una scelta, non immobilismo
+                        logs.append(
+                            f"🤖 La legione IA '{legion['name']}' resta in {plan.reason} "
+                            f"su {current_pos}."
+                        )
+                        continue
+                    if plan.target is not None:
+                        target_pos = tuple(plan.target)
 
                     lock_until = int(legion.get("target_lock_until", 0) or 0)
                     existing_target_raw = legion.get("target")
@@ -2851,7 +3144,8 @@ class GameSession:
                         legion["target_lock_until"] = self.game_map.turn + self._ai_legion_target_lock_turns()
 
                     next_pos, resolution = self._next_legion_step(
-                        current_pos, target_pos, AI, legion_id
+                        current_pos, target_pos, AI, legion_id, lane_col=plan.lane_col,
+                        origin=self._march_origin(legion, current_pos, target_pos),
                     )
                     self._log_legion_fallback(legion, "IA", target_pos, next_pos, resolution, logs)
                     if next_pos == current_pos:

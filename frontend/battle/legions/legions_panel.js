@@ -15,10 +15,17 @@
         name: '',
         units: {},        // { unitId: qty }
         target: null,     // [row, col] | null
+        captureArea: null,  // [[row, col], ...] | null — alternativa a target
         legionType: 'army'  // 'army' | 'mining' | 'construction'
     };
     let legionPickModeActive = false;
     let legionPickListeners = [];  // cleanup pick listeners
+    let legionAreaModeActive = false;
+    let legionAreaListeners = [];
+
+    //: Tetto lato client, uguale a quello del backend: meglio dirlo subito che
+    //: far selezionare mezza mappa e poi rifiutare l'ordine.
+    const CAPTURE_AREA_MAX_CELLS = 40;
 
     const LEGION_TYPE_LABELS = {
         army: 'Esercito',
@@ -72,6 +79,8 @@
             name: legion.name || String(legion.id || 'Legione'),
             units: Array.isArray(legion.units) ? countUnits(legion.units) : (legion.units || {}),
             target: Array.isArray(legion.target) ? legion.target : null,
+            // Caselle che restano da prendere in un ordine di cattura d'area.
+            capture_area: Array.isArray(legion.capture_area) ? legion.capture_area : [],
             currentPos: Array.isArray(legion.pos) ? legion.pos : null,
             path: Array.isArray(legion.path) ? legion.path : [],
             pathStep: Number(legion.path_step || 0),
@@ -397,6 +406,159 @@
         legionPickListeners.push({ el: document, handler: escHandler, event: 'keydown' });
     }
 
+    /* ── Selezione ad area (clic e trascina) ────────────────── */
+
+    function cellUnderPointer(overlay, clientX, clientY) {
+        // L'overlay copre la mappa: va reso trasparente ai puntatori per un
+        // istante, o `elementFromPoint` restituirebbe sempre lui.
+        overlay.style.pointerEvents = 'none';
+        const el = document.elementFromPoint(clientX, clientY);
+        overlay.style.pointerEvents = '';
+
+        const cell = el ? el.closest('.map-cell') : null;
+        if (!cell) return null;
+        const row = parseInt(cell.dataset.row, 10);
+        const col = parseInt(cell.dataset.col, 10);
+        return (Number.isNaN(row) || Number.isNaN(col)) ? null : { row, col };
+    }
+
+    function clearAreaHighlight() {
+        document.querySelectorAll('#mapBoard .legion-area-hover').forEach(node => {
+            node.classList.remove('legion-area-hover', 'legion-area-over');
+        });
+    }
+
+    /** Evidenzia il rettangolo fra due celle e restituisce le caselle dentro. */
+    function paintArea(from, to) {
+        clearAreaHighlight();
+        if (!from || !to) return [];
+
+        const r0 = Math.min(from.row, to.row), r1 = Math.max(from.row, to.row);
+        const c0 = Math.min(from.col, to.col), c1 = Math.max(from.col, to.col);
+        const cells = [];
+        for (let r = r0; r <= r1; r++) {
+            for (let c = c0; c <= c1; c++) cells.push([r, c]);
+        }
+
+        const troppo = cells.length > CAPTURE_AREA_MAX_CELLS;
+        cells.forEach(([r, c]) => {
+            const node = document.querySelector(`#mapBoard [data-row="${r}"][data-col="${c}"]`);
+            if (node) node.classList.add('legion-area-hover', ...(troppo ? ['legion-area-over'] : []));
+        });
+        return cells;
+    }
+
+    function enterLegionAreaMode(onPick) {
+        exitLegionPickMode();      // i due ordini non convivono, nemmeno mentre si sceglie
+        exitLegionAreaMode();
+        legionAreaModeActive = true;
+        document.body.classList.add('legion-pick-mode');
+
+        const toast = document.createElement('div');
+        toast.className = 'legion-pick-toast';
+        toast.id = 'legionAreaToast';
+        toast.textContent = '>> Clicca e trascina per selezionare l\'area';
+        document.body.appendChild(toast);
+
+        const board = document.getElementById('mapBoard');
+        if (!board) { exitLegionAreaMode(); return; }
+
+        const prevPosition = board.style.position;
+        board.dataset.legionPrevPosition = prevPosition;
+        if (!prevPosition || prevPosition === 'static' || prevPosition === '') {
+            board.style.position = 'relative';
+        }
+
+        const overlay = document.createElement('div');
+        overlay.id = 'legionAreaOverlay';
+        overlay.style.cssText = [
+            'position:absolute', 'inset:0', 'z-index:999',
+            'cursor:crosshair', 'background:rgba(56,189,248,0.05)', 'border-radius:12px',
+        ].join(';');
+        board.appendChild(overlay);
+
+        let from = null;
+        let cells = [];
+
+        const aggiorna = (evt) => {
+            const to = cellUnderPointer(overlay, evt.clientX, evt.clientY);
+            if (!to) return;
+            cells = paintArea(from, to);
+            const troppo = cells.length > CAPTURE_AREA_MAX_CELLS;
+            toast.textContent = troppo
+                ? `${cells.length} caselle — troppe, il massimo è ${CAPTURE_AREA_MAX_CELLS}`
+                : `${cells.length} caselle — rilascia per confermare`;
+            toast.classList.toggle('is-error', troppo);
+        };
+
+        const onDown = (evt) => {
+            evt.preventDefault();
+            from = cellUnderPointer(overlay, evt.clientX, evt.clientY);
+            if (from) aggiorna(evt);
+        };
+        const onMove = (evt) => { if (from) aggiorna(evt); };
+        const onUp = (evt) => {
+            if (!from) return;
+            aggiorna(evt);
+            const scelte = cells.slice();
+            from = null;
+
+            if (scelte.length > CAPTURE_AREA_MAX_CELLS) {
+                // Selezione rifiutata ma modalità viva: si riprova subito.
+                return;
+            }
+            exitLegionAreaMode();
+            if (scelte.length) onPick(scelte);
+        };
+
+        overlay.addEventListener('mousedown', onDown);
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+        legionAreaListeners.push(
+            { el: overlay, event: 'mousedown', handler: onDown },
+            { el: window, event: 'mousemove', handler: onMove },
+            { el: window, event: 'mouseup', handler: onUp },
+        );
+
+        const escHandler = (e) => { if (e.key === 'Escape') exitLegionAreaMode(); };
+        document.addEventListener('keydown', escHandler);
+        legionAreaListeners.push({ el: document, event: 'keydown', handler: escHandler });
+    }
+
+    function exitLegionAreaMode() {
+        legionAreaModeActive = false;
+        if (!legionPickModeActive) document.body.classList.remove('legion-pick-mode');
+
+        clearAreaHighlight();
+        const toast = document.getElementById('legionAreaToast');
+        if (toast) toast.remove();
+        const overlay = document.getElementById('legionAreaOverlay');
+        if (overlay) overlay.remove();
+
+        const board = document.getElementById('mapBoard');
+        if (board && board.dataset.legionPrevPosition !== undefined && !legionPickModeActive) {
+            board.style.position = board.dataset.legionPrevPosition;
+            delete board.dataset.legionPrevPosition;
+        }
+
+        for (const { el, event, handler } of legionAreaListeners) {
+            el.removeEventListener(event, handler);
+        }
+        legionAreaListeners = [];
+
+        const btn = document.getElementById('legionAreaBtn');
+        if (btn) {
+            btn.classList.remove('picking');
+            btn.innerHTML = '&#9635; Cattura area';
+        }
+        // Anche il pulsante della card che ha aperto la selezione torna a riposo:
+        // uscendo con Esc o riuscendo dall'altro bottone resterebbe su "Annulla".
+        document.querySelectorAll('.legion-card-recapture.picking').forEach(card => {
+            card.classList.remove('picking');
+            card.innerHTML = '&#9635; Nuova catt.';
+        });
+    }
+
     function exitLegionPickMode() {
         legionPickModeActive = false;
         document.body.classList.remove('legion-pick-mode');
@@ -428,8 +590,10 @@
         if (!btn) return;
         const hasName = (legionDraft.name || '').trim().length > 0;
         const hasUnits = Object.values(legionDraft.units).some(q => q > 0);
-        const hasTarget = legionDraft.target !== null;
-        btn.disabled = !(hasName && hasUnits && hasTarget);
+        // Un ordine vale l'altro, ma ne serve uno: destinazione oppure area.
+        const hasOrder = legionDraft.target !== null
+            || (Array.isArray(legionDraft.captureArea) && legionDraft.captureArea.length > 0);
+        btn.disabled = !(hasName && hasUnits && hasOrder);
     }
 
     /* ── Render target display ──────────────────────────────── */
@@ -445,6 +609,39 @@
             display.textContent = 'Nessuna destinazione';
             display.classList.remove('picked');
         }
+        updateAreaDisplay();
+    }
+
+    /* ── Render area display ────────────────────────────────── */
+    function updateAreaDisplay() {
+        const display = document.getElementById('legionAreaDisplay');
+        if (!display) return;
+
+        const area = legionDraft.captureArea;
+        if (Array.isArray(area) && area.length) {
+            const righe = new Set(area.map(([r]) => r)).size;
+            const colonne = new Set(area.map(([, c]) => c)).size;
+            display.textContent = `${righe}×${colonne} — ${area.length} caselle da conquistare`;
+            display.classList.add('picked');
+        } else {
+            display.textContent = 'Nessuna area';
+            display.classList.remove('picked');
+        }
+    }
+
+    /** I due ordini si escludono: sceglierne uno cancella l'altro. */
+    function setDraftTarget(target) {
+        legionDraft.target = target;
+        if (target !== null) legionDraft.captureArea = null;
+        updateTargetDisplay();
+        updateSendButton();
+    }
+
+    function setDraftArea(area) {
+        legionDraft.captureArea = (area && area.length) ? area : null;
+        if (legionDraft.captureArea) legionDraft.target = null;
+        updateTargetDisplay();
+        updateSendButton();
     }
 
     /* ── Render lista legioni attive ────────────────────────── */
@@ -463,34 +660,89 @@
                 .filter(([, q]) => q > 0)
                 .map(([uid, q]) => `${namesMap.get(uid) || uid} ×${q}`)
                 .join(', ');
-            const dest = leg.target
-                ? `Riga ${leg.target[0] + 1}, Col ${leg.target[1] + 1}`
-                : 'Destinazione non impostata';
+            // L'ordine in corso è uno solo: o una destinazione o una cattura.
+            const rimaste = Array.isArray(leg.capture_area) ? leg.capture_area.length : 0;
+            const ordine = rimaste
+                ? { classe: 'is-area', icona: '&#9635;', etichetta: 'Cattura area',
+                    valore: `${rimaste} caselle da prendere` }
+                : (leg.target
+                    ? { classe: 'is-dest', icona: '&#9654;', etichetta: 'Destinazione',
+                        valore: `Riga ${leg.target[0] + 1}, Col ${leg.target[1] + 1}` }
+                    : { classe: 'is-idle', icona: '&#9632;', etichetta: 'Nessun ordine',
+                        valore: 'in attesa di destinazione' });
 
             const typeLabel = LEGION_TYPE_LABELS[leg.legionType] || leg.legionType;
             const typeIcon = LEGION_TYPE_ICONS[leg.legionType] || '⚔';
+            const pos = Array.isArray(leg.currentPos)
+                ? `${leg.currentPos[0] + 1},${leg.currentPos[1] + 1}` : '—';
 
             return `
                 <div class="legion-card" data-idx="${idx}">
-                    <div class="legion-card-header">
+                    <div class="legion-card-top">
                         <p class="legion-card-name">&#9816; ${leg.name}</p>
-                        <div class="legion-card-actions">
-                            <button class="legion-card-retarget" type="button" data-idx="${idx}">Nuova Dest.</button>
-                            <button class="legion-card-recall" type="button" data-idx="${idx}">Richiama</button>
-                        </div>
+                        <span class="legion-card-pos" title="Posizione attuale">&#9678; ${pos}</span>
                     </div>
+
                     <div class="legion-card-badges">
                         <span class="legion-card-type-badge legion-type-${leg.legionType}">${typeIcon} ${typeLabel}</span>
                         ${conditionBadgeHtml(leg.troopStatus, leg.condition)}
                     </div>
-                    <div class="legion-card-dest">
-                        <span class="legion-card-dest-pin">&#9654;</span>
-                        ${dest}
+
+                    <div class="legion-card-order ${ordine.classe}">
+                        <span class="legion-card-order-icon">${ordine.icona}</span>
+                        <span class="legion-card-order-label">${ordine.etichetta}</span>
+                        <span class="legion-card-order-value">${ordine.valore}</span>
                     </div>
-                    <div class="legion-card-comp">${compParts || 'Composizione vuota'}</div>
+
+                    <div class="legion-card-comp"><b>Composizione</b> ${compParts || '—'}</div>
                     ${leg.condition ? `<div class="condition-detail">${conditionBarsHtml(leg.condition)}</div>` : ''}
+
+                    <div class="legion-card-actions">
+                        <button class="legion-card-retarget" type="button" data-idx="${idx}"
+                                title="Assegna una nuova destinazione">&#9654; Nuova dest.</button>
+                        <button class="legion-card-recapture" type="button" data-idx="${idx}"
+                                title="Ridisegna l'area da catturare">&#9635; Nuova catt.</button>
+                        <button class="legion-card-recall" type="button" data-idx="${idx}">&#8617; Richiama in riserva</button>
+                    </div>
                 </div>`;
         }).join('');
+
+        list.querySelectorAll('.legion-card-recapture').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const idx = parseInt(btn.dataset.idx, 10);
+                const legion = activeLegions[idx];
+                if (!legion || !legion.id) return;
+
+                if (legionAreaModeActive) {
+                    exitLegionAreaMode();
+                    return;
+                }
+                if (legionPickModeActive) exitLegionPickMode();
+
+                enterLegionAreaMode(async (cells) => {
+                    btn.disabled = true;
+                    try {
+                        const response = await fetch('http://127.0.0.1:8000/game/legions/capture-area', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ legion_id: legion.id, capture_area: cells })
+                        });
+                        if (!response.ok) {
+                            const err = await response.json();
+                            throw new Error(err.detail || 'Errore nell\'ordine di cattura');
+                        }
+                        const result = await response.json();
+                        if (window.renderBattleState) window.renderBattleState(result.session);
+                    } catch (error) {
+                        alert(`Errore: ${error.message}`);
+                    } finally {
+                        btn.disabled = false;
+                    }
+                });
+                btn.classList.add('picking');
+                btn.innerHTML = '&#215; Annulla';
+            });
+        });
 
         list.querySelectorAll('.legion-card-recall').forEach(btn => {
             btn.addEventListener('click', async () => {
@@ -538,7 +790,7 @@
 
                 enterLegionPickMode(async (row, col) => {
                     btn.classList.remove('picking');
-                    btn.textContent = 'Nuova Dest.';
+                    btn.innerHTML = '&#9654; Nuova dest.';
                     btn.disabled = true;
                     try {
                         const response = await fetch('http://127.0.0.1:8000/game/legions/retarget', {
@@ -593,6 +845,11 @@
                     <div class="legions-target-display" id="legionTargetDisplay">Nessuna destinazione</div>
                     <button class="legions-pick-btn" id="legionPickBtn" type="button">&#9654; Seleziona cella</button>
                 </div>
+                <div class="legions-target-row">
+                    <div class="legions-target-display" id="legionAreaDisplay">Nessuna area</div>
+                    <button class="legions-pick-btn legions-area-btn" id="legionAreaBtn" type="button">&#9635; Cattura area</button>
+                </div>
+                <p class="legions-order-hint">Una destinazione <b>oppure</b> un'area: scegliendone una l'altra si annulla.</p>
 
                 <button class="legions-send-btn" id="legionSendBtn" type="button" disabled>
                     &#9658; Invia Legione
@@ -649,16 +906,41 @@
                     return;
                 }
 
+                exitLegionAreaMode();   // i due ordini si escludono
                 pickBtn.classList.add('picking');
                 pickBtn.textContent = '\u00D7 Annulla';
 
                 enterLegionPickMode((row, col) => {
-                    legionDraft.target = [row, col];
+                    setDraftTarget([row, col]);
                     pickBtn.classList.remove('picking');
                     pickBtn.textContent = '\u25B6 Seleziona cella';
-                    updateTargetDisplay();
-                    updateSendButton();
                 });
+            });
+        }
+
+        // Area button
+        const areaBtn = document.getElementById('legionAreaBtn');
+        if (areaBtn) {
+            areaBtn.addEventListener('click', () => {
+                if (legionAreaModeActive) {
+                    exitLegionAreaMode();
+                    return;
+                }
+
+                // Chiudere il puntamento singolo qui evita due overlay sovrapposti.
+                if (legionPickModeActive) {
+                    exitLegionPickMode();
+                    if (pickBtn) {
+                        pickBtn.classList.remove('picking');
+                        pickBtn.textContent = '\u25B6 Seleziona cella';
+                    }
+                }
+
+                // L'etichetta si cambia DOPO: entrare in modalità ripulisce lo
+                // stato precedente, e quella pulizia rimette il testo di riposo.
+                enterLegionAreaMode((cells) => setDraftArea(cells));
+                areaBtn.classList.add('picking');
+                areaBtn.innerHTML = '&#215; Annulla';
             });
         }
 
@@ -677,6 +959,7 @@
                             name,
                             units: legionDraft.units,
                             target: legionDraft.target,
+                            capture_area: legionDraft.captureArea,
                             legion_type: legionDraft.legionType
                         })
                     });
@@ -695,6 +978,7 @@
                     legionDraft.name = '';
                     legionDraft.units = {};
                     legionDraft.target = null;
+                    legionDraft.captureArea = null;
                     legionDraft.legionType = 'army';
                     if (nameInput) nameInput.value = '';
 
