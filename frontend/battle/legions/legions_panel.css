@@ -529,10 +529,12 @@
     to   { opacity: 1; transform: translateY(0); }
 }
 
-.legion-card-header {
+/* Intestazione: nome a sinistra, posizione a destra. I pulsanti sono scesi
+   in fondo alla card — da tre in su, in intestazione, schiacciavano il nome. */
+.legion-card-top {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
+    align-items: baseline;
     gap: 6px;
 }
 
@@ -546,22 +548,94 @@
     white-space: nowrap;
 }
 
-.legion-card-actions {
-    display: flex;
-    align-items: center;
-    gap: 5px;
+.legion-card-pos {
+    font-size: 0.68em;
+    font-weight: 700;
+    color: #94a3b8;
+    white-space: nowrap;
     flex-shrink: 0;
 }
 
+/* Riga dell'ordine in corso: una sola, con il colore che dice quale ordine è. */
+.legion-card-order {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.73em;
+    font-weight: 700;
+    padding: 5px 8px;
+    border-radius: 7px;
+    border: 1px solid transparent;
+}
+
+.legion-card-order-icon { font-size: 0.95em; }
+
+.legion-card-order-label {
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    font-size: 0.86em;
+    opacity: 0.75;
+}
+
+.legion-card-order-value { margin-left: auto; font-weight: 800; }
+
+.legion-card-order.is-dest {
+    background: #fff1f2;
+    border-color: #fecdd3;
+    color: #be123c;
+}
+.legion-card-order.is-area {
+    background: #f0f9ff;
+    border-color: #bae6fd;
+    color: #0369a1;
+}
+.legion-card-order.is-idle {
+    background: #f8fafc;
+    border-color: #e2e8f0;
+    color: #94a3b8;
+}
+
+.legion-card-comp {
+    font-size: 0.73em;
+    color: #334155;
+    font-weight: 600;
+    line-height: 1.35;
+}
+.legion-card-comp b {
+    color: #64748b;
+    font-weight: 800;
+    text-transform: uppercase;
+    font-size: 0.86em;
+    letter-spacing: 0.03em;
+    margin-right: 4px;
+}
+
+/* Azioni in fondo, su due righe: i due ordini affiancati e il richiamo sotto,
+   a tutta larghezza. In tre colonne, nella barra laterale da ~200px, ogni
+   pulsante restava a 61px e le etichette venivano troncate. */
+.legion-card-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+    margin-top: 2px;
+    padding-top: 7px;
+    border-top: 1px solid #f1f5f9;
+}
+
+.legion-card-recall { grid-column: 1 / -1; }
+
 .legion-card-recall,
-.legion-card-retarget {
-    padding: 3px 8px;
-    font-size: 0.70em;
+.legion-card-retarget,
+.legion-card-recapture {
+    padding: 5px 4px;
+    font-size: 0.68em;
     font-weight: 800;
     border-radius: 6px;
     cursor: pointer;
     white-space: nowrap;
-    flex-shrink: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background 0.12s, border-color 0.12s;
 }
 
 .legion-card-recall {
@@ -569,48 +643,30 @@
     color: #b91c1c;
     border: 1px solid #fecaca;
 }
-
-.legion-card-recall:hover {
-    background: #fee2e2;
-}
+.legion-card-recall:hover { background: #fee2e2; }
 
 .legion-card-retarget {
-    background: #eff6ff;
-    color: #1d4ed8;
-    border: 1px solid #bfdbfe;
+    background: #fff1f2;
+    color: #be123c;
+    border: 1px solid #fecdd3;
 }
+.legion-card-retarget:hover { background: #ffe4e6; }
 
-.legion-card-retarget:hover {
-    background: #dbeafe;
+.legion-card-recapture {
+    background: #f0f9ff;
+    color: #0369a1;
+    border: 1px solid #bae6fd;
 }
+.legion-card-recapture:hover { background: #e0f2fe; }
 
-.legion-card-retarget.picking {
+.legion-card-retarget.picking,
+.legion-card-recapture.picking {
     background: #e94560;
     color: #fff;
     border-color: #c73652;
     animation: pickBtnPulse 0.8s ease-in-out infinite;
 }
-
-.legion-card-dest {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    font-size: 0.74em;
-    color: #64748b;
-    font-weight: 600;
-}
-
-.legion-card-dest-pin {
-    color: #e94560;
-    font-size: 0.9em;
-}
-
-.legion-card-comp {
-    font-size: 0.74em;
-    color: #334155;
-    font-weight: 600;
-    line-height: 1.35;
-}
+.legion-card-recapture.picking { background: #0284c7; border-color: #0369a1; }
 
 /* ─── LegionPickMode — overlay cursore mappa ────────────────── */
 body.legion-pick-mode #mapBoard {
@@ -652,6 +708,40 @@ body.legion-pick-mode .map-cell:not(:disabled):hover {
 @keyframes toastIn {
     from { opacity: 0; transform: translate(-50%, calc(-50% + 4px)); }
     to   { opacity: 1; transform: translate(-50%, -50%); }
+}
+
+/* ─── Cattura d'area — selezione col trascinamento ───────────── */
+/* Colore diverso dal puntamento singolo (rosso): sono due ordini
+   diversi e devono distinguersi a colpo d'occhio anche sulla mappa. */
+.legions-area-btn {
+    background: #0284c7;
+    border-color: #0284c7;
+}
+.legions-area-btn:hover { background: #0369a1; border-color: #0369a1; }
+.legions-area-btn.picking { background: #b91c1c; border-color: #b91c1c; }
+
+.legions-order-hint {
+    margin: 4px 0 0;
+    font-size: 0.72em;
+    color: #64748b;
+    line-height: 1.4;
+}
+
+#mapBoard .map-cell.legion-area-hover {
+    box-shadow: 0 0 0 2px #0284c7, inset 0 0 0 999px rgba(56, 189, 248, 0.28) !important;
+    filter: brightness(1.04);
+    z-index: 3;
+}
+
+/* Oltre il tetto di caselle la selezione diventa rossa: si vede che non
+   verrà accettata prima di rilasciare il mouse. */
+#mapBoard .map-cell.legion-area-over {
+    box-shadow: 0 0 0 2px #b91c1c, inset 0 0 0 999px rgba(185, 28, 28, 0.28) !important;
+}
+
+.legion-pick-toast.is-error {
+    background: #b91c1c;
+    box-shadow: 0 4px 16px rgba(185, 28, 28, 0.45);
 }
 
 /* ─── Scrollbar sottile ──────────────────────────────────────── */

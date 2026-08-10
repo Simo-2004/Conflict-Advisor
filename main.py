@@ -336,6 +336,11 @@ class CreateLegionRequest(BaseModel):
     name: str = Field(..., description="Nome della legione")
     units: Dict[str, int] = Field(..., description="Dizionario di id_unità -> quantità da prelevare")
     target: Optional[tuple[int, int]] = Field(None, description="Destinazione opzionale [row, col]")
+    capture_area: Optional[List[tuple[int, int]]] = Field(
+        None,
+        description="Caselle da conquistare in sequenza. Alternativa a `target`: "
+                    "o l'una o l'altra, mai entrambe.",
+    )
     legion_type: str = Field(
         "army", description="Tipo legione: 'army' (Esercito), 'mining' (Mineraria) o 'construction' (Costruzione)"
     )
@@ -350,6 +355,12 @@ class RetargetLegionRequest(BaseModel):
     """Richiesta per assegnare una nuova destinazione a una legione del player."""
     legion_id: str = Field(..., description="ID della legione da ridirigere")
     target: tuple[int, int] = Field(..., description="Nuova destinazione [row, col]")
+
+
+class LegionCaptureAreaRequest(BaseModel):
+    """Richiesta per (ri)assegnare un ordine di cattura d'area a una legione."""
+    legion_id: str = Field(..., description="ID della legione")
+    capture_area: List[tuple[int, int]] = Field(..., description="Caselle da conquistare")
 
 
 
@@ -457,6 +468,7 @@ async def game_create_legion(request: CreateLegionRequest):
             units_dict=request.units,
             target=request.target,
             legion_type=request.legion_type,
+            capture_area=request.capture_area,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -486,6 +498,23 @@ async def game_retarget_legion(request: RetargetLegionRequest):
 
     try:
         return _active_session.retarget_player_legion(request.legion_id, request.target)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/game/legions/capture-area")
+async def game_legion_capture_area(request: LegionCaptureAreaRequest):
+    """Assegna un nuovo ordine di cattura d'area a una legione del player."""
+    if _active_session is None:
+        raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
+
+    try:
+        return _active_session.set_legion_capture_area(
+            legion_id=request.legion_id,
+            cells=request.capture_area,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
