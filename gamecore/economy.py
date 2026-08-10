@@ -7,6 +7,14 @@ per controllare il bilancio durante simulazione e battaglia.
 
 from typing import Any, Dict, Iterable, List
 
+# [BALANCE-LAYER] Ritocchi di prezzo dal layer di bilanciamento truppe.
+# Se il file viene cancellato i costi tornano quelli della formula qui sotto,
+# senza errori: è l'unico aggancio che l'economia ha con quel modulo.
+try:
+    from gamecore.troop_balance import apply_cost_overrides as _balance_costs
+except ImportError:                                           # layer rimosso
+    _balance_costs = None
+
 
 STARTING_GRUX = 220
 MINE_YIELD_PER_ROUND = 18
@@ -37,8 +45,16 @@ def calculate_unit_cost(unit: Dict[str, Any]) -> int:
 
 
 def get_unit_costs(units: Iterable[Dict[str, Any]]) -> Dict[str, int]:
-    """Restituisce la mappa unit_id -> costo grux."""
-    return {unit["id"]: calculate_unit_cost(unit) for unit in units}
+    """Restituisce la mappa unit_id -> costo grux.
+
+    Punto unico da cui passano tutti i prezzi del gioco (schermata iniziale,
+    reclutamento, esercito IA): il layer di bilanciamento si aggancia qui e
+    non deve inseguire i singoli chiamanti.
+    """
+    costs = {unit["id"]: calculate_unit_cost(unit) for unit in units}
+    if _balance_costs is not None:                            # [BALANCE-LAYER]
+        costs = _balance_costs(costs)
+    return costs
 
 
 def calculate_army_cost(unit_ids: List[str], unit_costs: Dict[str, int]) -> int:

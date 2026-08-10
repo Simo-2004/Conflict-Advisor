@@ -33,6 +33,15 @@ from gamecore.session.movement_points import MovementPointsSystem
 from gamecore.session import troop_condition as tc
 from gamecore.session import weather_cycle as wc
 
+# [BALANCE-LAYER] Correzioni di bilanciamento truppe (ruolo d'assedio
+# dell'artiglieria, guaritori che assorbono perdite). Se il file non c'è, il
+# gioco gira con i numeri grezzi del motore: ogni uso è protetto da un
+# controllo su `balance`.
+try:
+    from gamecore import troop_balance as balance
+except ImportError:                                           # layer rimosso
+    balance = None
+
 try:
     from debug.strength_debug import log_strength_debug
 except Exception:
@@ -358,6 +367,11 @@ class GameSession:
         rendimenti decrescenti; più difesa c'è, meno ne fai. Il tetto e il
         pavimento restano gli estremi, non il caso normale.
         """
+        # [BALANCE-LAYER] Curva d'assedio del layer: la versione qui sotto
+        # premiava troppo poco chi porta un esercito d'assedio vero.
+        if balance is not None:
+            return balance.castle_damage(attacker_strength, defender_score, CASTLE_DAMAGE_MIN)
+
         ratio = attacker_strength / max(1.0, defender_score)
         intensity = ratio / (ratio + CASTLE_DAMAGE_HALF_RATIO)
         raw_damage = CASTLE_DAMAGE_MAX * intensity
@@ -1250,7 +1264,13 @@ class GameSession:
 
         hp_before = self.castle_hp.get(defender, self.castle_hp_max.get(defender, CASTLE_BASE_HP))
         legion_unit_ids = legion.get("units", [])
-        attacker_strength = max(20.0, sum(self._unit_battle_value(uid) for uid in legion_unit_ids))
+        # [BALANCE-LAYER] Contro le mura l'artiglieria pesa più che in campo
+        # aperto. Senza layer resta la somma nuda dei valori, come prima.
+        if balance is not None:
+            raw_strength = balance.siege_strength(legion_unit_ids, self._unit_battle_value)
+        else:
+            raw_strength = sum(self._unit_battle_value(uid) for uid in legion_unit_ids)
+        attacker_strength = max(20.0, raw_strength)
 
         defense = self._castle_defense(defender, to_pos)
         damage = self._compute_castle_damage(attacker_strength, defense["score"])
@@ -1344,6 +1364,14 @@ class GameSession:
         # 1. Valore delle unità modulato dal terreno (stessa regola dei presidi).
         base_total = sum(self._garrison_unit_defense_value(uid, terrain) for uid in unit_ids)
 
+        # [BALANCE-LAYER] Chi assalta una cella fortificata guadagna il surplus
+        # d'assedio (oggi: solo l'artiglieria). È un'aggiunta al valore già
+        # calcolato: togliendo il layer resta esattamente il numero di prima.
+        if balance is not None and not defending and cell is not None:
+            base_total += balance.fortification_surplus(
+                unit_ids, self._unit_battle_value, int(cell.fortification_level)
+            )
+
         # 2. Bonus stack per unità dello stesso tipo (coerente con _strength_breakdown).
         stack_bonus = 0.0
         for unit_id, count in Counter(unit_ids).items():
@@ -1433,6 +1461,14 @@ class GameSession:
             return 0, "", bool(unit_ids)
 
         losses = min(losses, len(unit_ids))
+
+        # [BALANCE-LAYER] I guaritori presenti nella legione assorbono parte
+        # delle perdite. Non sono al riparo: cadono per prime le unità di minor
+        # valore, loro comprese, quindi il tampone si consuma da sé.
+        saved = 0
+        if balance is not None:
+            losses, saved = balance.reduced_losses(unit_ids, losses)
+
         # Cadono per prime le unità di minor valore.
         removed = sorted(unit_ids, key=lambda uid: self._unit_battle_value(uid))[:losses]
 
@@ -1464,6 +1500,14 @@ class GameSession:
             f"{count} {self.units_map.get(unit_id, {}).get('name', unit_id)}"
             for unit_id, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
         )
+
+        # [BALANCE-LAYER] L'intervento dei guaritori va scritto nel log, se no
+        # è un effetto che il giocatore paga 90 grux e non vede mai.
+        if saved and balance is not None:
+            nota = balance.losses_note(saved)
+            if nota:
+                text = f"{text} — {nota}" if text else nota
+
         return losses, text, survived
 
     def _resolve_legion_clash_if_any(
@@ -3454,10 +3498,20 @@ class GameSession:
         terrain = self._current_army_terrain(PLAYER)
         breakdown = self._strength_breakdown(PLAYER, terrain)
         strength_now = breakdown["effective_strength"]
+        reserve_units = len(self.player_units)
+
+        # Questa è la strategia GENERALE, che vale per la riserva e per le
+        # legioni che nasceranno: non per quelle già in campo, che hanno la
+        # propria. Con tutte le truppe in legione la riserva è vuota e la
+        # vecchia riga diceva "forza attuale 0", che sembrava un guasto.
+        if reserve_units:
+            dettaglio = f"forza riserva {strength_now} su {terrain} ({reserve_units} unità)"
+        else:
+            dettaglio = "riserva vuota: varrà per le prossime legioni"
 
         log_entry = (
-            f"[Turno {self.game_map.turn}] 🎯 PLAYER imposta strategia {strategy['name']} "
-            f"→ forza attuale {strength_now} su {terrain}"
+            f"[Turno {self.game_map.turn}] 🎯 PLAYER imposta strategia generale "
+            f"{strategy['name']} → {dettaglio}"
         )
         self.battle_log.append(log_entry)
         log_strength_debug(
