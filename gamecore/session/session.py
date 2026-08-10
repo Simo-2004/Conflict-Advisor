@@ -31,6 +31,16 @@ from gamecore.session.ai_core.ai_easy_difficulty import AI_EASY_ID
 from gamecore.session.in_game_advisor import build_in_game_advisor_payload
 from gamecore.session.movement_points import MovementPointsSystem
 from gamecore.session import troop_condition as tc
+from gamecore.session import weather_cycle as wc
+
+# [BALANCE-LAYER] Correzioni di bilanciamento truppe (ruolo d'assedio
+# dell'artiglieria, guaritori che assorbono perdite). Se il file non c'è, il
+# gioco gira con i numeri grezzi del motore: ogni uso è protetto da un
+# controllo su `balance`.
+try:
+    from gamecore import troop_balance as balance
+except ImportError:                                           # layer rimosso
+    balance = None
 
 try:
     from debug.strength_debug import log_strength_debug
@@ -131,6 +141,22 @@ CELL_MAX_GARRISON_UNITS = 4               # tetto assoluto, fortificazioni compr
 # stessa cella. L'IA ha già il proprio limite nei file di difficoltà.
 MAX_LEGIONS_PER_SIDE = 4
 
+# ── Peso degli attributi nel valore di combattimento ───────────────
+# Erano scritti a mano dentro `_unit_battle_value`. Stanno qui perché li usa
+# anche il calcolo dell'effetto meteo sulla singola unità: i due conti devono
+# per forza pesare gli attributi allo stesso modo, altrimenti il fattore meteo
+# non corrisponderebbe allo scarto reale sul valore.
+UNIT_BATTLE_WEIGHTS: Dict[str, float] = {
+    "U1_attack": 24.0,
+    "U2_defense": 20.0,
+    "U3_mobility": 12.0,
+    "U4_stealth": 10.0,
+    "U5_discipline": 14.0,
+    "U6_terrain_adapt": 10.0,
+    "U7_range_power": 8.0,
+    "U8_support": 6.0,
+}
+
 LEGION_TYPE_ARMY = "army"
 LEGION_TYPE_MINING = "mining"
 LEGION_TYPE_CONSTRUCTION = "construction"
@@ -193,7 +219,10 @@ class GameSession:
         map_seed: Optional[int] = None,
         ai_difficulty: str = AI_EASY_ID,
     ) -> None:
-        self.data = data
+        # Mappa meteo arricchita con le combinazioni ciclo × meteo. È una copia:
+        # registrarle nel dizionario globale le farebbe comparire nel selettore
+        # meteo della schermata iniziale, che deve restare con le sue 4 voci.
+        self.data = wc.data_with_combined_weather(data)
         self.units_map = {unit["id"]: unit for unit in self.data["units"]}
         self.strategies_map = {strategy["id"]: strategy for strategy in self.data["strategies"]}
         self.unit_costs = get_unit_costs(self.data["units"])
@@ -228,7 +257,13 @@ class GameSession:
         }
 
         # --- Ambiente ---
-        self.weather = weather
+        # Due assi che si sommano: ciclo (Giorno/Notte) e meteo (Sereno/Pioggia/
+        # Nebbia). `self.weather` resta la chiave passata all'engine, ora composta,
+        # così ogni punto che la usava continua a funzionare senza modifiche.
+        self.day_cycle, self.weather_base = wc.split_key(weather)
+        self.weather = wc.combined_key(self.day_cycle, self.weather_base)
+        self.weather_rng = random.Random((map_seed or 0) * 977 + 13)
+        self.turns_to_weather_change = wc.next_change_delay(self.weather_rng)
 
         # --- Legioni (Nuovo Sistema) ---
         self.player_legions: Dict[str, Dict[str, Any]] = {}
@@ -332,6 +367,11 @@ class GameSession:
         rendimenti decrescenti; più difesa c'è, meno ne fai. Il tetto e il
         pavimento restano gli estremi, non il caso normale.
         """
+        # [BALANCE-LAYER] Curva d'assedio del layer: la versione qui sotto
+        # premiava troppo poco chi porta un esercito d'assedio vero.
+        if balance is not None:
+            return balance.castle_damage(attacker_strength, defender_score, CASTLE_DAMAGE_MIN)
+
         ratio = attacker_strength / max(1.0, defender_score)
         intensity = ratio / (ratio + CASTLE_DAMAGE_HALF_RATIO)
         raw_damage = CASTLE_DAMAGE_MAX * intensity
@@ -1224,7 +1264,13 @@ class GameSession:
 
         hp_before = self.castle_hp.get(defender, self.castle_hp_max.get(defender, CASTLE_BASE_HP))
         legion_unit_ids = legion.get("units", [])
-        attacker_strength = max(20.0, sum(self._unit_battle_value(uid) for uid in legion_unit_ids))
+        # [BALANCE-LAYER] Contro le mura l'artiglieria pesa più che in campo
+        # aperto. Senza layer resta la somma nuda dei valori, come prima.
+        if balance is not None:
+            raw_strength = balance.siege_strength(legion_unit_ids, self._unit_battle_value)
+        else:
+            raw_strength = sum(self._unit_battle_value(uid) for uid in legion_unit_ids)
+        attacker_strength = max(20.0, raw_strength)
 
         defense = self._castle_defense(defender, to_pos)
         damage = self._compute_castle_damage(attacker_strength, defense["score"])
@@ -1318,6 +1364,14 @@ class GameSession:
         # 1. Valore delle unità modulato dal terreno (stessa regola dei presidi).
         base_total = sum(self._garrison_unit_defense_value(uid, terrain) for uid in unit_ids)
 
+        # [BALANCE-LAYER] Chi assalta una cella fortificata guadagna il surplus
+        # d'assedio (oggi: solo l'artiglieria). È un'aggiunta al valore già
+        # calcolato: togliendo il layer resta esattamente il numero di prima.
+        if balance is not None and not defending and cell is not None:
+            base_total += balance.fortification_surplus(
+                unit_ids, self._unit_battle_value, int(cell.fortification_level)
+            )
+
         # 2. Bonus stack per unità dello stesso tipo (coerente con _strength_breakdown).
         stack_bonus = 0.0
         for unit_id, count in Counter(unit_ids).items():
@@ -1407,6 +1461,14 @@ class GameSession:
             return 0, "", bool(unit_ids)
 
         losses = min(losses, len(unit_ids))
+
+        # [BALANCE-LAYER] I guaritori presenti nella legione assorbono parte
+        # delle perdite. Non sono al riparo: cadono per prime le unità di minor
+        # valore, loro comprese, quindi il tampone si consuma da sé.
+        saved = 0
+        if balance is not None:
+            losses, saved = balance.reduced_losses(unit_ids, losses)
+
         # Cadono per prime le unità di minor valore.
         removed = sorted(unit_ids, key=lambda uid: self._unit_battle_value(uid))[:losses]
 
@@ -1438,6 +1500,14 @@ class GameSession:
             f"{count} {self.units_map.get(unit_id, {}).get('name', unit_id)}"
             for unit_id, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
         )
+
+        # [BALANCE-LAYER] L'intervento dei guaritori va scritto nel log, se no
+        # è un effetto che il giocatore paga 90 grux e non vede mai.
+        if saved and balance is not None:
+            nota = balance.losses_note(saved)
+            if nota:
+                text = f"{text} — {nota}" if text else nota
+
         return losses, text, survived
 
     def _resolve_legion_clash_if_any(
@@ -2824,6 +2894,7 @@ class GameSession:
         #    ogni legione paga la marcia o incassa il riposo esattamente una volta.
         if self.state == SessionState.ACTIVE:
             self._advance_troop_conditions(logs)
+            self._advance_weather(logs)
 
         self._prune_legion_movement_states()
 
@@ -3047,20 +3118,38 @@ class GameSession:
         return losses
 
     def _unit_battle_value(self, unit_id: str) -> float:
-        """Valore base di una singola legione/unità in combattimento."""
-        unit = self.units_map[unit_id]
-        attrs = unit["attributes"]
-        weighted = (
-            attrs["U1_attack"] * 24
-            + attrs["U2_defense"] * 20
-            + attrs["U3_mobility"] * 12
-            + attrs["U4_stealth"] * 10
-            + attrs["U5_discipline"] * 14
-            + attrs["U6_terrain_adapt"] * 10
-            + attrs["U7_range_power"] * 8
-            + attrs["U8_support"] * 6
-        )
-        return weighted
+        """Valore base di una singola legione/unità in combattimento.
+
+        Include le condizioni ambientali correnti: l'artiglieria sotto la
+        pioggia vale meno, gli assassini di notte valgono di più. Passando da
+        qui l'effetto arriva ovunque si conti una truppa — legioni in campo,
+        presidi, difesa del castello, assalti, IA compresa — senza doverlo
+        ripetere in ogni formula.
+        """
+        attrs = self.units_map[unit_id]["attributes"]
+        weighted = sum(attrs[key] * weight for key, weight in UNIT_BATTLE_WEIGHTS.items())
+        return weighted * self._weather_unit_factor(unit_id)
+
+    def _weather_unit_factor(self, unit_id: str) -> float:
+        """Moltiplicatore meteo della singola unità, con cache per condizione.
+
+        `_unit_battle_value` viene chiamato migliaia di volte per turno e il
+        fattore dipende solo da (condizioni, unità): si calcola una volta per
+        combinazione e le condizioni cambiano ogni 20+ turni.
+        """
+        cache = getattr(self, "_weather_unit_cache", None)
+        if cache is None:
+            cache = self._weather_unit_cache = {}
+
+        key = (self.weather, unit_id)
+        if key not in cache:
+            cache[key] = wc.unit_weather_factor(
+                self.units_map[unit_id]["attributes"],
+                self.weather,
+                self.data,
+                UNIT_BATTLE_WEIGHTS,
+            )
+        return cache[key]
 
     def _garrison_unit_defense_value(self, unit_id: str, terrain: str) -> float:
         """Valore difensivo di una unità distaccata, modulato dal terreno corrente."""
@@ -3222,6 +3311,67 @@ class GameSession:
             f"legione '{legion.get('name', '?')}' {before} → {after}{extra}"
         )
 
+    # ──────────────────────────────────────────────────────────
+    # METEO E CICLO GIORNO/NOTTE
+    # ──────────────────────────────────────────────────────────
+
+    def _refresh_weather_key(self) -> None:
+        """Riallinea la chiave passata all'engine ai due assi correnti."""
+        self.weather = wc.combined_key(self.day_cycle, self.weather_base)
+
+    def _advance_weather(self, logs: List[str]) -> None:
+        """Fa scorrere ciclo e meteo sui loro due orologi indipendenti.
+
+        Cambiano di rado apposta: sotto i 20 turni diventerebbero rumore e
+        renderebbero imprevedibile ogni pianificazione a lungo termine.
+        """
+        self.turns_to_weather_change -= 1
+        if self.turns_to_weather_change > 0:
+            return
+
+        self.day_cycle, self.weather_base = wc.advance(
+            self.day_cycle, self.weather_base, self.weather_rng
+        )
+        self.turns_to_weather_change = wc.next_change_delay(self.weather_rng)
+        self._refresh_weather_key()
+        info = self.weather_state()
+        effetti = " · ".join(info["effects"])
+        logs.append(
+            f"[Turno {self.game_map.turn}] {info['emoji']} Condizioni: "
+            f"{info['label']} — {effetti}"
+        )
+
+        # Chi ci guadagna e chi ci perde davvero, in numeri: senza questa riga
+        # il cambio di condizioni restava una scritta senza conseguenze visibili.
+        movers = self._weather_unit_effects(limit=4)
+        if movers:
+            dettaglio = ", ".join(
+                f"{row['unit_name']} {row['percent']:+d}%" for row in movers
+            )
+            logs.append(f"[Turno {self.game_map.turn}] Effetto sulle truppe: {dettaglio}")
+
+    def weather_state(self) -> Dict[str, Any]:
+        """Payload dell'indicatore meteo (emoji, colori, effetti, countdown)."""
+        state = wc.describe(
+            self.day_cycle,
+            self.weather_base,
+            changes_in=self.turns_to_weather_change,
+        )
+        # Chi guadagna e chi perde adesso, in chiaro: il giocatore deve poter
+        # decidere quale legione muovere senza andare a leggere il JSON.
+        state["unit_effects"] = self._weather_unit_effects()
+        return state
+
+    def _weather_unit_effects(self, limit: int = 0) -> List[Dict[str, Any]]:
+        """Effetto delle condizioni correnti su ogni tipo di unità."""
+        return wc.unit_effects(
+            self.data.get("units", []),
+            self.weather,
+            self.data,
+            UNIT_BATTLE_WEIGHTS,
+            limit=limit,
+        )
+
     def _advance_troop_conditions(self, logs: List[str]) -> None:
         """Chiude il turno per ogni legione: marcia, riposo, cambio di stato.
 
@@ -3348,10 +3498,20 @@ class GameSession:
         terrain = self._current_army_terrain(PLAYER)
         breakdown = self._strength_breakdown(PLAYER, terrain)
         strength_now = breakdown["effective_strength"]
+        reserve_units = len(self.player_units)
+
+        # Questa è la strategia GENERALE, che vale per la riserva e per le
+        # legioni che nasceranno: non per quelle già in campo, che hanno la
+        # propria. Con tutte le truppe in legione la riserva è vuota e la
+        # vecchia riga diceva "forza attuale 0", che sembrava un guasto.
+        if reserve_units:
+            dettaglio = f"forza riserva {strength_now} su {terrain} ({reserve_units} unità)"
+        else:
+            dettaglio = "riserva vuota: varrà per le prossime legioni"
 
         log_entry = (
-            f"[Turno {self.game_map.turn}] 🎯 PLAYER imposta strategia {strategy['name']} "
-            f"→ forza attuale {strength_now} su {terrain}"
+            f"[Turno {self.game_map.turn}] 🎯 PLAYER imposta strategia generale "
+            f"{strategy['name']} → {dettaglio}"
         )
         self.battle_log.append(log_entry)
         log_strength_debug(
@@ -4769,6 +4929,9 @@ class GameSession:
             "state":   self.state.value,
             "winner":  self.winner,
             "weather": self.weather,
+            # Stato ambientale completo per l'indicatore: i due assi separati,
+            # emoji, colori, effetti in chiaro e quanti turni mancano al cambio.
+            "weather_state": self.weather_state(),
             "player": {
                 "units":         self.player_units,
                 "strategy_id":   self.player_strategy_id,

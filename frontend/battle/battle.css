@@ -100,6 +100,24 @@
             font-size: 0.78em;
         }
 
+        /* Indicatore ambientale: stessa forma delle altre pastiglie, ma
+           colori pilotati inline dal backend (giorno chiaro, notte scura).
+           Il bordo serve perché di notte lo sfondo è quasi nero. */
+        .status-pill.weather-pill {
+            border: 1px solid transparent;
+            letter-spacing: 0.01em;
+            cursor: help;
+            transition: background 240ms ease, color 240ms ease, border-color 240ms ease;
+        }
+
+        .status-pill.weather-pill.is-night {
+            box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.35), 0 2px 10px rgba(49, 46, 129, 0.35);
+        }
+
+        .status-pill.weather-pill[hidden] {
+            display: none;
+        }
+
         .status-muted {
             color: #4b5563;
             font-size: 0.99em;

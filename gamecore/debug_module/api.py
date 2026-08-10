@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from gamecore.maps import Occupation
+from gamecore.session import weather_cycle as wc
 
 PLAYER = Occupation.PLAYER
 AI = Occupation.AI
@@ -53,6 +54,12 @@ class OutcomeRequest(BaseModel):
     winner: str = Field(..., description="'player' oppure 'ai'")
 
 
+class WeatherRequest(BaseModel):
+    cycle: Optional[str] = Field(None, description="'Giorno' o 'Notte' (assente = lascia com'è)")
+    weather: Optional[str] = Field(None, description="'Sereno', 'Pioggia' o 'Nebbia' (assente = lascia com'è)")
+    freeze: Optional[bool] = Field(None, description="True blocca l'orologio, False lo fa ripartire")
+
+
 # ── Helper ─────────────────────────────────────────────────────────
 
 def _entity_from(value: str) -> Occupation:
@@ -66,6 +73,45 @@ def _entity_from(value: str) -> Occupation:
 
 def _reserve_of(session: Any, entity: Occupation) -> List[str]:
     return session.player_units if entity == PLAYER else session.ai_units
+
+
+# ── Meteo: blocco dell'orologio e forzatura delle condizioni ───────
+# Il blocco è una sostituzione a caldo di `_advance_weather` sull'ISTANZA:
+# la sessione non espone nessun interruttore e non deve farlo. Lo sblocco
+# cancella l'attributo dall'istanza, così torna a valere il metodo della
+# classe e non resta traccia del passaggio del modulo.
+FROZEN_FLAG = "_debug_weather_frozen"
+FROZEN_METHOD = "_advance_weather"
+
+
+def _weather_frozen(session: Any) -> bool:
+    return bool(getattr(session, FROZEN_FLAG, False))
+
+
+def _set_weather_frozen(session: Any, frozen: bool) -> None:
+    if frozen:
+        session.__dict__[FROZEN_METHOD] = lambda logs: None
+        session.__dict__[FROZEN_FLAG] = True
+    else:
+        session.__dict__.pop(FROZEN_METHOD, None)
+        session.__dict__.pop(FROZEN_FLAG, None)
+
+
+def _weather_payload(session: Any) -> Dict[str, Any]:
+    """Stato meteo completo per i controlli del pannello."""
+    state = session.weather_state()
+    return {
+        "cycle": session.day_cycle,
+        "weather": session.weather_base,
+        "key": session.weather,
+        "label": state.get("label"),
+        "emoji": state.get("emoji"),
+        "changes_in": state.get("changes_in", 0),
+        "frozen": _weather_frozen(session),
+        "cycles": list(wc.CYCLES),
+        "weathers": list(wc.WEATHERS),
+        "unit_effects": state.get("unit_effects", []),
+    }
 
 
 def build_debug_router(get_session: Callable[[], Any]) -> APIRouter:
@@ -233,6 +279,46 @@ def build_debug_router(get_session: Callable[[], Any]) -> APIRouter:
             executed += 1
         return ok(session, f"eseguiti {executed} turni di fila", executed=executed)
 
+    # ── Meteo ──────────────────────────────────────────────────────
+    @router.post("/weather")
+    async def set_weather(request: WeatherRequest) -> Dict[str, Any]:
+        """Impone le condizioni e/o blocca l'orologio del meteo.
+
+        Con l'orologio bloccato le condizioni non cambiano più da sole, nemmeno
+        saltando decine di turni: serve a provare a mano lo stesso scenario.
+        """
+        session = session_or_404()
+
+        cycle = request.cycle or session.day_cycle
+        weather = request.weather or session.weather_base
+        if cycle not in wc.CYCLES:
+            raise HTTPException(status_code=400, detail=f"Ciclo non valido: {cycle!r} (usa {list(wc.CYCLES)}).")
+        if weather not in wc.WEATHERS:
+            raise HTTPException(status_code=400, detail=f"Meteo non valido: {weather!r} (usa {list(wc.WEATHERS)}).")
+
+        changed = (cycle != session.day_cycle) or (weather != session.weather_base)
+        session.day_cycle = cycle
+        session.weather_base = weather
+        session._refresh_weather_key()
+
+        if request.freeze is not None:
+            _set_weather_frozen(session, request.freeze)
+
+        if changed and not _weather_frozen(session):
+            # Contatore rimesso a un intervallo pieno: senza, la condizione
+            # appena imposta poteva cambiare al turno successivo.
+            session.turns_to_weather_change = wc.next_change_delay(session.weather_rng)
+
+        parts = [f"condizioni → {session.weather}"]
+        if request.freeze is not None:
+            parts.append("orologio bloccato" if request.freeze else "orologio riavviato")
+        return ok(session, " · ".join(parts), weather=_weather_payload(session))
+
+    @router.get("/weather")
+    async def get_weather() -> Dict[str, Any]:
+        """Condizioni correnti, stato del blocco e opzioni disponibili."""
+        return _weather_payload(session_or_404())
+
     # ── Fine partita ───────────────────────────────────────────────
     @router.post("/force-outcome")
     async def force_outcome(request: OutcomeRequest) -> Dict[str, Any]:
@@ -286,6 +372,7 @@ def build_debug_router(get_session: Callable[[], Any]) -> APIRouter:
             "winner": session.winner,
             "ai_kill_switch": bool(getattr(session, "debug_ai_kill_switch", False)),
             "ai_difficulty": getattr(session, "ai_difficulty", None),
+            "weather": _weather_payload(session),
             "player": side(PLAYER, session.player_legions, session.player_units),
             "ai": side(AI, session.ai_legions, session.ai_units),
         }

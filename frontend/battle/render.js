@@ -10,6 +10,7 @@
                 document.getElementById('battleStatusHint').textContent = 'Seleziona una legione e usa Presidio/Miniera/Fortifica, o premi H per i comandi rapidi.';
             }
 
+            renderWeatherPill(sessionData);
             renderTacticalLegionSelect(sessionData);
             updateBattleStatusModePill(sessionData);
             updateTacticalActionButtons(sessionData);
@@ -190,6 +191,45 @@
                 return null;
             }
             return selector.value || null;
+        }
+
+        /** Indicatore ambientale accanto al contatore turni.
+         *  Colori e emoji arrivano dal backend: la UI non decide la semantica,
+         *  la mostra e basta. Se il payload non li porta la pastiglia resta
+         *  nascosta, così una risposta vecchia non rompe la barra di stato. */
+        function renderWeatherPill(sessionData) {
+            const pill = document.getElementById('battleStatusWeather');
+            if (!pill) return;
+
+            const meteo = sessionData?.weather_state;
+            if (!meteo) {
+                pill.hidden = true;
+                return;
+            }
+
+            pill.hidden = false;
+            pill.textContent = `${meteo.emoji} ${meteo.label}`;
+            pill.style.color = meteo.color;
+            pill.style.background = meteo.background;
+            pill.style.borderColor = meteo.border;
+            pill.classList.toggle('is-night', Boolean(meteo.is_night));
+
+            // Nel tooltip anche l'effetto in numeri sulle singole truppe: è la
+            // stessa tabella che il motore applica in battaglia, così si può
+            // decidere quale legione muovere senza tirare a indovinare.
+            const righe = [(meteo.effects || []).join(' · ')];
+            const truppe = meteo.unit_effects || [];
+            if (truppe.length) {
+                righe.push('');
+                righe.push('Effetto sulle truppe:');
+                for (const riga of truppe) {
+                    const segno = riga.percent > 0 ? '+' : '';
+                    righe.push(`  ${riga.unit_name}: ${segno}${riga.percent}%`);
+                }
+            }
+            righe.push('');
+            righe.push(`Condizioni successive fra ${meteo.changes_in} turni`);
+            pill.title = righe.join('\n');
         }
 
         /** Riepilogo leggibile della condizione delle truppe in riserva.
