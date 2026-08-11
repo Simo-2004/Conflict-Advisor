@@ -591,39 +591,57 @@
             const container = document.getElementById('skillTreePaths');
             if (!container) return;
 
-            const abilitiesState = sessionData?.player?.abilities || {};
-            const paths = [...new Set(SKILL_TREE_DEFINITION.map(skill => skill.path))];
-            container.innerHTML = paths.map(pathName => {
-                const nodes = SKILL_TREE_DEFINITION.filter(skill => skill.path === pathName).map(skill => {
-                    const state = abilitiesState[skill.id];
-                    const isKnown = Boolean(state);
-                    const isUnlocked = Boolean(state?.unlocked);
-                    const isResearching = Boolean(state?.researching && !state?.unlocked);
-                    const canResearch = isKnown && !isUnlocked && !isResearching;
+            // L'albero si disegna dal catalogo del backend: nomi, percorsi,
+            // prezzi, prerequisiti ed esclusività vivono in un posto solo
+            // (gamecore/session/abilities.py). Aggiungere un'abilità là la fa
+            // comparire qui senza toccare il frontend.
+            const abilities = Object.values(sessionData?.player?.abilities || {});
+            const paths = sessionData?.player?.ability_paths
+                || [...new Set(abilities.map(item => item.path))];
+            const grux = Number(sessionData?.player?.grux_balance ?? 0);
 
+            const header = document.getElementById('skillTreeSummary');
+            if (header) {
+                const inProgress = abilities.find(item => item.researching);
+                const unlockedCount = abilities.filter(item => item.unlocked).length;
+                header.textContent = inProgress
+                    ? `${unlockedCount}/${abilities.length} sbloccate · in ricerca: ${inProgress.name}`
+                        + ` (${inProgress.turns_remaining} turni) · ${grux} grux`
+                    : `${unlockedCount}/${abilities.length} sbloccate · nessuna ricerca in corso · ${grux} grux`;
+            }
+
+            container.innerHTML = paths.map(pathName => {
+                const nodes = abilities.filter(item => item.path === pathName).map(skill => {
                     let stateClass = 'locked';
-                    let stateText = 'Non disponibile';
-                    if (isUnlocked) {
+                    let stateText = 'Bloccata';
+                    if (skill.unlocked) {
                         stateClass = 'unlocked';
                         stateText = 'Sbloccata';
-                    } else if (isResearching) {
+                    } else if (skill.researching) {
                         stateClass = 'researching';
-                        stateText = `${state.turns_remaining} turni`;
-                    } else if (isKnown) {
-                        stateClass = 'locked';
-                        stateText = 'Pronta ricerca';
+                        stateText = `${skill.turns_remaining} turni`;
+                    } else if (skill.can_start) {
+                        stateClass = 'ready';
+                        stateText = 'Pronta';
+                    } else if (skill.blocked_reason) {
+                        stateText = skill.blocked_reason;
                     }
 
-                    const actionButton = canResearch
-                        ? `<button class="skill-action-btn" type="button" onclick="researchAbilityById('${skill.id}')">Avvia ricerca</button>`
-                        : `<button class="skill-action-btn" type="button" disabled>${isUnlocked ? 'Attiva' : (isResearching ? 'In ricerca' : 'Bloccata')}</button>`;
+                    const actionButton = skill.can_start
+                        ? `<button class="skill-action-btn" type="button" onclick="researchAbilityById('${skill.id}')">Ricerca · ${skill.grux_cost} grux</button>`
+                        : `<button class="skill-action-btn" type="button" disabled>${skill.unlocked ? 'Attiva' : (skill.researching ? 'In corso' : 'Non ora')}</button>`;
 
                     return `
                         <div class="skill-node ${stateClass}">
-                            <h4>${skill.name}</h4>
-                            <p>${skill.description}</p>
+                            <h4>${escapeAdvisorText(skill.name)}</h4>
+                            <p>${escapeAdvisorText(skill.description)}</p>
+                            <p class="skill-effect">${escapeAdvisorText(skill.effect_text)}</p>
+                            <div class="skill-cost">
+                                <span>⏳ ${skill.turns_required} turni</span>
+                                <span>💰 ${skill.grux_cost} grux</span>
+                            </div>
                             <div class="skill-meta">
-                                <span class="skill-state-pill">${stateText}</span>
+                                <span class="skill-state-pill">${escapeAdvisorText(stateText)}</span>
                                 ${actionButton}
                             </div>
                         </div>
@@ -632,11 +650,189 @@
 
                 return `
                     <div class="skilltree-path">
-                        <h4 class="skilltree-path-title">${pathName}</h4>
+                        <h4 class="skilltree-path-title">${escapeAdvisorText(pathName)}</h4>
                         ${nodes}
                     </div>
                 `;
             }).join('');
+        }
+
+        // ══════════════════════════════════════════════════════════
+        // Mercato Nero
+        // ══════════════════════════════════════════════════════════
+
+        function renderBlackMarketButton(sessionData) {
+            const button = document.getElementById('blackMarketBtn');
+            const label = document.getElementById('blackMarketLabel');
+            if (!button || !label) return;
+
+            const market = sessionData?.player?.black_market;
+            const unlocked = Boolean(market?.unlocked);
+            const offers = (market?.offers || []).filter(offer => offer.available);
+            const best = offers.reduce((max, offer) => Math.max(max, offer.discount_pct), 0);
+
+            button.classList.toggle('is-locked', !unlocked);
+            if (!unlocked) {
+                const research = sessionData?.player?.abilities?.black_market;
+                label.textContent = research?.researching
+                    ? `Contatto in arrivo · ${research.turns_remaining} turni`
+                    : 'Serranda chiusa · ricerca l\'abilità';
+                return;
+            }
+            label.textContent = offers.length
+                ? `${offers.length} offerte al banco · fino a -${best}%`
+                : `Banco vuoto · nuova merce fra ${market.turns_to_refresh} turni`;
+        }
+
+        function openBlackMarket() {
+            const overlay = document.getElementById('blackMarketOverlay');
+            if (!overlay) return;
+            renderBlackMarket(currentBattleState);
+            overlay.classList.add('open');
+        }
+
+        function closeBlackMarket() {
+            const overlay = document.getElementById('blackMarketOverlay');
+            if (!overlay) return;
+            overlay.classList.remove('open');
+        }
+
+        function closeBlackMarketIfBackdrop(event) {
+            if (event.target && event.target.id === 'blackMarketOverlay') {
+                closeBlackMarket();
+            }
+        }
+
+        function renderBlackMarket(sessionData) {
+            const body = document.getElementById('blackMarketBody');
+            const note = document.getElementById('blackMarketNote');
+            if (!body) return;
+
+            const market = sessionData?.player?.black_market;
+            const grux = Number(sessionData?.player?.grux_balance ?? 0);
+
+            if (!market?.unlocked) {
+                const research = sessionData?.player?.abilities?.black_market;
+                const attesa = research?.researching
+                    ? `Il contatto arriva fra ${research.turns_remaining} turni.`
+                    : 'Ricerca l\'abilità "Mercato Nero" se vuoi che qualcuno ti apra.';
+                body.innerHTML = `
+                    <div class="market-shut">
+                        <div class="market-shut-icon" aria-hidden="true">🚪</div>
+                        <p>Bussi. Nessuno risponde.</p>
+                        <p class="market-shut-hint">${escapeAdvisorText(attesa)}</p>
+                    </div>
+                `;
+                if (note) note.textContent = 'Nessun banco aperto.';
+                return;
+            }
+
+            const offers = market.offers || [];
+            if (!offers.length) {
+                body.innerHTML = `
+                    <div class="market-shut">
+                        <div class="market-shut-icon" aria-hidden="true">🕳</div>
+                        <p>Banco sgombro. Torna più tardi.</p>
+                        <p class="market-shut-hint">Merce nuova fra ${market.turns_to_refresh} turni.</p>
+                    </div>
+                `;
+            } else {
+                body.innerHTML = `<div class="market-shelf">${offers.map(offer => {
+                    const affordable = grux >= offer.total_price;
+                    const buyable = offer.available && affordable;
+                    let stateClass = 'is-open';
+                    let stamp = '';
+                    if (offer.sold) {
+                        stateClass = 'is-sold';
+                        stamp = '<span class="market-stamp">Venduto</span>';
+                    } else if (offer.expired) {
+                        stateClass = 'is-gone';
+                        stamp = '<span class="market-stamp">Sfumato</span>';
+                    } else if (offer.turns_left <= 2) {
+                        stateClass = 'is-open is-urgent';
+                    }
+
+                    let buttonLabel = `Prendi · ${offer.total_price} grux`;
+                    if (offer.sold) buttonLabel = 'Già andato';
+                    else if (offer.expired) buttonLabel = 'Fuori tempo';
+                    else if (!affordable) buttonLabel = `Servono ${offer.total_price} grux`;
+
+                    return `
+                        <article class="market-offer ${stateClass}">
+                            ${stamp}
+                            <header class="market-offer-head">
+                                <span class="market-offer-name">${escapeAdvisorText(offer.unit_name)}</span>
+                                <span class="market-offer-qty">×${offer.quantity}</span>
+                            </header>
+                            <div class="market-offer-price">
+                                <span class="market-price-old">${offer.list_total}</span>
+                                <span class="market-price-new">${offer.total_price}</span>
+                                <span class="market-price-cut">-${offer.discount_pct}%</span>
+                            </div>
+                            <p class="market-offer-flavor">"${escapeAdvisorText(offer.flavor)}"</p>
+                            <div class="market-offer-meta">
+                                <span>${escapeAdvisorText(offer.source)}</span>
+                                <span>${offer.turns_left > 0 ? `sparisce fra ${offer.turns_left} turni` : 'scaduta'}</span>
+                            </div>
+                            <button class="market-buy-btn" type="button" ${buyable ? '' : 'disabled'}
+                                    onclick="buyBlackMarketOffer('${offer.offer_id}')">${escapeAdvisorText(buttonLabel)}</button>
+                        </article>
+                    `;
+                }).join('')}</div>`;
+            }
+
+            if (note) {
+                note.textContent = `${grux} grux in tasca · ${market.units_bought} unità passate di qui`
+                    + ` · ${market.grux_saved} grux risparmiati · banco nuovo fra ${market.turns_to_refresh} turni`;
+            }
+        }
+
+        // Le abilità economiche cambiano il prezzo delle reclute, ma le voci del
+        // menu nascono da /config, che è statico e non sa niente della partita.
+        // Senza questo il menu direbbe 80 grux e la cassa ne scalerebbe 70.
+        function updateRecruitPrices(sessionData) {
+            const prices = sessionData?.player?.recruit_costs;
+            if (!prices) return;
+
+            for (const selectId of ['recruitSelect', 'autoRecruitUnitSelect']) {
+                const select = document.getElementById(selectId);
+                if (!select) continue;
+                for (const option of select.options) {
+                    const unit = recruitableUnits.find(item => item.id === option.value);
+                    if (!unit) continue;
+                    const price = Number(prices[unit.id] ?? unit.cost_grux);
+                    const discounted = price < Number(unit.cost_grux);
+                    const label = discounted
+                        ? `${unit.name} • ${price} grux (era ${unit.cost_grux})`
+                        : `${unit.name} • ${price} grux`;
+                    if (option.textContent !== label) option.textContent = label;
+                }
+            }
+        }
+
+        async function buyBlackMarketOffer(offerId) {
+            try {
+                const response = await fetch('http://127.0.0.1:8000/game/black-market/buy', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ offer_id: offerId })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Il merciaio non ci sta.');
+                }
+
+                const result = await response.json();
+                transientLogLines = [];
+                renderBattleState(result.session);
+                renderBlackMarket(result.session);
+            } catch (error) {
+                document.getElementById('battleStatusHint').textContent = `Mercato Nero: ${error.message}`;
+                transientLogLines = [`Mercato Nero: ${error.message}`];
+                renderBattleState(currentBattleState);
+                renderBlackMarket(currentBattleState);
+            }
         }
 
         async function recruitSelectedUnit() {

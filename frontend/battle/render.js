@@ -44,27 +44,41 @@
                 + ` · Riserva: ${describeTroopCondition(sessionData.ai)}`;
             document.getElementById('aiLegionComposition').textContent = `Composizione: ${aiLegion.compositionText}`;
 
-            const abilityState = sessionData.player?.abilities?.domain_engineering;
+            // Il pulsante riassume TUTTO l'albero, non più la sola Costruzione
+            // Territoriale: quante abilità hai e cosa sta uscendo dai laboratori.
+            const abilities = sessionData.player?.abilities || {};
+            const abilityList = Object.values(abilities);
             const abilityCard = document.getElementById('abilityResearchBtn');
             const abilityLabel = document.getElementById('abilityLabel');
             if (abilityLabel && abilityCard) {
+                const total = abilityList.length;
+                const unlockedCount = abilityList.filter(item => item.unlocked).length;
+                const inProgress = abilityList.find(item => item.researching);
+
                 let statusText = 'Apri per vedere le ricerche';
-                let unlocked = false;
-                let researching = false;
-                if (abilityState) {
-                    if (abilityState.unlocked) {
-                        statusText = 'Sbloccata';
-                        unlocked = true;
-                    } else if (abilityState.researching) {
-                        statusText = `Ricerca in corso · ${abilityState.turns_remaining} turni`;
-                        researching = true;
-                    } else {
-                        statusText = 'Pronta per la ricerca';
-                    }
+                if (inProgress) {
+                    statusText = `${inProgress.name} · ${inProgress.turns_remaining} turni`;
+                } else if (total > 0) {
+                    const ready = abilityList.filter(item => item.can_start).length;
+                    statusText = ready > 0
+                        ? `${unlockedCount}/${total} sbloccate · ${ready} avviabili`
+                        : `${unlockedCount}/${total} sbloccate`;
                 }
                 abilityLabel.textContent = statusText;
-                abilityCard.classList.toggle('is-unlocked', unlocked);
-                abilityCard.classList.toggle('is-researching', researching);
+                abilityCard.classList.toggle('is-unlocked', unlockedCount > 0 && !inProgress);
+                abilityCard.classList.toggle('is-researching', Boolean(inProgress));
+            }
+
+            renderBlackMarketButton(sessionData);
+            updateRecruitPrices(sessionData);
+
+            // Ricerche e offerte cambiano a ogni turno: se la finestra è aperta
+            // deve aggiornarsi da sola, non mostrare lo stato di quando l'hai aperta.
+            if (document.getElementById('skillTreeOverlay')?.classList.contains('open')) {
+                renderSkillTree(sessionData);
+            }
+            if (document.getElementById('blackMarketOverlay')?.classList.contains('open')) {
+                renderBlackMarket(sessionData);
             }
 
             const gameOver = sessionData.state === 'game_over';
@@ -378,9 +392,15 @@
             // Un'azione è disponibile se esiste ALMENO UNA legione idonea in campo,
             // non se lo è quella nel menu a tendina: quale usare lo decide il click
             // sulla cella, quindi legarlo alla selezione bloccava azioni possibili.
+            // Con Costruzione Caotica il ruolo non conta più: basta avere una
+            // legione in campo. Senza questo il tasto restava spento e
+            // l'abilità sembrava non fare niente.
+            const anyLegion = Boolean(sessionData?.player?.build_rules?.any_legion);
+            const hasAnyLegion = legions.some((lg) => (lg.pos || []).length === 2);
+
             const hasGarrisonable = legions.some((lg) => (lg.units || []).length >= 2);
-            const hasMining = legions.some((lg) => lg.legion_type === 'mining');
-            const hasConstruction = legions.some((lg) => lg.legion_type === 'construction');
+            const hasMining = anyLegion ? hasAnyLegion : legions.some((lg) => lg.legion_type === 'mining');
+            const hasConstruction = anyLegion ? hasAnyLegion : legions.some((lg) => lg.legion_type === 'construction');
 
             const buttons = [
                 ['actionGarrisonBtn', hasGarrisonable, 'garrison'],

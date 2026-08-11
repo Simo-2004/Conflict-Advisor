@@ -42,6 +42,7 @@
         const actionRow = qs(battleToolbar, '.action-row');
         const garrisonPreview = document.getElementById('garrisonDefensePreview');
         const abilityCard = document.getElementById('abilityResearchBtn');
+        const marketCard = document.getElementById('blackMarketBtn');
         const toolbarRecruit = qs(battleToolbar, '.toolbar-recruit');
         const toolbarStrategy = qs(battleToolbar, '.toolbar-strategy');
         const buttonRow = qs(battleToolbar, '.button-row');
@@ -79,6 +80,7 @@
         moveIfPresent(actionRow, warPane);
         moveIfPresent(garrisonPreview, warPane);
         moveIfPresent(abilityCard, warPane);
+        moveIfPresent(marketCard, warPane);
         moveIfPresent(toolbarRecruit, warPane);
         moveIfPresent(toolbarStrategy, warPane);
         moveIfPresent(layoutModeRow, viewPane);

@@ -1121,6 +1121,303 @@
             cursor: not-allowed;
         }
 
+        .skilltree-summary {
+            margin: 4px 0 0;
+            font-size: 0.82em;
+            font-weight: 700;
+            color: #b45309;
+        }
+
+        /* L'effetto in numeri, staccato dalla descrizione narrativa: è la riga
+           che si legge davvero quando si sceglie cosa ricercare. */
+        .skill-node .skill-effect {
+            margin-top: 5px;
+            font-size: 0.78em;
+            font-weight: 700;
+            color: #1d4ed8;
+        }
+
+        .skill-cost {
+            margin-top: 6px;
+            display: flex;
+            gap: 10px;
+            font-size: 0.76em;
+            font-weight: 700;
+            color: #475569;
+        }
+
+        /* Pronta da avviare: si distingue da "bloccata", che prima erano uguali. */
+        .skill-node.ready {
+            border-color: #93c5fd;
+            background: #eff6ff;
+        }
+
+        .skill-node.ready .skill-state-pill {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .skill-node.locked .skill-state-pill {
+            background: #e2e8f0;
+            color: #64748b;
+        }
+
+        /* ── Mercato Nero ─────────────────────────────────────────────
+           Unico posto del gioco con un tema scuro: il banco deve sembrare
+           un retrobottega, non un'altra finestra di gestione. */
+
+        .ability-card.market-card {
+            background: linear-gradient(180deg, #241d14 0%, #17120c 100%);
+            border-color: #4a3a22;
+            color: #f4e3c1;
+        }
+
+        .ability-card.market-card .ability-card-title {
+            color: #f6c453;
+        }
+
+        .ability-card.market-card .ability-card-status,
+        .ability-card.market-card .ability-card-arrow {
+            color: #bda57a;
+        }
+
+        .ability-card.market-card.is-locked {
+            opacity: 0.72;
+            filter: grayscale(0.4);
+        }
+
+        .market-overlay {
+            position: fixed;
+            inset: 0;
+            display: none;
+            background: rgba(8, 6, 4, 0.72);
+            backdrop-filter: blur(2px);
+            z-index: 322;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+
+        .market-overlay.open {
+            display: flex;
+        }
+
+        .market-modal {
+            width: min(980px, 98vw);
+            max-height: 90vh;
+            overflow: hidden;
+            background:
+                radial-gradient(120% 80% at 50% 0%, #2b2118 0%, #171009 62%, #100b06 100%);
+            border: 1px solid #5c4526;
+            border-radius: 12px;
+            box-shadow: 0 22px 60px rgba(0, 0, 0, 0.6), inset 0 0 60px rgba(0, 0, 0, 0.5);
+            display: grid;
+            grid-template-rows: auto 1fr auto;
+            color: #efe0c4;
+        }
+
+        .market-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 16px;
+            border-bottom: 1px solid #4a3720;
+            background: linear-gradient(180deg, rgba(0, 0, 0, 0.35), transparent);
+        }
+
+        .market-header h3 {
+            margin: 0;
+            font-size: 1.16em;
+            color: #f6c453;
+            letter-spacing: 0.04em;
+        }
+
+        .market-header p {
+            margin: 4px 0 0;
+            font-size: 0.86em;
+            color: #b09a72;
+            font-style: italic;
+        }
+
+        .market-close {
+            border: 1px solid #6b5228;
+            background: #251b11;
+            color: #e2c894;
+            border-radius: 8px;
+            padding: 7px 11px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .market-close:hover {
+            background: #33260f;
+        }
+
+        .market-body {
+            overflow: auto;
+            padding: 16px;
+        }
+
+        .market-shelf {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 14px;
+        }
+
+        .market-offer {
+            position: relative;
+            border: 1px solid #57411f;
+            border-radius: 10px;
+            padding: 12px;
+            background: linear-gradient(180deg, #221a11 0%, #191208 100%);
+            box-shadow: inset 0 1px 0 rgba(255, 220, 150, 0.06);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        /* Offerta agli sgoccioli: il bordo si accende, non serve leggere i turni. */
+        .market-offer.is-urgent {
+            border-color: #b45309;
+            box-shadow: 0 0 0 1px rgba(180, 83, 9, 0.35), inset 0 1px 0 rgba(255, 220, 150, 0.06);
+        }
+
+        .market-offer.is-sold,
+        .market-offer.is-gone {
+            opacity: 0.45;
+            filter: grayscale(0.6);
+        }
+
+        .market-stamp {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            transform: rotate(-9deg);
+            border: 2px solid #a13a2a;
+            color: #d4553d;
+            border-radius: 4px;
+            padding: 2px 7px;
+            font-size: 0.72em;
+            font-weight: 900;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .market-offer-head {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+        }
+
+        .market-offer-name {
+            font-weight: 800;
+            color: #f2dcae;
+            font-size: 1.02em;
+        }
+
+        .market-offer-qty {
+            font-weight: 900;
+            color: #f6c453;
+        }
+
+        .market-offer-price {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+        }
+
+        .market-price-old {
+            text-decoration: line-through;
+            color: #7c6a4c;
+            font-size: 0.88em;
+        }
+
+        .market-price-new {
+            font-size: 1.3em;
+            font-weight: 900;
+            color: #7ddc8a;
+        }
+
+        .market-price-cut {
+            font-size: 0.76em;
+            font-weight: 900;
+            color: #101008;
+            background: #f6c453;
+            border-radius: 999px;
+            padding: 2px 7px;
+        }
+
+        .market-offer-flavor {
+            margin: 0;
+            font-size: 0.82em;
+            font-style: italic;
+            color: #a8926c;
+            line-height: 1.35;
+        }
+
+        .market-offer-meta {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            font-size: 0.74em;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #86745a;
+        }
+
+        .market-buy-btn {
+            margin-top: auto;
+            border: 1px solid #6f8f3f;
+            background: linear-gradient(180deg, #5c7c30 0%, #43601f 100%);
+            color: #f6ffe8;
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .market-buy-btn:hover:not(:disabled) {
+            background: linear-gradient(180deg, #6d9139 0%, #4e6f24 100%);
+        }
+
+        .market-buy-btn:disabled {
+            border-color: #4a3a22;
+            background: #241b11;
+            color: #7d6c52;
+            cursor: not-allowed;
+        }
+
+        .market-shut {
+            text-align: center;
+            padding: 34px 16px;
+            color: #a8926c;
+        }
+
+        .market-shut-icon {
+            font-size: 2.4em;
+            margin-bottom: 8px;
+        }
+
+        .market-shut p {
+            margin: 4px 0;
+            font-style: italic;
+        }
+
+        .market-shut-hint {
+            font-size: 0.86em;
+            color: #7c6a4c;
+        }
+
+        .market-footer {
+            padding: 10px 16px;
+            border-top: 1px solid #4a3720;
+            background: rgba(0, 0, 0, 0.28);
+            font-size: 0.8em;
+            color: #a8926c;
+            letter-spacing: 0.02em;
+        }
+
         .auto-recruit-overlay {
             position: fixed;
             inset: 0;
