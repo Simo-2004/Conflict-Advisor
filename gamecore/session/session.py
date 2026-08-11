@@ -4198,8 +4198,16 @@ class GameSession:
                 continue
             if not self._black_market_open(entity):
                 continue
+            # Il listino di riferimento è quello che questa entità pagherebbe
+            # davvero, non il prezzo base: con Industria Bellica sbloccata uno
+            # sconto del 20% sul listino pieno poteva essere un affare PEGGIORE
+            # del reclutamento normale, e il banco l'avrebbe comunque scritto
+            # come risparmio.
+            reference_prices = {
+                unit_id: self._recruit_cost(entity, unit_id) for unit_id in self.unit_costs
+            }
             line = self.black_market[entity].tick(
-                self.game_map.turn, self.unit_costs, self.units_map, self.black_market_rng
+                self.game_map.turn, reference_prices, self.units_map, self.black_market_rng
             )
             # Il cambio banco dell'IA non è affar suo: resta fuori dal registro.
             if line and entity == PLAYER:
@@ -4284,7 +4292,11 @@ class GameSession:
             return []
 
         market = self.black_market[AI]
-        budget = self.grux_balance[AI] - ab.AI_RESEARCH_RESERVE
+        # Non tocca i grux già promessi alla ricerca: senza questo l'IA metteva
+        # da parte per l'abilità e poi si comprava le truppe con quei soldi,
+        # rimandando la ricerca all'infinito.
+        held_back = max(ab.AI_RESEARCH_RESERVE, self._ai_research_savings())
+        budget = self.grux_balance[AI] - held_back
         if budget <= 0:
             return []
 

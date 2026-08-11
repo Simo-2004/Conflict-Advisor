@@ -148,7 +148,15 @@ class BlackMarketState:
             self.opened = True
             self.next_refresh_turn = turn
 
-        if turn < self.next_refresh_turn and any(o.is_available(turn) for o in self.offers):
+        # Il banco cambia merce SOLO quando è ora, mai perché si è svuotato.
+        #
+        # Prima si rimetteva in moto anche quando non restava niente di
+        # disponibile, e questo apriva un rubinetto infinito: chi poteva
+        # permettersi di comprare tutte e tre le offerte se le ritrovava
+        # rifornite il turno dopo. Misurato a grux illimitati faceva 1058
+        # truppe in 100 turni, venti volte il reclutamento normale.
+        # Se hai svuotato il banco aspetti il giro come tutti.
+        if turn < self.next_refresh_turn:
             return None
 
         self._restock(turn, unit_costs, units_map, rng)
