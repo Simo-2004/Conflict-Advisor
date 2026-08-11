@@ -49,6 +49,14 @@
                         </span>
                         <span class="ability-card-arrow" aria-hidden="true">›</span>
                     </button>
+                    <button class="ability-card market-card is-locked" id="blackMarketBtn" type="button" onclick="openBlackMarket()" title="Apri il Mercato Nero [M]">
+                        <span class="ability-card-icon" aria-hidden="true">🕯</span>
+                        <span class="ability-card-body">
+                            <span class="ability-card-title">Mercato Nero</span>
+                            <span class="ability-card-status" id="blackMarketLabel">Serranda chiusa</span>
+                        </span>
+                        <span class="ability-card-arrow" aria-hidden="true">›</span>
+                    </button>
                     <div class="toolbar-recruit">
                         <select id="recruitSelect"></select>
                         <div class="toolbar-recruit-actions">
@@ -184,13 +192,28 @@
                 <div class="skilltree-header">
                     <div>
                         <h3>⭐ Skill Tree</h3>
-                        <p>Scegli e ricerca abilità durante la battaglia.</p>
+                        <p>Una ricerca alla volta: si paga all'avvio e scorre a turni.</p>
+                        <p class="skilltree-summary" id="skillTreeSummary"></p>
                     </div>
                     <button class="skilltree-close" type="button" onclick="closeSkillTree()">Chiudi</button>
                 </div>
                 <div class="skilltree-body">
                     <div class="skilltree-paths" id="skillTreePaths"></div>
                 </div>
+            </div>
+        </div>
+
+        <div class="market-overlay" id="blackMarketOverlay" onclick="closeBlackMarketIfBackdrop(event)">
+            <div class="market-modal">
+                <div class="market-header">
+                    <div>
+                        <h3>🕯 Mercato Nero</h3>
+                        <p>Blocchi di truppe già equipaggiate. Copia unica, e il banco cambia presto.</p>
+                    </div>
+                    <button class="market-close" type="button" onclick="closeBlackMarket()">Esci dal retro</button>
+                </div>
+                <div class="market-body" id="blackMarketBody"></div>
+                <div class="market-footer" id="blackMarketNote"></div>
             </div>
         </div>
 

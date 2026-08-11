@@ -20,7 +20,9 @@ from gamecore.economy import (
     get_unit_costs,
 )
 from gamecore.maps import GameMap, Occupation
+from gamecore.session import abilities as ab
 from gamecore.session.abilities import DOMAIN_ENGINEERING_ID, build_default_ability_states
+from gamecore.session.black_market import BlackMarketState
 from gamecore.session.ai_core.ai_builder import (
     build_ai_army,
     build_ai_policy,
@@ -147,6 +149,10 @@ MAX_LEGIONS_PER_SIDE = 4
 # debole, non più minacciosa — contro le mura ognuno fa il danno minimo.
 # L'accerchiamento vale solo con reparti veri dietro.
 AI_MIN_UNITS_PER_LEGION = 6
+
+# Sotto questo esercito l'IA non mette da parte un grux per la ricerca: prima
+# due reparti pieni, poi la tecnologia. Vedi `_ai_research_savings`.
+AI_RESEARCH_MIN_ARMY = 2 * AI_MIN_UNITS_PER_LEGION
 
 # Caselle massime in un ordine di cattura d'area. Non è un limite tecnico: una
 # legione che deve prendere mezza mappa non torna più indietro, e l'ordine
@@ -296,10 +302,21 @@ class GameSession:
             AI: ai_data.get("remaining_grux", STARTING_GRUX - self.ai_army_cost),
         }
         self.base_fortification_cost: int = 45
+        # Le ricerche dell'IA scorrono più in fretta man mano che la difficoltà
+        # sale: le partite dure durano meno turni, e a tempi pieni l'IA forte
+        # finirebbe con meno abilità di quella debole.
+        _ai_difficulty = normalize_ai_difficulty(ai_difficulty)
         self.ability_states: Dict[Occupation, Dict[str, Any]] = {
             PLAYER: build_default_ability_states(),
-            AI: build_default_ability_states(),
+            AI: build_default_ability_states(ab.ai_research_scale(_ai_difficulty)),
         }
+        # Il banco del Mercato Nero esiste da subito ma resta chiuso finché
+        # l'abilità non è sbloccata: nessuna offerta viene generata prima.
+        self.black_market: Dict[Occupation, BlackMarketState] = {
+            PLAYER: BlackMarketState(),
+            AI: BlackMarketState(),
+        }
+        self.black_market_rng = random.Random((map_seed or 0) + 7717)
         self.recruit_cooldown_turns: int = 2
         self.last_recruit_turn: Dict[Occupation, Optional[int]] = {
             PLAYER: None,
@@ -373,6 +390,11 @@ class GameSession:
 
         if entity == AI:
             income = int(round(income * self._ai_mine_income_multiplier()))
+
+        # [ABILITY-EFFECTS] Linee di Rifornimento: meno perdite per strada.
+        supply = self._ability_economy_factor(entity, ab.ECO_MINE_INCOME)
+        if supply != 1.0:
+            income = int(round(income * supply))
         return income
 
     def _compute_castle_damage(self, attacker_strength: float, defender_score: float) -> int:
@@ -1499,8 +1521,10 @@ class GameSession:
             defender_units = list(cell.garrison_unit_ids)[:CASTLE_MAX_GARRISON_UNITS]
 
         # 2. Ogni presidio vale una frazione del suo valore in battaglia.
+        # [ABILITY-EFFECTS] Chi difende porta con sé i bonus difensivi sbloccati.
+        defense_value_of = self._ability_value_of(defender, ab.CTX_DEFENSE)
         troop_score = sum(
-            self._unit_battle_value(uid) * CASTLE_DEFENDER_WEIGHT for uid in defender_units
+            defense_value_of(uid) * CASTLE_DEFENDER_WEIGHT for uid in defender_units
         )
 
         # 3. Fortificazioni: solo quelle sul castello, e con tetto dedicato.
@@ -1509,9 +1533,13 @@ class GameSession:
             fortification_level = min(int(cell.fortification_level), CASTLE_MAX_FORTIFICATION_LEVEL)
         reduction = fortification_level * CASTLE_FORT_DAMAGE_REDUCTION_PER_LEVEL
 
+        # [ABILITY-EFFECTS] Dottrina Fortezza: mura rinforzate ai punti deboli.
+        damage_multiplier = max(0.0, 1.0 - reduction)
+        damage_multiplier *= self._ability_economy_factor(defender, ab.ECO_CASTLE_DAMAGE_TAKEN)
+
         return {
             "score": CASTLE_DEFENSE_BASE + troop_score,
-            "damage_multiplier": max(0.0, 1.0 - reduction),
+            "damage_multiplier": max(0.0, damage_multiplier),
             "defenders": len(defender_units),
             "fortification_level": fortification_level,
         }
@@ -1532,12 +1560,15 @@ class GameSession:
 
         hp_before = self.castle_hp.get(defender, self.castle_hp_max.get(defender, CASTLE_BASE_HP))
         legion_unit_ids = legion.get("units", [])
+        # [ABILITY-EFFECTS] Il valore d'assedio passa dai bonus dello stile di
+        # gioco dell'attaccante (la Scuola d'Assedio si sente qui).
+        siege_value_of = self._ability_value_of(attacker, ab.CTX_SIEGE)
         # [BALANCE-LAYER] Contro le mura l'artiglieria pesa più che in campo
         # aperto. Senza layer resta la somma nuda dei valori, come prima.
         if balance is not None:
-            raw_strength = balance.siege_strength(legion_unit_ids, self._unit_battle_value)
+            raw_strength = balance.siege_strength(legion_unit_ids, siege_value_of)
         else:
-            raw_strength = sum(self._unit_battle_value(uid) for uid in legion_unit_ids)
+            raw_strength = sum(siege_value_of(uid) for uid in legion_unit_ids)
         attacker_strength = max(20.0, raw_strength)
 
         defense = self._castle_defense(defender, to_pos)
@@ -1630,14 +1661,25 @@ class GameSession:
             return empty
 
         # 1. Valore delle unità modulato dal terreno (stessa regola dei presidi).
-        base_total = sum(self._garrison_unit_defense_value(uid, terrain) for uid in unit_ids)
+        # [ABILITY-EFFECTS] Lo stile di gioco pesa qui: in attacco o in difesa
+        # a seconda del ruolo che la legione ha in questo scontro.
+        context = ab.CTX_DEFENSE if defending else ab.CTX_ATTACK
+        unlocked = self._unlocked_abilities(entity)
+        if ab.has_unit_effects(unlocked, context):
+            base_total = sum(
+                self._garrison_unit_defense_value(uid, terrain)
+                * ab.unit_factor(unlocked, uid, context)
+                for uid in unit_ids
+            )
+        else:
+            base_total = sum(self._garrison_unit_defense_value(uid, terrain) for uid in unit_ids)
 
         # [BALANCE-LAYER] Chi assalta una cella fortificata guadagna il surplus
         # d'assedio (oggi: solo l'artiglieria). È un'aggiunta al valore già
         # calcolato: togliendo il layer resta esattamente il numero di prima.
         if balance is not None and not defending and cell is not None:
             base_total += balance.fortification_surplus(
-                unit_ids, self._unit_battle_value, int(cell.fortification_level)
+                unit_ids, self._ability_value_of(entity, ab.CTX_SIEGE), int(cell.fortification_level)
             )
 
         # 2. Bonus stack per unità dello stesso tipo (coerente con _strength_breakdown).
@@ -1688,8 +1730,13 @@ class GameSession:
                 defense_bonus += garrison_strength * 18.0
                 defense_bonus += enemy_strength * min(0.22, garrison_strength * 0.025)
             if cell.garrison_unit_ids:
+                # [ABILITY-EFFECTS] Anche i presidi della cella difendono con
+                # i bonus difensivi di chi li ha piazzati.
+                garrison_factor = ab.unit_factor if ab.has_unit_effects(unlocked, ab.CTX_DEFENSE) else None
                 defense_bonus += sum(
-                    self._garrison_unit_defense_value(uid, terrain) for uid in cell.garrison_unit_ids
+                    self._garrison_unit_defense_value(uid, terrain)
+                    * (garrison_factor(unlocked, uid, ab.CTX_DEFENSE) if garrison_factor else 1.0)
+                    for uid in cell.garrison_unit_ids
                 ) * 2.0
             if fortification_level > 0 and garrison_strength > 0:
                 # Sinergia presidio-dentro-fortificazione, come nella difesa statica.
@@ -2394,6 +2441,10 @@ class GameSession:
                     f"[Turno {self.game_map.turn}] ⛏ {entity.value.upper()} incassa {income} grux da {mine_count} miniere{diminishing_note}"
                 )
 
+        # Il banco cambia merce prima che l'IA faccia la spesa: se no
+        # comprerebbe sempre le offerte del giro precedente.
+        logs.extend(self._tick_black_market())
+
         if not self.debug_ai_kill_switch:
             logs.extend(self._auto_manage_ai_economy())
         logs.extend(self._run_player_auto_recruit())
@@ -2478,6 +2529,16 @@ class GameSession:
 
         self.ai_difficulty = normalized
         self.ai_policy = build_ai_policy(self.ai_difficulty, seed=None)
+        # Le ricerche non ancora avviate prendono il ritmo della nuova
+        # difficoltà; quelle in corso o già sbloccate restano come sono, che
+        # cambiare i turni sotto una ricerca aperta sarebbe riscrivere il passato.
+        research_scale = ab.ai_research_scale(self.ai_difficulty)
+        for ability_id, ability_state in self.ability_states[AI].items():
+            definition = ab.ABILITIES.get(ability_id)
+            if definition is not None and ability_state.started_turn is None:
+                ability_state.turns_required = max(
+                    4, int(round(definition.turns_required * research_scale))
+                )
         # Cambia difficoltà, cambia manovra: le corsie già assegnate alle
         # legioni restano, la dottrina nuova vale dal prossimo obiettivo.
         self.ai_doctrine = ai_doctrine.for_difficulty(self.ai_difficulty, seed=None)
@@ -2614,7 +2675,11 @@ class GameSession:
         logs.extend(self._reinforce_ai_castle_ring())
         logs.extend(self._garrison_ai_castle())
         if self.ai_policy.should_start_research(self.game_map.turn):
-            self._start_ability_research(AI, DOMAIN_ENGINEERING_ID)
+            # La riga di log la scrive già `_start_ability_research`: qui non
+            # va rimessa nella lista, o comparirebbe due volte nel registro.
+            self._run_ai_research()
+
+        logs.extend(self._run_ai_black_market())
 
         ai_slots = self._available_mine_slots(AI)
         attempts = self.ai_policy.mine_attempts(ai_slots, self.game_map.turn)
@@ -2635,9 +2700,14 @@ class GameSession:
                 if fort_log:
                     logs.append(fort_log)
 
+        # L'IA mette da parte i grux della ricerca che ha in programma, se no
+        # non ci arriverebbe mai: alle difficoltà alte recluta ogni turno che
+        # può e la cassa non supera il prezzo di un'abilità.
+        recruit_budget = max(0, self.grux_balance[AI] - self._ai_research_savings())
+
         can_recruit_now = self._can_recruit_now(AI)
-        if can_recruit_now and self.ai_policy.should_recruit(grux_balance=self.grux_balance[AI], turn=self.game_map.turn):
-            affordable_units = [unit for unit in self.data["units"] if self.unit_costs[unit["id"]] <= self.grux_balance[AI]]
+        if can_recruit_now and self.ai_policy.should_recruit(grux_balance=recruit_budget, turn=self.game_map.turn):
+            affordable_units = [unit for unit in self.data["units"] if self._recruit_cost(AI, unit["id"]) <= recruit_budget]
             if affordable_units:
                 best_unit = max(
                     affordable_units,
@@ -2647,12 +2717,27 @@ class GameSession:
 
         return logs
 
+    def _recruit_cooldown_for(self, entity: Occupation) -> int:
+        """Cooldown reclutamento dell'entità, abilità comprese (minimo 1 turno)."""
+        # [ABILITY-EFFECTS] Industria Bellica accorcia l'attesa fra due reclute.
+        bonus = ab.recruit_cooldown_bonus(self._unlocked_abilities(entity))
+        return max(1, self.recruit_cooldown_turns + bonus)
+
+    def _recruit_cost(self, entity: Occupation, unit_id: str) -> int:
+        """Prezzo di una recluta per questa entità, abilità comprese."""
+        base = int(self.unit_costs[unit_id])
+        # [ABILITY-EFFECTS] Industria Bellica abbassa il listino delle reclute.
+        factor = self._ability_economy_factor(entity, ab.ECO_RECRUIT_COST)
+        if factor == 1.0:
+            return base
+        return max(5, int(round(base * factor)))
+
     def _can_recruit_now(self, entity: Occupation) -> bool:
         """True se l'entità può reclutare in questo turno (cooldown anti-spam)."""
         last_turn = self.last_recruit_turn.get(entity)
         if last_turn is None:
             return True
-        return (self.game_map.turn - last_turn) >= self.recruit_cooldown_turns
+        return (self.game_map.turn - last_turn) >= self._recruit_cooldown_for(entity)
 
     def _effective_unit_value_for_ai(self, unit: Dict[str, Any]) -> float:
         """Heuristica semplice per decidere la recluta dell'IA."""
@@ -3952,32 +4037,144 @@ class GameSession:
         return ability.is_unlocked(self.game_map.turn)
 
     def _start_ability_research(self, entity: Occupation, ability_id: str) -> Optional[str]:
-        ability = self._ability_state(entity, ability_id)
+        """Avvia una ricerca pagandola. Ritorna la riga di log, o None se non si può.
+
+        Il controllo di disponibilità (una ricerca alla volta, prerequisiti,
+        turno minimo, esclusività) sta in `abilities.availability`: qui si
+        aggiunge solo il conto in grux, che è l'unica cosa che il catalogo non
+        può sapere da solo.
+        """
+        states = self.ability_states.get(entity, {})
+        ability = states.get(ability_id)
         if ability is None:
             return None
-        if ability.is_researching() or ability.is_unlocked(self.game_map.turn):
+
+        can_start, _ = ab.availability(ability_id, states, self.game_map.turn)
+        if not can_start:
             return None
+
+        cost = int(getattr(ability, "grux_cost", 0))
+        if self.grux_balance[entity] < cost:
+            return None
+
+        self.grux_balance[entity] -= cost
         ability.start(self.game_map.turn)
         side = entity.value.upper()
+        price_note = f", {cost} grux" if cost > 0 else ""
         log_entry = (
             f"[Turno {self.game_map.turn}] ⭐ {side} avvia ricerca Abilità: {ability.name} "
-            f"({ability.turns_required} turni)"
+            f"({ability.turns_required} turni{price_note})"
         )
         self.battle_log.append(log_entry)
         return log_entry
+
+    def _ai_research_savings(self) -> int:
+        """Grux che l'IA tiene da parte per la prossima ricerca in programma.
+
+        Zero se sta già ricercando o se non c'è niente di avviabile: il
+        risparmio serve solo quando c'è un obiettivo concreto da raggiungere.
+
+        E zero finché l'esercito non arriva a due reparti pieni: prima vengono
+        le truppe. Misurato risparmiando fin dal primo turno, l'IA a incubo
+        restava a una legione sola per mezza partita (media 1.5 invece di 2.1) e
+        arrivava al castello 60 turni più tardi, pur finendo con il triplo delle
+        truppe. Il tempo perso all'inizio non si recupera comprando dopo.
+
+        La soglia esatta è un compromesso misurato su 5 partite per difficoltà:
+        a 4 unità l'IA a incubo sblocca 5.2 abilità ma impiega 155 turni, a 18
+        ne sblocca 3 in 122 turni. A 12 ne sblocca 4 in 125.
+        """
+        states = self.ability_states.get(AI, {})
+        turn = self.game_map.turn
+        if ab.researching_id(states, turn) is not None:
+            return 0
+
+        if len(self.ai_units) < AI_RESEARCH_MIN_ARMY:
+            return 0
+
+        plan = ab.AI_RESEARCH_PLANS.get(self.ai_difficulty.lower()) or ab.AI_RESEARCH_PLANS["normal"]
+        for ability_id in plan:
+            state = states.get(ability_id)
+            if state is None:
+                continue
+            can_start, _ = ab.availability(ability_id, states, turn)
+            if can_start:
+                return int(state.grux_cost) + ab.AI_RESEARCH_RESERVE
+        return 0
+
+    def _run_ai_research(self) -> Optional[str]:
+        """L'IA sceglie e avvia la prossima ricerca del suo piano.
+
+        Stesse regole del giocatore: una alla volta, pagata, con prerequisiti
+        e turno minimo. Cambia solo l'ordine delle priorità, che dipende dalla
+        difficoltà ed è scritto in `abilities.AI_RESEARCH_PLANS`.
+        """
+        states = self.ability_states.get(AI, {})
+        ability_id = ab.ai_next_research(
+            self.ai_difficulty, states, self.game_map.turn, self.grux_balance[AI]
+        )
+        if ability_id is None:
+            return None
+        return self._start_ability_research(AI, ability_id)
+
+    # ── Effetti delle abilità ──────────────────────────────────────
+    # Punto unico di lettura: il resto del motore chiede "quanto vale" o
+    # "posso farlo", e non sa quali abilità esistano.
+
+    def _unlocked_abilities(self, entity: Occupation) -> Tuple[str, ...]:
+        """Abilità attive di un'entità in questo momento.
+
+        Volutamente senza cache: il risultato può cambiare a metà turno (il
+        pannello di debug sblocca tutto retrodatando la ricerca) e una lista
+        di undici id si ricalcola in niente. Chi conta unità in serie chiede
+        una volta questa tupla e poi la riusa.
+        """
+        return ab.unlocked_ids(self.ability_states.get(entity, {}), self.game_map.turn)
+
+    def _ability_flag(self, entity: Occupation, flag: str) -> bool:
+        return ab.has_flag(self._unlocked_abilities(entity), flag)
+
+    def _ability_unit_factor(self, entity: Occupation, unit_id: str, context: str) -> float:
+        return ab.unit_factor(self._unlocked_abilities(entity), unit_id, context)
+
+    def _ability_economy_factor(self, entity: Occupation, key: str) -> float:
+        return ab.economy_factor(self._unlocked_abilities(entity), key)
+
+    def _ability_value_of(self, entity: Occupation, context: str):
+        """Funzione `unit_id -> valore` con dentro i bonus di stile del contesto.
+
+        Serve dove il valore delle unità viene sommato da codice che non deve
+        sapere niente di abilità (il layer di bilanciamento, per esempio).
+        Quando non c'è nessun bonus in gioco restituisce la funzione originale,
+        così il caso normale non paga niente.
+        """
+        unlocked = self._unlocked_abilities(entity)
+        if not ab.has_unit_effects(unlocked, context):
+            return self._unit_battle_value
+        return lambda unit_id: self._unit_battle_value(unit_id) * ab.unit_factor(
+            unlocked, unit_id, context
+        )
 
     def research_player_ability(self, ability_id: str = DOMAIN_ENGINEERING_ID) -> Dict[str, Any]:
         """Avvia la ricerca di una abilità lato player."""
         if self.state != SessionState.ACTIVE:
             raise ValueError("La partita è terminata.")
 
-        ability = self._ability_state(PLAYER, ability_id)
+        states = self.ability_states.get(PLAYER, {})
+        ability = states.get(ability_id)
         if ability is None:
             raise ValueError("Abilità sconosciuta.")
-        if ability.is_unlocked(self.game_map.turn):
-            raise ValueError("Abilità già sbloccata.")
-        if ability.is_researching():
-            raise ValueError("Ricerca abilità già in corso.")
+
+        can_start, reason = ab.availability(ability_id, states, self.game_map.turn)
+        if not can_start:
+            raise ValueError(reason)
+
+        cost = int(getattr(ability, "grux_cost", 0))
+        if self.grux_balance[PLAYER] < cost:
+            raise ValueError(
+                f"Grux insufficienti per la ricerca: servono {cost}, "
+                f"disponibili {self.grux_balance[PLAYER]}"
+            )
 
         log_entry = self._start_ability_research(PLAYER, ability_id)
         return {
@@ -3988,16 +4185,157 @@ class GameSession:
             "session": self.to_dict(),
         }
 
+    # ── Mercato Nero ───────────────────────────────────────────────
+
+    def _black_market_open(self, entity: Occupation) -> bool:
+        return self._ability_flag(entity, ab.FLAG_BLACK_MARKET)
+
+    def _tick_black_market(self) -> List[str]:
+        """Aggiorna i banchi di chi ha l'abilità. Chiusi non fanno nulla."""
+        logs: List[str] = []
+        for entity in (PLAYER, AI):
+            if entity == AI and self.debug_ai_kill_switch:
+                continue
+            if not self._black_market_open(entity):
+                continue
+            # Il listino di riferimento è quello che questa entità pagherebbe
+            # davvero, non il prezzo base: con Industria Bellica sbloccata uno
+            # sconto del 20% sul listino pieno poteva essere un affare PEGGIORE
+            # del reclutamento normale, e il banco l'avrebbe comunque scritto
+            # come risparmio.
+            reference_prices = {
+                unit_id: self._recruit_cost(entity, unit_id) for unit_id in self.unit_costs
+            }
+            line = self.black_market[entity].tick(
+                self.game_map.turn, reference_prices, self.units_map, self.black_market_rng
+            )
+            # Il cambio banco dell'IA non è affar suo: resta fuori dal registro.
+            if line and entity == PLAYER:
+                logs.append(line)
+        return logs
+
+    def _absorb_market_block(self, entity: Occupation, unit_id: str, quantity: int) -> None:
+        """Fa entrare in riserva un blocco comprato al banco.
+
+        Stessa strada di una recluta normale — riserva, vettore esercito,
+        diluizione della stanchezza — solo moltiplicata per la quantità e
+        senza toccare `last_recruit_turn`: il mercato nero non conosce
+        cooldown, ed è il motivo per cui esiste.
+        """
+        tc.dilute_pool(self.reserve_condition[entity], len(self._entity_units(entity)))
+
+        if entity == PLAYER:
+            self.player_units.extend([unit_id] * quantity)
+            self.player_army = aggregate_army(self.player_units, self.data["units"])
+            self.player_modified, _ = apply_modifiers(
+                army_vector=self.player_army,
+                terrain_name=self.player_home_terrain,
+                weather_name=self.weather,
+                troop_status_name=self.player_troop_status,
+                modifiers_data=self.data,
+            )
+        else:
+            self.ai_units.extend([unit_id] * quantity)
+            self.ai_army = aggregate_army(self.ai_units, self.data["units"])
+            self.ai_modified, _ = apply_modifiers(
+                army_vector=self.ai_army,
+                terrain_name=self.ai_home_terrain,
+                weather_name=self.weather,
+                troop_status_name=self.ai_troop_status,
+                modifiers_data=self.data,
+            )
+
+    def buy_black_market_offer(self, offer_id: str) -> Dict[str, Any]:
+        """Compra un blocco al banco per il giocatore."""
+        if self.state != SessionState.ACTIVE:
+            raise ValueError("La partita è terminata.")
+        if not self._black_market_open(PLAYER):
+            raise ValueError("Il Mercato Nero non è ancora sbloccato.")
+
+        market = self.black_market[PLAYER]
+        offer = market.get_offer(offer_id)
+        if offer is None:
+            raise ValueError("Offerta non più al banco.")
+        if self.grux_balance[PLAYER] < offer.total_price:
+            raise ValueError(
+                f"Grux insufficienti: servono {offer.total_price}, "
+                f"disponibili {self.grux_balance[PLAYER]}"
+            )
+
+        offer = market.take(offer_id, self.game_map.turn)
+        self.grux_balance[PLAYER] -= offer.total_price
+        self.player_army_cost += offer.total_price
+        self._absorb_market_block(PLAYER, offer.unit_id, offer.quantity)
+
+        saving = max(0, offer.list_total - offer.total_price)
+        log_entry = (
+            f"[Turno {self.game_map.turn}] 🕯 PLAYER compra al Mercato Nero: "
+            f"{offer.unit_name} ×{offer.quantity} per {offer.total_price} grux "
+            f"(-{offer.discount_pct}%, {saving} risparmiati)"
+        )
+        self.battle_log.append(log_entry)
+        return {
+            "ok": True,
+            "message": log_entry,
+            "state": self.state.value,
+            "map": self.game_map.to_dict(),
+            "session": self.to_dict(),
+        }
+
+    def _run_ai_black_market(self) -> List[str]:
+        """L'IA passa al banco: prende l'affare che le fa risparmiare di più.
+
+        Tiene da parte la stessa riserva che tiene per le ricerche, se no
+        svuoterebbe la cassa in offerte e smetterebbe di fortificare.
+        """
+        if not self._black_market_open(AI):
+            return []
+
+        market = self.black_market[AI]
+        # Non tocca i grux già promessi alla ricerca: senza questo l'IA metteva
+        # da parte per l'abilità e poi si comprava le truppe con quei soldi,
+        # rimandando la ricerca all'infinito.
+        held_back = max(ab.AI_RESEARCH_RESERVE, self._ai_research_savings())
+        budget = self.grux_balance[AI] - held_back
+        if budget <= 0:
+            return []
+
+        offer = market.best_affordable(self.game_map.turn, budget)
+        if offer is None:
+            return []
+
+        offer = market.take(offer.offer_id, self.game_map.turn)
+        self.grux_balance[AI] -= offer.total_price
+        self.ai_army_cost += offer.total_price
+        self._absorb_market_block(AI, offer.unit_id, offer.quantity)
+        self._sync_ai_legion_units()
+
+        return [
+            f"[Turno {self.game_map.turn}] 🕯 IA compra al Mercato Nero: "
+            f"{offer.unit_name} ×{offer.quantity} ({offer.total_price} grux)"
+        ]
+
     def _get_player_legion_or_raise(self, legion_id: str) -> Dict[str, Any]:
         legion = self.player_legions.get(legion_id)
         if legion is None:
             raise ValueError(f"Legione non trovata: {legion_id}")
         return legion
 
-    def _require_legion_type(self, legion: Dict[str, Any], required_type: str, action_label: str) -> None:
+    def _require_legion_type(
+        self,
+        legion: Dict[str, Any],
+        required_type: str,
+        action_label: str,
+        entity: Occupation = PLAYER,
+    ) -> None:
         """La legione deve essere del tipo richiesto per eseguire questa costruzione."""
         legion_type = legion.get("legion_type", LEGION_TYPE_ARMY)
         if legion_type == required_type:
+            return
+
+        # [ABILITY-EFFECTS] Costruzione Caotica: i ruoli non contano più,
+        # qualsiasi legione può costruire qualsiasi cosa.
+        if self._ability_flag(entity, ab.FLAG_BUILD_ANY_LEGION):
             return
 
         legion_name = legion.get("name", "legione")
@@ -4023,8 +4361,49 @@ class GameSession:
                 return legion_id
         return None
 
-    def place_mine(self, legion_id: str) -> Dict[str, Any]:
-        """Piazza una miniera con una legione Mineraria, sulla cella dove si trova attualmente."""
+    def _resolve_build_cell(
+        self,
+        legion: Dict[str, Any],
+        target: Optional[Tuple[int, int]],
+        action_label: str,
+    ) -> Tuple[int, int]:
+        """Cella su cui costruire: quella della legione, o una a distanza.
+
+        [ABILITY-EFFECTS] Costruire lontano dalla legione è il senso di
+        Costruzione Territoriale: senza l'abilità si lavora solo sotto i propri
+        piedi, con l'abilità su qualunque cella del dominio.
+        """
+        own_pos = tuple(legion.get("pos", ()))
+        if target is None:
+            return own_pos
+
+        row, col = int(target[0]), int(target[1])
+        if (row, col) == own_pos:
+            return own_pos
+
+        if not self._ability_flag(PLAYER, ab.FLAG_BUILD_ANYWHERE):
+            raise ValueError(
+                f"Puoi costruire {action_label} solo dove si trova la legione "
+                f"'{legion.get('name', 'legione')}'. Serve l'abilità "
+                f"'{ab.ABILITIES[ab.DOMAIN_ENGINEERING_ID].name}' per lavorare a distanza."
+            )
+
+        cell = self.game_map.get_cell(row, col)
+        if cell is None:
+            raise ValueError("Cella fuori dalla mappa.")
+        if cell.occupation != PLAYER:
+            raise ValueError(
+                f"Puoi costruire {action_label} solo su celle che controlli: "
+                f"({row},{col}) non è tua."
+            )
+        return (row, col)
+
+    def place_mine(self, legion_id: str, target: Optional[Tuple[int, int]] = None) -> Dict[str, Any]:
+        """Piazza una miniera con una legione Mineraria.
+
+        Sulla cella della legione, oppure — con Costruzione Territoriale — su
+        una qualsiasi cella controllata.
+        """
         if self.state != SessionState.ACTIVE:
             raise ValueError("La partita è terminata.")
 
@@ -4036,11 +4415,12 @@ class GameSession:
                 f"(1 slot ogni {MINE_TILES_PER_SLOT} celle)."
             )
 
-        row, col = tuple(legion["pos"])
+        row, col = self._resolve_build_cell(legion, target, "una miniera")
         cell = self.game_map.place_mine(PLAYER, row, col)
+        remote = "" if (row, col) == tuple(legion.get("pos", ())) else " (cantiere a distanza)"
         log_entry = (
             f"[Turno {self.game_map.turn}] ⛏ PLAYER costruisce una miniera su ({row},{col}) "
-            f"con la legione '{legion['name']}'"
+            f"con la legione '{legion['name']}'{remote}"
         )
         self.battle_log.append(log_entry)
         return {
@@ -4150,19 +4530,28 @@ class GameSession:
             "map": self.game_map.to_dict(),
         }
 
-    def _fortification_cost(self, current_level: int) -> int:
+    def _fortification_cost(self, current_level: int, entity: Occupation = PLAYER) -> int:
         """Costo fortificazione con crescita forte sullo stack della stessa cella."""
-        return int(round(self.base_fortification_cost * (1 + (current_level * 1.7))))
+        cost = self.base_fortification_cost * (1 + (current_level * 1.7))
+        # [ABILITY-EFFECTS] Trinceramento Rapido: palizzate prefabbricate.
+        cost *= self._ability_economy_factor(entity, ab.ECO_FORTIFICATION_COST)
+        return max(5, int(round(cost)))
 
-    def place_fortification(self, legion_id: str) -> Dict[str, Any]:
-        """Piazza una fortificazione con una legione Costruzione, con costo crescente."""
+    def place_fortification(
+        self, legion_id: str, target: Optional[Tuple[int, int]] = None
+    ) -> Dict[str, Any]:
+        """Piazza una fortificazione con una legione Costruzione, con costo crescente.
+
+        Sulla cella della legione, oppure — con Costruzione Territoriale — su
+        una qualsiasi cella controllata.
+        """
         if self.state != SessionState.ACTIVE:
             raise ValueError("La partita è terminata.")
 
         legion = self._get_player_legion_or_raise(legion_id)
         self._require_legion_type(legion, LEGION_TYPE_CONSTRUCTION, "una Fortificazione")
 
-        row, col = tuple(legion["pos"])
+        row, col = self._resolve_build_cell(legion, target, "una fortificazione")
         cell = self.game_map.get_cell(row, col)
         if cell is None:
             raise ValueError("Cella fuori dalla mappa.")
@@ -4199,9 +4588,10 @@ class GameSession:
                 f"-{riduzione}% danni da assedio)"
             )
         else:
+            remote = "" if (row, col) == tuple(legion.get("pos", ())) else " (cantiere a distanza)"
             log_entry = (
                 f"[Turno {self.game_map.turn}] 🧱 PLAYER fortifica ({row},{col}) con la legione "
-                f"'{legion['name']}' → livello {cell.fortification_level} (costo {cost} grux)"
+                f"'{legion['name']}' → livello {cell.fortification_level} (costo {cost} grux){remote}"
             )
         self.battle_log.append(log_entry)
         return {
@@ -4323,7 +4713,7 @@ class GameSession:
         for cell in sorted(ring, key=lambda c: c.fortification_level):
             if cell.fortification_level >= max_fort:
                 continue
-            cost = self._fortification_cost(int(cell.fortification_level))
+            cost = self._fortification_cost(int(cell.fortification_level), AI)
             if self.grux_balance[AI] < cost + reserve:
                 break
             self.grux_balance[AI] -= cost
@@ -4395,7 +4785,7 @@ class GameSession:
                     continue
 
                 current_level = int(cell.fortification_level)
-                cost = self._fortification_cost(current_level)
+                cost = self._fortification_cost(current_level, AI)
                 if self.grux_balance[AI] < cost:
                     continue
 
@@ -4588,10 +4978,10 @@ class GameSession:
         if not self._can_recruit_now(entity):
             last_turn = self.last_recruit_turn.get(entity)
             turns_passed = 0 if last_turn is None else (self.game_map.turn - last_turn)
-            remaining = max(0, self.recruit_cooldown_turns - turns_passed)
+            remaining = max(0, self._recruit_cooldown_for(entity) - turns_passed)
             return f"reclutamento in cooldown, ancora {remaining} turno/i"
 
-        cost = self.unit_costs[unit_id]
+        cost = self._recruit_cost(entity, unit_id)
         balance = self.grux_balance.get(entity, 0)
         if balance < cost:
             return f"grux insufficienti: servono {cost}, disponibili {balance}"
@@ -4611,14 +5001,14 @@ class GameSession:
         if not self._can_recruit_now(entity):
             last_turn = self.last_recruit_turn.get(entity)
             turns_passed = 0 if last_turn is None else (self.game_map.turn - last_turn)
-            remaining = max(0, self.recruit_cooldown_turns - turns_passed)
+            remaining = max(0, self._recruit_cooldown_for(entity) - turns_passed)
             if auto:
                 return None
             raise ValueError(
                 f"Reclutamento in cooldown: attendi ancora {remaining} turno/i prima di reclutare di nuovo."
             )
 
-        cost = self.unit_costs[unit_id]
+        cost = self._recruit_cost(entity, unit_id)
         if self.grux_balance[entity] < cost:
             if auto:
                 return None
@@ -5260,9 +5650,25 @@ class GameSession:
                 "available_mine_slots": self._available_mine_slots(PLAYER),
                 "fortification_base_cost": self.base_fortification_cost,
                 "movement": self.movement_system.export_entity_state(PLAYER),
-                "abilities": {
-                    ability_id: state.to_dict(self.game_map.turn)
-                    for ability_id, state in self.ability_states[PLAYER].items()
+                "abilities": ab.states_payload(
+                    self.ability_states[PLAYER], self.game_map.turn, self.grux_balance[PLAYER]
+                ),
+                "ability_paths": ab.path_order(),
+                # Cosa concedono adesso le abilità di costruzione. La UI accende
+                # le celle da qui invece di ragionare sugli id delle abilità.
+                "build_rules": {
+                    "anywhere": self._ability_flag(PLAYER, ab.FLAG_BUILD_ANYWHERE),
+                    "any_legion": self._ability_flag(PLAYER, ab.FLAG_BUILD_ANY_LEGION),
+                },
+                "black_market": self.black_market[PLAYER].to_dict(
+                    self.game_map.turn, self._black_market_open(PLAYER)
+                ),
+                "recruit_cooldown_turns": self._recruit_cooldown_for(PLAYER),
+                # Prezzi effettivi di reclutamento: il listino di /config non
+                # sa niente delle abilità, e senza questi il menu mostrerebbe
+                # un prezzo diverso da quello che poi viene scalato.
+                "recruit_costs": {
+                    unit_id: self._recruit_cost(PLAYER, unit_id) for unit_id in self.unit_costs
                 },
                 "unit_costs":    {unit_id: self.unit_costs[unit_id] for unit_id in self.player_units},
             },
@@ -5287,10 +5693,12 @@ class GameSession:
                 "army_cost":     self.ai_army_cost,
                 "available_mine_slots": self._available_mine_slots(AI),
                 "movement": self.movement_system.export_entity_state(AI),
-                "abilities": {
-                    ability_id: state.to_dict(self.game_map.turn)
-                    for ability_id, state in self.ability_states[AI].items()
-                },
+                "abilities": ab.states_payload(
+                    self.ability_states[AI], self.game_map.turn, self.grux_balance[AI]
+                ),
+                "black_market": self.black_market[AI].to_dict(
+                    self.game_map.turn, self._black_market_open(AI)
+                ),
                 "unit_costs":    {unit_id: self.unit_costs[unit_id] for unit_id in self.ai_units},
             },
             "movement": self.movement_system.export_config(),

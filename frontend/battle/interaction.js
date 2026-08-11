@@ -131,6 +131,7 @@
 
             if (event.key === 'Escape') {
                 closeSkillTree();
+                closeBlackMarket();
                 closeAutoRecruitMenu();
                 closeInGameAdvisorMenu();
                 toggleSettingsMenu(false);
@@ -165,6 +166,12 @@
             if (event.key.toLowerCase() === 'a') {
                 event.preventDefault();
                 openSkillTree();
+                return;
+            }
+
+            if (event.key.toLowerCase() === 'm') {
+                event.preventDefault();
+                openBlackMarket();
                 return;
             }
 
@@ -346,22 +353,75 @@
             return buildMode ? BUILD_MODES[buildMode] : null;
         }
 
-        /** Legioni player idonee all'azione corrente, indicizzate per "riga,colonna". */
+        /** Le abilità di costruzione sbloccate, come le manda il backend. */
+        function getBuildRules(sessionData) {
+            const rules = sessionData?.player?.build_rules || {};
+            return { anywhere: Boolean(rules.anywhere), anyLegion: Boolean(rules.any_legion) };
+        }
+
+        /** Le legioni che possono eseguire l'azione corrente.
+         *
+         *  Con Costruzione Caotica il vincolo di ruolo cade: qualsiasi legione
+         *  scava e fortifica. Il presidio resta fuori — è un distaccamento di
+         *  truppe, non un cantiere, e il tipo di legione non c'entra comunque.
+         */
+        function getBuildWorkers(sessionData) {
+            const config = getBuildModeConfig();
+            if (!config) return [];
+            const { anyLegion } = getBuildRules(sessionData);
+
+            return Object.values(sessionData?.player?.legions || {}).filter((legion) => {
+                if ((legion.pos || []).length !== 2) return false;
+                if (buildMode === 'garrison') return (legion.units || []).length >= 2;
+                if (config.legionType && !anyLegion && legion.legion_type !== config.legionType) return false;
+                return true;
+            });
+        }
+
+        /** Celle su cui si può costruire adesso, indicizzate per "riga,colonna".
+         *
+         *  Senza abilità sono solo quelle sotto le legioni idonee. Con
+         *  Costruzione Territoriale diventa tutto il dominio controllato, e il
+         *  cantiere lo apre la legione più vicina alla cella scelta.
+         */
         function getEligibleBuildCells(sessionData) {
             const config = getBuildModeConfig();
             const eligible = new Map();
             if (!config) return eligible;
 
-            const legions = Object.values(sessionData?.player?.legions || {});
-            for (const legion of legions) {
-                const pos = legion.pos || [];
-                if (pos.length !== 2) continue;
-                if (config.legionType && legion.legion_type !== config.legionType) continue;
-                if (buildMode === 'garrison' && (legion.units || []).length < 2) continue;
+            const workers = getBuildWorkers(sessionData);
+            const { anywhere } = getBuildRules(sessionData);
 
-                const key = `${pos[0]},${pos[1]}`;
-                if (!eligible.has(key)) eligible.set(key, legion);
+            // Il presidio si lascia dove sono i piedi: nessuna proiezione a distanza.
+            if (!anywhere || buildMode === 'garrison') {
+                for (const legion of workers) {
+                    const key = `${legion.pos[0]},${legion.pos[1]}`;
+                    if (!eligible.has(key)) eligible.set(key, legion);
+                }
+                return eligible;
             }
+
+            if (!workers.length) return eligible;
+
+            const grid = sessionData?.map?.grid || [];
+            grid.forEach((row, rowIndex) => {
+                row.forEach((cell, colIndex) => {
+                    if (cell.occupation !== 'player') return;
+                    if (buildMode === 'mine' && (cell.is_castle || cell.is_mine || cell.terrain === 'Fiume')) return;
+
+                    // Il cantiere lo apre chi ha meno strada da fare.
+                    let nearest = workers[0];
+                    let bestDistance = Infinity;
+                    for (const legion of workers) {
+                        const distance = Math.abs(legion.pos[0] - rowIndex) + Math.abs(legion.pos[1] - colIndex);
+                        if (distance < bestDistance) {
+                            bestDistance = distance;
+                            nearest = legion;
+                        }
+                    }
+                    eligible.set(`${rowIndex},${colIndex}`, nearest);
+                });
+            });
             return eligible;
         }
 
@@ -380,9 +440,16 @@
             const hintEl = document.getElementById('battleStatusHint');
             if (config) {
                 const eligible = getEligibleBuildCells(currentBattleState);
+                const { anywhere, anyLegion } = getBuildRules(currentBattleState);
+                // Il suggerimento segue le abilità: con il dominio aperto la
+                // frase "clicca dove si trova la legione" sarebbe una bugia.
+                const suggerimento = (anywhere && buildMode !== 'garrison')
+                    ? `Clicca una qualsiasi delle ${eligible.size} celle accese`
+                        + `${anyLegion ? ' (costruisce la legione più vicina, di qualunque tipo)' : ' (costruisce la legione idonea più vicina)'}.`
+                    : config.hint;
                 hintEl.textContent = eligible.size === 0
                     ? `${config.icon} ${config.label}: nessuna legione idonea in campo. ${config.hint}`
-                    : `${config.icon} ${config.label}: ${config.hint} (Esc per annullare)`;
+                    : `${config.icon} ${config.label}: ${suggerimento} (Esc per annullare)`;
             } else if (previous) {
                 hintEl.textContent = 'Modalità costruzione annullata.';
             }
@@ -407,9 +474,22 @@
 
             if (!legion) {
                 // Spiega perché quella cella non va bene, invece di fallire in silenzio.
+                const { anywhere, anyLegion } = getBuildRules(currentBattleState);
+                const cella = currentBattleState?.map?.grid?.[row]?.[col];
                 const onCell = Object.values(currentBattleState?.player?.legions || {})
                     .filter((lg) => (lg.pos || []).length === 2 && lg.pos[0] === row && lg.pos[1] === col);
-                if (onCell.length === 0) {
+
+                if (anywhere && buildMode !== 'garrison' && cella && cella.occupation !== 'player') {
+                    hintEl.textContent =
+                        `${config.icon} (${row},${col}) non è una tua cella: conquistala prima di costruirci.`;
+                } else if (anywhere && buildMode === 'mine' && cella && (cella.is_mine || cella.is_castle || cella.terrain === 'Fiume')) {
+                    const motivo = cella.is_mine ? 'ha già una miniera'
+                        : (cella.is_castle ? 'è il castello' : 'è sul fiume');
+                    hintEl.textContent = `${config.icon} (${row},${col}) ${motivo}: scegli un'altra cella.`;
+                } else if (anywhere && buildMode !== 'garrison' && !getBuildWorkers(currentBattleState).length) {
+                    hintEl.textContent =
+                        `${config.icon} Nessuna legione in campo può aprire il cantiere. ${config.hint}`;
+                } else if (onCell.length === 0) {
                     hintEl.textContent =
                         `${config.icon} Nessuna tua legione su (${row},${col}). ${config.hint}`;
                 } else if (buildMode === 'garrison') {
@@ -421,7 +501,8 @@
                         .join(', ');
                     hintEl.textContent =
                         `${config.icon} Su (${row},${col}) c'è ${tipi}: serve una legione ` +
-                        `${TACTICAL_LEGION_TYPE_LABELS[config.legionType]}.`;
+                        `${TACTICAL_LEGION_TYPE_LABELS[config.legionType]}` +
+                        `${anyLegion ? '' : ", o l'abilità Costruzione Caotica"}.`;
                 }
                 return;
             }
@@ -438,9 +519,12 @@
                 mine: 'place-mine',
                 fortify: 'place-fortification',
             };
+            // La cella cliccata può non essere quella della legione: con
+            // Costruzione Territoriale il cantiere si apre a distanza, e il
+            // backend deve sapere dove.
             const payload = buildMode === 'garrison'
                 ? { legion_id: legion.id, unit_id: getSelectedGarrisonUnitId() }
-                : { legion_id: legion.id };
+                : { legion_id: legion.id, target: [row, col] };
 
             try {
                 const response = await fetch(`http://127.0.0.1:8000/game/${endpoints[buildMode]}`, {

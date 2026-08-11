@@ -18,18 +18,10 @@
             U7_range_power: 'Potenza a Distanza',
             U8_support: 'Supporto',
         };
-        const SKILL_TREE_DEFINITION = [
-            { id: 'domain_engineering', name: 'Costruzione Territoriale', path: 'Ingegneria', description: 'Costruisci ovunque nel dominio controllato.', turnsRequired: 40 },
-            { id: 'fortress_doctrine', name: 'Dottrina Fortezza', path: 'Ingegneria', description: 'Placeholder abilità futura.', turnsRequired: 26 },
-            { id: 'rapid_entrenchment', name: 'Trinceramento Rapido', path: 'Ingegneria', description: 'Placeholder abilità futura.', turnsRequired: 18 },
-            { id: 'supply_lines', name: 'Linee di Rifornimento', path: 'Economia', description: 'Placeholder abilità futura.', turnsRequired: 20 },
-            { id: 'war_industry', name: 'Industria Bellica', path: 'Economia', description: 'Placeholder abilità futura.', turnsRequired: 28 },
-            { id: 'black_market', name: 'Mercato Nero', path: 'Economia', description: 'Placeholder abilità futura.', turnsRequired: 24 },
-            { id: 'adaptive_command', name: 'Comando Adattivo', path: 'Tattica', description: 'Placeholder abilità futura.', turnsRequired: 16 },
-            { id: 'counter_mobility', name: 'Contro-Manovra', path: 'Tattica', description: 'Placeholder abilità futura.', turnsRequired: 22 },
-            { id: 'deep_recon', name: 'Ricognizione Profonda', path: 'Tattica', description: 'Placeholder abilità futura.', turnsRequired: 14 },
-            { id: 'combined_arms', name: 'Armi Combinate', path: 'Tattica', description: 'Placeholder abilità futura.', turnsRequired: 30 },
-        ];
+        // L'albero delle abilità non ha più una copia qui: nomi, percorsi,
+        // descrizioni, turni, prezzi e prerequisiti arrivano dal catalogo del
+        // backend (gamecore/session/abilities.py) dentro `player.abilities`.
+        // Due liste da tenere allineate a mano erano già andate fuori sincrono.
 
         window.addEventListener('DOMContentLoaded', initBattlePage);
 

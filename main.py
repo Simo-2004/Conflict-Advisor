@@ -295,8 +295,13 @@ class GarrisonRequest(BaseModel):
 
 
 class LegionBuildRequest(BaseModel):
-    """Richiesta per costruire (miniera/fortificazione) con una legione specifica, sulla sua cella attuale."""
+    """Richiesta per costruire (miniera/fortificazione) con una legione specifica."""
     legion_id: str = Field(..., description="ID della legione che esegue la costruzione")
+    target: Optional[tuple[int, int]] = Field(
+        None,
+        description="Cella [row, col] su cui costruire. Assente = la cella della legione. "
+                    "Una cella diversa richiede l'abilità Costruzione Territoriale.",
+    )
 
 
 class RecruitRequest(BaseModel):
@@ -329,6 +334,11 @@ class AIDifficultyRequest(BaseModel):
 class AbilityResearchRequest(BaseModel):
     """Richiesta per avviare ricerca di una abilità specifica."""
     ability_id: str = Field(..., description="ID abilità da ricercare")
+
+
+class BlackMarketBuyRequest(BaseModel):
+    """Richiesta per comprare un blocco di truppe al Mercato Nero."""
+    offer_id: str = Field(..., description="ID dell'offerta esposta al banco")
 
 
 class CreateLegionRequest(BaseModel):
@@ -555,7 +565,7 @@ async def game_place_mine(request: LegionBuildRequest):
         raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
 
     try:
-        return _active_session.place_mine(request.legion_id)
+        return _active_session.place_mine(request.legion_id, request.target)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -583,7 +593,7 @@ async def game_place_fortification(request: LegionBuildRequest):
         raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
 
     try:
-        return _active_session.place_fortification(request.legion_id)
+        return _active_session.place_fortification(request.legion_id, request.target)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -640,6 +650,20 @@ async def game_research_ability(request: AbilityResearchRequest):
 
     try:
         return _active_session.research_player_ability(request.ability_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/game/black-market/buy")
+async def game_black_market_buy(request: BlackMarketBuyRequest):
+    """Compra un blocco di truppe al Mercato Nero."""
+    if _active_session is None:
+        raise HTTPException(status_code=400, detail="Nessuna partita attiva.")
+
+    try:
+        return _active_session.buy_black_market_offer(request.offer_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
