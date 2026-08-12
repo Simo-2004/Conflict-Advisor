@@ -1,0 +1,1001 @@
+/* ══════════════════════════════════════════════════════════════════
+   War Advisor — Simulatore (pagina iniziale)
+
+   Prima stava tutto dentro <style> in index.html, cresciuto a pezzi in
+   momenti diversi: tre modi diversi di fare una card, titoli con lo stile
+   scritto a mano nell'HTML, regole per una lista di ranking che non esiste
+   più. Qui è riscritto come un sistema solo.
+
+   Ordine del file:
+     1. Colori e misure      6. Bottoni
+     2. Base                 7. Risultati
+     3. Testata              8. Grafico e caricamento
+     4. Pannelli             9. Animazioni
+     5. Unità e campo       10. Responsive
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── 1. Colori e misure ─────────────────────────────────────────── */
+
+:root {
+    /* Identità: blu notte da sala operativa + cremisi d'azione. */
+    --navy-900: #0d1226;
+    --navy-800: #161d3b;
+    --navy-700: #232c52;
+    --navy-400: #5a648f;
+
+    --crimson: #e94560;
+    --crimson-dark: #c32f48;
+    --gold: #f6c453;
+    --gold-dark: #b7841f;
+    --teal: #2bb3c0;
+    --violet: #7d5fd4;
+    --green: #16a34a;
+    --green-soft: #dcfce7;
+
+    --ink: #1e2437;
+    --ink-soft: #5b6480;
+    --ink-faint: #8b93ab;
+
+    /* Lo sfondo della pagina riprende i due colori della testata — il blu
+       notte e il viola — ma diluitissimi: devono farsi riconoscere senza
+       entrare in competizione con le card, che sono bianche e ci stanno
+       sopra. Sono gli stessi toni al 94% di luminosità. */
+    --wash-navy: #e6eaf7;
+    --wash-violet: #efe9f8;
+
+    --bg: #f2f4fb;
+    --surface: #ffffff;
+    --surface-alt: #f7f9fd;
+    --border: #dde3f0;
+    --border-strong: #c6cfe4;
+
+    --radius: 14px;
+    --radius-sm: 10px;
+    --shadow-sm: 0 1px 3px rgba(16, 24, 56, 0.06);
+    --shadow: 0 6px 20px rgba(16, 24, 56, 0.09);
+    --shadow-lg: 0 16px 40px rgba(16, 24, 56, 0.16);
+
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ── 2. Base ────────────────────────────────────────────────────── */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: var(--ink);
+    /* Stessa diagonale della testata (115°) e gli stessi due colori, appena
+       accennati: la pagina e la card sopra raccontano la stessa cosa. */
+    background: linear-gradient(115deg,
+        var(--wash-navy) 0%,
+        var(--bg) 50%,
+        var(--wash-violet) 100%);
+    background-attachment: fixed;
+    min-height: 100vh;
+    padding: 22px 22px 40px;
+}
+
+.page {
+    max-width: 1460px;
+    margin: 0 auto;
+}
+
+/* ── 3. Testata ─────────────────────────────────────────────────── */
+
+.hero {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 22px 26px;
+    margin-bottom: 22px;
+    border-radius: var(--radius);
+    background: linear-gradient(115deg, var(--navy-900) 0%, var(--navy-700) 58%, #34275a 100%);
+    box-shadow: var(--shadow-lg);
+    color: #fff;
+}
+
+/* Bagliore lento che attraversa la testata: dà vita alla pagina ferma
+   senza chiedere attenzione. */
+.hero::after {
+    content: '';
+    position: absolute;
+    inset: -60% -20%;
+    background: radial-gradient(closest-side, rgba(246, 196, 83, 0.16), transparent 70%);
+    animation: hero-drift 14s ease-in-out infinite alternate;
+    pointer-events: none;
+}
+
+.hero-mark {
+    font-size: 2.4em;
+    line-height: 1;
+    filter: drop-shadow(0 3px 10px rgba(233, 69, 96, 0.55));
+    animation: mark-tilt 6s ease-in-out infinite;
+}
+
+.hero-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.hero-text h1 {
+    font-size: 1.9em;
+    letter-spacing: 0.02em;
+    background: linear-gradient(92deg, #ffffff 20%, var(--gold) 80%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.hero-text p {
+    margin-top: 3px;
+    color: #b6bede;
+    font-size: 0.95em;
+}
+
+/* Indicatore di avanzamento: dice a colpo d'occhio a che punto sei. */
+.hero-steps {
+    display: flex;
+    gap: 6px;
+    list-style: none;
+    flex-shrink: 0;
+}
+
+.hero-steps li {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 13px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 0.8em;
+    font-weight: 600;
+    color: #9aa3c6;
+    transition: all 0.4s var(--ease);
+}
+
+.hero-steps li::before {
+    content: attr(data-step);
+    display: grid;
+    place-items: center;
+    width: 19px;
+    height: 19px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.12);
+    font-size: 0.82em;
+    font-weight: 800;
+}
+
+.hero-steps li.is-active {
+    background: rgba(233, 69, 96, 0.2);
+    border-color: rgba(233, 69, 96, 0.55);
+    color: #fff;
+}
+
+.hero-steps li.is-active::before {
+    background: var(--crimson);
+    color: #fff;
+    animation: step-pulse 2s ease-in-out infinite;
+}
+
+.hero-steps li.is-done {
+    background: rgba(22, 163, 74, 0.16);
+    border-color: rgba(34, 197, 94, 0.4);
+    color: #a7f3c8;
+}
+
+.hero-steps li.is-done::before {
+    content: '✓';
+    background: var(--green);
+    color: #fff;
+}
+
+/* ── 4. Pannelli ────────────────────────────────────────────────── */
+
+.layout {
+    display: grid;
+    grid-template-columns: minmax(370px, 0.85fr) 1.35fr;
+    gap: 20px;
+    align-items: start;
+}
+
+.panel {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 20px;
+    overflow: hidden;
+}
+
+/* Filo colorato in cima: distingue i due pannelli senza scriverci sopra. */
+.panel::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+}
+
+.panel-setup::before {
+    background: linear-gradient(90deg, var(--crimson), var(--gold));
+}
+
+.panel-results::before {
+    background: linear-gradient(90deg, var(--violet), var(--teal));
+}
+
+.panel-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+/* Stacco fra una sezione e la successiva dentro lo stesso pannello.
+   Non si può legare a `.panel-head + .panel-head`: fra i due titoli ci sono
+   unità, tesoreria e il riquadro verde delle selezionate, quindi la regola
+   non si applicava mai e "Campo di battaglia" finiva appiccicato sopra. */
+.panel-head:not(:first-child) {
+    margin-top: 24px;
+    padding-top: 18px;
+    border-top: 1px dashed var(--border);
+}
+
+.panel-head h2 {
+    font-size: 1.06em;
+    color: var(--navy-800);
+    letter-spacing: 0.01em;
+}
+
+.panel-head .panel-hint {
+    margin-left: auto;
+    font-size: 0.78em;
+    color: var(--ink-faint);
+    font-weight: 600;
+}
+
+.step-badge {
+    display: grid;
+    place-items: center;
+    width: 25px;
+    height: 25px;
+    flex-shrink: 0;
+    border-radius: 8px;
+    background: linear-gradient(140deg, var(--navy-700), var(--navy-900));
+    color: var(--gold);
+    font-size: 0.82em;
+    font-weight: 800;
+    box-shadow: var(--shadow-sm);
+}
+
+/* ── 5. Unità, tesoreria e campo ────────────────────────────────── */
+
+.units-selector {
+    display: grid;
+    gap: 7px;
+    max-height: 292px;
+    overflow-y: auto;
+    padding: 4px;
+    margin: 0 -4px;
+}
+
+.units-selector::-webkit-scrollbar {
+    width: 9px;
+}
+
+.units-selector::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 99px;
+    border: 3px solid var(--surface);
+}
+
+/* Ogni unità è una carta cliccabile per intero (è un <label>), non più
+   una riga con una casella minuscola da centrare. */
+.unit-card {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 10px 12px;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface-alt);
+    cursor: pointer;
+    transition: all 0.2s var(--ease);
+}
+
+.unit-card:hover {
+    border-color: var(--crimson);
+    background: #fff;
+    transform: translateX(3px);
+    box-shadow: var(--shadow-sm);
+}
+
+.unit-card input[type="checkbox"] {
+    width: 17px;
+    height: 17px;
+    flex-shrink: 0;
+    cursor: pointer;
+    accent-color: var(--crimson);
+}
+
+.unit-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.unit-name {
+    font-weight: 700;
+    font-size: 0.92em;
+    color: var(--navy-800);
+}
+
+.unit-desc {
+    margin-top: 2px;
+    font-size: 0.8em;
+    color: var(--ink-soft);
+    line-height: 1.35;
+}
+
+.unit-cost {
+    flex-shrink: 0;
+    padding: 4px 9px;
+    border-radius: 999px;
+    background: #fff6df;
+    border: 1px solid #f0dcaa;
+    color: var(--gold-dark);
+    font-size: 0.78em;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+/* Selezionata: la carta si accende e resta distinguibile a colpo d'occhio. */
+.unit-card:has(input:checked) {
+    border-color: var(--crimson);
+    background: linear-gradient(100deg, #fff2f4, #fff);
+    box-shadow: inset 3px 0 0 var(--crimson);
+    animation: card-pick 0.32s var(--ease);
+}
+
+.unit-card:has(input:checked) .unit-cost {
+    background: #ffe4e9;
+    border-color: #f5b9c5;
+    color: var(--crimson-dark);
+}
+
+/* Tesoreria come barra che si riempie: il numero da solo non si legge. */
+.budget {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(140deg, #fffaef, #fff);
+    border: 1px solid #f0e2c2;
+}
+
+.budget-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 0.82em;
+}
+
+.budget-label {
+    font-weight: 700;
+    color: var(--gold-dark);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.92em;
+}
+
+.budget-figures {
+    font-weight: 700;
+    color: var(--ink-soft);
+}
+
+.budget-figures strong {
+    color: var(--navy-800);
+    font-size: 1.12em;
+}
+
+.budget-track {
+    height: 8px;
+    margin-top: 9px;
+    border-radius: 99px;
+    background: #efe3c8;
+    overflow: hidden;
+}
+
+.budget-fill {
+    height: 100%;
+    width: 0;
+    border-radius: 99px;
+    background: linear-gradient(90deg, var(--gold), #e8a020);
+    transition: width 0.55s var(--ease), background 0.3s;
+}
+
+.budget.over-budget {
+    background: linear-gradient(140deg, #fff1f2, #fff);
+    border-color: #f6c2ca;
+}
+
+.budget.over-budget .budget-label {
+    color: var(--crimson-dark);
+}
+
+.budget.over-budget .budget-track {
+    background: #f7d5db;
+}
+
+.budget.over-budget .budget-fill {
+    background: linear-gradient(90deg, var(--crimson), #a3162f);
+    animation: budget-alarm 1.1s ease-in-out infinite;
+}
+
+.selected-units {
+    margin-top: 10px;
+    padding: 9px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--green-soft);
+    border-left: 4px solid var(--green);
+    display: none;
+}
+
+.selected-units.active {
+    display: block;
+    animation: slide-in 0.3s var(--ease);
+}
+
+.selected-units p {
+    color: #166534;
+    font-weight: 700;
+    font-size: 0.86em;
+}
+
+/* Terreno, meteo e stato: tre campi affiancati invece di tre blocchi
+   impilati che spingevano il bottone fuori dallo schermo. */
+.field-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 11px;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.field label {
+    font-size: 0.78em;
+    font-weight: 700;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.field label .opt {
+    color: var(--ink-faint);
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+select {
+    width: 100%;
+    padding: 10px 11px;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface-alt);
+    font-family: inherit;
+    font-size: 0.9em;
+    color: var(--ink);
+    cursor: pointer;
+    transition: all 0.2s var(--ease);
+}
+
+select:hover {
+    border-color: var(--border-strong);
+}
+
+select:focus {
+    outline: none;
+    border-color: var(--crimson);
+    background: #fff;
+    box-shadow: 0 0 0 3px rgba(233, 69, 96, 0.13);
+}
+
+/* ── 6. Bottoni ─────────────────────────────────────────────────── */
+
+.btn {
+    position: relative;
+    overflow: hidden;
+    width: 100%;
+    padding: 14px 18px;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: #fff;
+    font-family: inherit;
+    font-size: 0.98em;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    transition: transform 0.2s var(--ease), box-shadow 0.2s var(--ease), filter 0.2s;
+}
+
+/* Lampo che attraversa il bottone al passaggio del mouse. */
+.btn::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -120%;
+    width: 60%;
+    height: 100%;
+    background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+    transition: left 0.55s var(--ease);
+}
+
+.btn:hover:not(:disabled)::after {
+    left: 130%;
+}
+
+.btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+}
+
+.btn:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.btn:disabled {
+    background: #d5dae7;
+    color: #8f97ad;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.btn:disabled::after {
+    display: none;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, var(--crimson), var(--crimson-dark));
+    box-shadow: 0 5px 16px rgba(233, 69, 96, 0.32);
+}
+
+.btn-primary:hover:not(:disabled) {
+    box-shadow: 0 9px 24px rgba(233, 69, 96, 0.42);
+}
+
+/* Pronto a calcolare: il bottone respira, così si nota che tocca a te. */
+.btn-primary:not(:disabled) {
+    animation: ready-glow 2.6s ease-in-out infinite;
+}
+
+.btn-launch {
+    background: linear-gradient(135deg, #1b2547 0%, #3b1d52 55%, var(--crimson) 100%);
+    box-shadow: 0 6px 20px rgba(27, 37, 71, 0.4);
+    font-size: 1.06em;
+    padding: 16px 18px;
+}
+
+.btn-launch:hover:not(:disabled) {
+    box-shadow: 0 12px 30px rgba(233, 69, 96, 0.38);
+}
+
+.panel-actions {
+    margin-top: 18px;
+}
+
+/* ── 7. Errori, avvisi e risultati ──────────────────────────────── */
+
+.error {
+    display: none;
+    margin-top: 12px;
+    padding: 11px 13px;
+    border-radius: var(--radius-sm);
+    background: #fff1f2;
+    border-left: 4px solid #c62828;
+    color: #b3243a;
+    font-size: 0.88em;
+    font-weight: 600;
+}
+
+.error.show {
+    display: block;
+    animation: shake 0.4s;
+}
+
+.warnings-area {
+    margin-bottom: 15px;
+    padding: 11px 13px;
+    border-radius: var(--radius-sm);
+    background: #fffbeb;
+    border-left: 4px solid var(--gold);
+    color: #854d0e;
+    font-size: 0.86em;
+    line-height: 1.5;
+    animation: slide-in 0.35s var(--ease);
+}
+
+.results-area {
+    display: none;
+}
+
+.results-area.active {
+    display: block;
+}
+
+/* Segnaposto finché non hai calcolato: meglio di un pannello sbiadito
+   pieno di trattini. */
+.results-empty {
+    display: grid;
+    place-items: center;
+    gap: 10px;
+    padding: 60px 20px;
+    text-align: center;
+    color: var(--ink-faint);
+}
+
+.results-area.active + .results-empty {
+    display: none;
+}
+
+.results-empty .empty-mark {
+    font-size: 2.6em;
+    opacity: 0.35;
+    animation: float 3.4s ease-in-out infinite;
+}
+
+.results-empty p {
+    font-size: 0.92em;
+    max-width: 340px;
+    line-height: 1.5;
+}
+
+/* Le due strategie consigliate stanno affiancate: prima erano impilate e
+   il resto della pagina finiva sotto la piega. */
+.verdict-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 13px;
+}
+
+.verdict {
+    position: relative;
+    overflow: hidden;
+    padding: 16px;
+    border-radius: var(--radius);
+    color: #fff;
+    text-align: center;
+    box-shadow: var(--shadow);
+}
+
+.verdict-tag {
+    display: inline-block;
+    padding: 3px 10px;
+    margin-bottom: 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.2);
+    font-size: 0.7em;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.verdict h3 {
+    font-size: 1.16em;
+    line-height: 1.25;
+    min-height: 2.5em;
+    display: grid;
+    place-items: center;
+}
+
+.compatibility {
+    margin: 6px 0 2px;
+    font-size: 2.1em;
+    font-weight: 800;
+    line-height: 1;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+}
+
+.distance-score {
+    font-size: 0.76em;
+    opacity: 0.85;
+}
+
+.verdict-desc {
+    margin-top: 9px;
+    padding-top: 9px;
+    border-top: 1px solid rgba(255, 255, 255, 0.22);
+    font-size: 0.8em;
+    line-height: 1.45;
+    opacity: 0.94;
+}
+
+.verdict-top {
+    background: linear-gradient(150deg, #5b6ff0 0%, var(--violet) 55%, #8f4fd0 100%);
+}
+
+/* Corona di luce sulla strategia vincente. */
+.verdict-top::before {
+    content: '';
+    position: absolute;
+    top: -40%;
+    left: -10%;
+    right: -10%;
+    height: 90%;
+    background: radial-gradient(closest-side, rgba(246, 196, 83, 0.3), transparent 70%);
+    pointer-events: none;
+}
+
+.verdict-top .compatibility {
+    font-size: 2.5em;
+}
+
+.verdict-second {
+    background: linear-gradient(150deg, #2f9fd8 0%, var(--teal) 100%);
+}
+
+/* Da evitare: una striscia bassa, non un terzo blocco grande come gli
+   altri due. È un avviso, non un consiglio. */
+.verdict-worst {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    margin-top: 13px;
+    padding: 12px 15px;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(100deg, #fff0f1 0%, #fff 70%);
+    border: 1.5px solid #f3c3ca;
+    border-left: 5px solid var(--crimson);
+}
+
+.verdict-worst .worst-icon {
+    font-size: 1.5em;
+    flex-shrink: 0;
+    filter: grayscale(0.15);
+}
+
+.verdict-worst .worst-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.verdict-worst .worst-tag {
+    font-size: 0.68em;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--crimson-dark);
+}
+
+.verdict-worst h3 {
+    font-size: 1em;
+    color: var(--navy-800);
+    margin: 1px 0 2px;
+}
+
+.verdict-worst .verdict-desc {
+    margin: 0;
+    padding: 0;
+    border: none;
+    color: var(--ink-soft);
+    font-size: 0.8em;
+}
+
+.verdict-worst .worst-score {
+    flex-shrink: 0;
+    text-align: right;
+}
+
+.verdict-worst .compatibility {
+    margin: 0;
+    font-size: 1.5em;
+    color: var(--crimson-dark);
+    text-shadow: none;
+}
+
+.verdict-worst .distance-score {
+    color: var(--ink-faint);
+    opacity: 1;
+    font-size: 0.72em;
+}
+
+/* Lancio: subito sotto i verdetti, non in fondo dopo il grafico. È
+   l'azione che porta al gioco vero, deve stare dove cade l'occhio. */
+.launch-area {
+    display: none;
+    margin-top: 16px;
+    padding: 15px;
+    border-radius: var(--radius);
+    background: linear-gradient(135deg, #101733 0%, #241a45 100%);
+    border: 1px solid #2e3763;
+    box-shadow: var(--shadow);
+}
+
+.launch-area.active {
+    display: block;
+    animation: rise-in 0.45s var(--ease) both;
+}
+
+.launch-area p {
+    margin-bottom: 11px;
+    color: #b9c1e2;
+    font-size: 0.86em;
+    line-height: 1.5;
+    text-align: center;
+}
+
+/* ── 8. Grafico e caricamento ───────────────────────────────────── */
+
+.chart-section {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px dashed var(--border);
+}
+
+.chart-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 0.82em;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+}
+
+.chart-container {
+    position: relative;
+    height: 370px;
+}
+
+.loading {
+    display: none;
+    text-align: center;
+    padding: 70px 20px;
+    color: var(--ink-soft);
+}
+
+.loading.show {
+    display: block;
+}
+
+.spinner {
+    width: 42px;
+    height: 42px;
+    margin: 0 auto 14px;
+    border: 4px solid var(--border);
+    border-top-color: var(--crimson);
+    border-right-color: var(--violet);
+    border-radius: 50%;
+    animation: spin 0.85s linear infinite;
+}
+
+/* ── 9. Animazioni ──────────────────────────────────────────────── */
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes hero-drift {
+    from { transform: translate3d(-14%, 0, 0); }
+    to   { transform: translate3d(14%, 0, 0); }
+}
+
+@keyframes mark-tilt {
+    0%, 100% { transform: rotate(-8deg); }
+    50%      { transform: rotate(8deg) scale(1.06); }
+}
+
+@keyframes step-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(233, 69, 96, 0.55); }
+    60%      { box-shadow: 0 0 0 7px rgba(233, 69, 96, 0); }
+}
+
+@keyframes ready-glow {
+    0%, 100% { box-shadow: 0 5px 16px rgba(233, 69, 96, 0.32); }
+    50%      { box-shadow: 0 5px 22px rgba(233, 69, 96, 0.55); }
+}
+
+@keyframes budget-alarm {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.62; }
+}
+
+@keyframes card-pick {
+    0%   { transform: scale(0.985); }
+    55%  { transform: scale(1.015); }
+    100% { transform: scale(1); }
+}
+
+@keyframes slide-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes rise-in {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-9px); }
+}
+
+@keyframes shake {
+    0%, 100%   { transform: translateX(0); }
+    20%, 60%   { transform: translateX(-5px); }
+    40%, 80%   { transform: translateX(5px); }
+}
+
+/* I verdetti entrano uno dopo l'altro quando arriva il risultato. */
+.results-area.active .verdict-top    { animation: rise-in 0.42s var(--ease) 0.02s both; }
+.results-area.active .verdict-second { animation: rise-in 0.42s var(--ease) 0.10s both; }
+.results-area.active .verdict-worst  { animation: rise-in 0.42s var(--ease) 0.18s both; }
+.results-area.active .chart-section  { animation: rise-in 0.42s var(--ease) 0.30s both; }
+
+/* ── 10. Responsive ─────────────────────────────────────────────── */
+
+@media (max-width: 1180px) {
+    .layout {
+        grid-template-columns: 1fr;
+    }
+
+    .chart-container {
+        height: 330px;
+    }
+}
+
+@media (max-width: 760px) {
+    body {
+        padding: 14px 14px 30px;
+    }
+
+    .hero {
+        flex-wrap: wrap;
+        padding: 18px;
+    }
+
+    .hero-text h1 {
+        font-size: 1.5em;
+    }
+
+    .hero-steps {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .verdict-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .verdict-worst {
+        flex-wrap: wrap;
+    }
+
+    .verdict-worst .worst-score {
+        text-align: left;
+    }
+}
+
+/* Chi ha chiesto meno movimento riceve la pagina ferma, non rotta. */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+    }
+}
