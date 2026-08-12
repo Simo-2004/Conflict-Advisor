@@ -45,6 +45,7 @@
                     updateBattleStatusModePill(currentBattleState);
                     updateTacticalActionButtons(currentBattleState);
                     renderGarrisonUnitSelector(currentBattleState);
+                    updateGarrisonCardBadge(currentBattleState);
                 });
             }
 

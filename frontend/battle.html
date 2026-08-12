@@ -27,20 +27,27 @@
                         <span class="status-pill weather-pill" id="battleStatusWeather" hidden></span>
                     </div>
                     <div class="status-muted status-hint-info" id="battleStatusHint">Premi H per vedere i comandi rapidi.</div>
-                    <div class="tactical-legion-select-wrap">
-                        <label for="tacticalLegionSelect">Legione attiva</label>
-                        <select id="tacticalLegionSelect"></select>
-                    </div>
                     <div class="action-row">
                         <button class="action-btn" id="actionGarrisonBtn" type="button" onclick="enterGarrisonMode()">🛡 Presidio [1]</button>
                         <button class="action-btn" id="actionMineBtn" type="button" onclick="enterMineMode()">⛏ Miniera [2]</button>
                         <button class="action-btn" id="actionFortifyBtn" type="button" onclick="enterFortifyMode()">🧱 Fortifica [3]</button>
-                        <div class="garrison-select-wrap">
-                            <label for="garrisonUnitSelect">Unità presidio</label>
+                    </div>
+                    <div class="garrison-card" id="garrisonCard">
+                        <div class="garrison-card-head">
+                            <span class="garrison-card-icon" aria-hidden="true">🛡</span>
+                            <span class="garrison-card-title">Presidio</span>
+                            <span class="garrison-card-badge" id="garrisonCardBadge"></span>
+                        </div>
+                        <div class="garrison-field">
+                            <label for="tacticalLegionSelect">Legione che distacca</label>
+                            <select id="tacticalLegionSelect"></select>
+                        </div>
+                        <div class="garrison-field">
+                            <label for="garrisonUnitSelect">Unità da distaccare</label>
                             <select id="garrisonUnitSelect"></select>
                         </div>
+                        <div class="garrison-defense-preview" id="garrisonDefensePreview">Difesa presidio stimata: ---</div>
                     </div>
-                    <div class="garrison-defense-preview" id="garrisonDefensePreview">Difesa presidio stimata: ---</div>
                     <button class="ability-card" id="abilityResearchBtn" type="button" onclick="openSkillTree()" title="Apri l'albero delle abilità [A]">
                         <span class="ability-card-icon" aria-hidden="true">⭐</span>
                         <span class="ability-card-body">

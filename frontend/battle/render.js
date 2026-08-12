@@ -281,14 +281,46 @@
             }
 
             selector.disabled = sessionData.state === 'game_over';
+            // La posizione nell'etichetta serve a distinguere due legioni che
+            // stanno sulla stessa cella: senza, la scelta è alla cieca.
             selector.innerHTML = legions.map((legion) => {
                 const typeLabel = TACTICAL_LEGION_TYPE_LABELS[legion.legion_type] || 'Esercito';
-                return `<option value="${legion.id}">${legion.name} (${typeLabel})</option>`;
+                const pos = (legion.pos || []).length === 2 ? ` · ${legion.pos[0]},${legion.pos[1]}` : '';
+                const truppe = (legion.units || []).length;
+                return `<option value="${legion.id}">${legion.name} (${typeLabel}) — ${truppe} truppe${pos}</option>`;
             }).join('');
 
             if (previousValue && legions.some((legion) => legion.id === previousValue)) {
                 selector.value = previousValue;
             }
+
+            updateGarrisonCardBadge(sessionData);
+        }
+
+        /** Dove finirà il presidio, e cosa c'è già su quella cella.
+         *
+         *  Il presidio si lascia sotto i piedi della legione, quindi la cella
+         *  è già decisa quando scegli la legione: mostrarla qui evita di
+         *  scoprirlo solo dopo aver cliccato sulla mappa.
+         */
+        function updateGarrisonCardBadge(sessionData) {
+            const badge = document.getElementById('garrisonCardBadge');
+            if (!badge) return;
+
+            const state = sessionData || currentBattleState;
+            const legion = getSelectedTacticalLegion(state);
+            const pos = legion ? (legion.pos || []) : [];
+            if (pos.length !== 2) {
+                badge.textContent = '';
+                return;
+            }
+
+            const cell = state?.map?.grid?.[pos[0]]?.[pos[1]];
+            const presidi = Number(cell?.garrison_strength || 0);
+            const dettaglio = presidi > 0
+                ? ` · ${presidi} presidi${presidi === 1 ? 'o' : ''} già qui`
+                : '';
+            badge.textContent = `cella ${pos[0]},${pos[1]}${dettaglio}`;
         }
 
         /** Valore "generale": nessuna legione, si tocca la strategia di sessione. */
