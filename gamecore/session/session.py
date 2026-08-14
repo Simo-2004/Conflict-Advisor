@@ -54,7 +54,7 @@ except Exception:
 try:
     from debug.battle_log_capture import create_battle_log_capture
 except Exception:
-    def create_battle_log_capture() -> List[str]:
+    def create_battle_log_capture(session: Any = None) -> List[str]:
         return []
 
 PLAYER = Occupation.PLAYER
@@ -296,7 +296,7 @@ class GameSession:
         # --- Stato ---
         self.state:      SessionState  = SessionState.ACTIVE
         self.winner:     Optional[str] = None
-        self.battle_log: List[str]     = create_battle_log_capture()
+        self.battle_log: List[str]     = create_battle_log_capture(self)
         self.grux_balance: Dict[Occupation, int] = {
             PLAYER: player_budget,
             AI: ai_data.get("remaining_grux", STARTING_GRUX - self.ai_army_cost),

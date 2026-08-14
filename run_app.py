@@ -9,6 +9,34 @@ import webbrowser
 import threading
 import time
 
+
+def _console_tollerante() -> None:
+    """Impedisce che le emoji dei messaggi di avvio facciano cadere l'exe.
+
+    La console di Windows usa cp1252: `print("⚔️ WAR ADVISOR")` solleva
+    UnicodeEncodeError e l'applicazione muore prima ancora di avviare il
+    server. Succede ogni volta che l'output non è una console vera — output
+    rediretto su file, avvio da uno script, lancio da un altro programma —
+    ed è esattamente come si presenta a chi riceve l'eseguibile e prova ad
+    aprirlo in un modo diverso dal doppio clic.
+
+    Si prova prima UTF-8 (output pulito); se non si può, si tiene la codifica
+    di sistema sostituendo i caratteri che non entrano.
+    """
+    for flusso in (sys.stdout, sys.stderr):
+        if flusso is None:
+            continue
+        try:
+            flusso.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            try:
+                flusso.reconfigure(errors="replace")
+            except Exception:
+                pass
+
+
+_console_tollerante()
+
 # Configura il path per PyInstaller
 if getattr(sys, 'frozen', False):
     # Eseguito come exe (PyInstaller)
