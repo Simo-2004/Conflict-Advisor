@@ -1,0 +1,303 @@
+/*
+ * War Advisor - Schermata di fine partita (SGANCIABILE)
+ * Stili del solo modulo endgame: nessun'altra parte del gioco li usa.
+ */
+
+.endgame-overlay {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    /* Su finestre basse è il fondale a scorrere, non la card: dentro la card
+       ci sono i raggi, alti più del doppio, e con lo scorrimento lì dentro
+       finivano nell'area scorrevole spingendo i pulsanti fuori portata. */
+    overflow-y: auto;
+    padding: 20px;
+    /* Sopra ogni altro pannello: skill tree 320, autoreclutamento 321,
+       mercato nero 322. La fine della partita copre tutto. */
+    z-index: 400;
+}
+
+.endgame-overlay.is-open {
+    display: flex;
+    animation: endgame-fondo 520ms ease forwards;
+}
+
+/* Blocco della pagina sotto.
+   Senza questo si continuava a scorrere l'interfaccia di gioco con la
+   rotellina pur avendo la schermata finale davanti. Il compenso in padding
+   sostituisce la barra di scorrimento che sparisce, se no la pagina scatta
+   di lato nel momento in cui compare la schermata: la larghezza esatta la
+   misura il JS e la scrive in --endgame-barra. */
+html.endgame-bloccato {
+    overflow: hidden;
+}
+
+html.endgame-bloccato body {
+    padding-right: var(--endgame-barra, 0px);
+}
+
+/* La card può scorrere al suo interno (schermi bassi, telefoni): arrivata a
+   fine corsa lo scorrimento NON deve proseguire sulla pagina dietro. */
+.endgame-overlay,
+.endgame-card {
+    overscroll-behavior: contain;
+}
+
+.endgame-overlay.is-victory {
+    background: radial-gradient(120% 90% at 50% 30%, rgba(72, 52, 8, 0.82) 0%, rgba(12, 9, 4, 0.94) 70%);
+}
+
+.endgame-overlay.is-defeat {
+    background: radial-gradient(120% 90% at 50% 30%, rgba(23, 30, 44, 0.88) 0%, rgba(6, 8, 12, 0.96) 70%);
+}
+
+@keyframes endgame-fondo {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+/* ── Il pannello ─────────────────────────────────────────────── */
+
+.endgame-card {
+    position: relative;
+    width: min(720px, 96vw);
+    /* `margin: auto` invece di affidarsi solo ad align-items: con il fondale
+       scorrevole, il centramento da solo taglierebbe la parte alta quando il
+       contenuto supera lo schermo. */
+    margin: auto;
+    /* Ritaglia i raggi, che sporgono di proposito oltre il pannello. Erano
+       loro a gonfiare l'area scorrevole. */
+    overflow: hidden;
+    border-radius: 16px;
+    padding: 30px 28px 24px;
+    text-align: center;
+    animation: endgame-entrata 620ms cubic-bezier(0.16, 0.9, 0.3, 1) both;
+}
+
+.endgame-card.is-victory {
+    background: linear-gradient(180deg, #241a06 0%, #161004 100%);
+    border: 1px solid #7a5c1c;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 214, 128, 0.22);
+    color: #f6e7c4;
+}
+
+.endgame-card.is-defeat {
+    background: linear-gradient(180deg, #171d29 0%, #0d1119 100%);
+    border: 1px solid #35415a;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+    color: #c6cede;
+}
+
+@keyframes endgame-entrata {
+    from { opacity: 0; transform: translateY(26px) scale(0.96); }
+    to   { opacity: 1; transform: none; }
+}
+
+/* Raggi che ruotano dietro il pannello: solo nella vittoria, è l'elemento
+   che fa "trionfo". Nella sconfitta non esiste proprio. */
+.endgame-rays {
+    position: absolute;
+    top: -40%;
+    left: 50%;
+    width: 190%;
+    aspect-ratio: 1;
+    transform: translateX(-50%);
+    pointer-events: none;
+    background: repeating-conic-gradient(
+        from 0deg,
+        rgba(246, 196, 83, 0.14) 0deg 8deg,
+        transparent 8deg 22deg
+    );
+    -webkit-mask-image: radial-gradient(closest-side, #000 30%, transparent 72%);
+    mask-image: radial-gradient(closest-side, #000 30%, transparent 72%);
+    animation: endgame-raggi 34s linear infinite;
+    z-index: 0;
+}
+
+@keyframes endgame-raggi {
+    to { transform: translateX(-50%) rotate(360deg); }
+}
+
+.endgame-card > *:not(.endgame-rays) {
+    position: relative;
+    z-index: 1;
+}
+
+/* ── Titolo ──────────────────────────────────────────────────── */
+
+.endgame-crest {
+    font-size: 3.4em;
+    line-height: 1;
+    display: block;
+    margin-bottom: 8px;
+    animation: endgame-sigillo 900ms cubic-bezier(0.2, 1.5, 0.4, 1) both;
+}
+
+@keyframes endgame-sigillo {
+    from { opacity: 0; transform: scale(0.3) rotate(-18deg); }
+    to   { opacity: 1; transform: none; }
+}
+
+.endgame-title {
+    margin: 0;
+    font-size: 2.5em;
+    font-weight: 900;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.is-victory .endgame-title {
+    color: #f6c453;
+    /* Bagliore che scorre sul testo: acceso solo nella vittoria. */
+    background: linear-gradient(100deg, #f6c453 0%, #fff4d2 42%, #f6c453 60%);
+    background-size: 260% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: endgame-bagliore 4.2s ease-in-out 700ms infinite;
+    text-shadow: 0 0 34px rgba(246, 196, 83, 0.28);
+}
+
+@keyframes endgame-bagliore {
+    0%, 100% { background-position: 130% 0; }
+    50%      { background-position: -30% 0; }
+}
+
+.is-defeat .endgame-title {
+    color: #8f9bb3;
+}
+
+.endgame-subtitle {
+    margin: 10px 0 22px;
+    font-size: 0.98em;
+    line-height: 1.5;
+}
+
+.is-victory .endgame-subtitle { color: #cbb383; }
+.is-defeat  .endgame-subtitle { color: #7d879b; }
+
+/* ── Statistiche ─────────────────────────────────────────────── */
+
+.endgame-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-bottom: 22px;
+}
+
+.endgame-stat {
+    border-radius: 10px;
+    padding: 12px 8px;
+    /* Le schede entrano una dopo l'altra: il ritardo lo assegna il JS,
+       così il conteggio si legge come un referto che si compila. */
+    animation: endgame-scheda 520ms ease both;
+}
+
+.is-victory .endgame-stat {
+    background: rgba(246, 196, 83, 0.07);
+    border: 1px solid rgba(246, 196, 83, 0.22);
+}
+
+.is-defeat .endgame-stat {
+    background: rgba(148, 163, 184, 0.06);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+@keyframes endgame-scheda {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: none; }
+}
+
+.endgame-stat-value {
+    display: block;
+    font-size: 1.7em;
+    font-weight: 900;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.is-victory .endgame-stat-value { color: #ffd97a; }
+.is-defeat  .endgame-stat-value { color: #aab6cc; }
+
+.endgame-stat-label {
+    display: block;
+    margin-top: 5px;
+    font-size: 0.7em;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.72;
+}
+
+.endgame-stat-note {
+    display: block;
+    margin-top: 3px;
+    font-size: 0.66em;
+    opacity: 0.55;
+}
+
+/* ── Azioni ──────────────────────────────────────────────────── */
+
+.endgame-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.endgame-btn {
+    border-radius: 10px;
+    padding: 10px 18px;
+    font-weight: 800;
+    font-size: 0.86em;
+    cursor: pointer;
+    background: transparent;
+    transition: transform 140ms ease, background 140ms ease;
+}
+
+.endgame-btn:hover { transform: translateY(-1px); }
+
+.is-victory .endgame-btn {
+    border: 1px solid #7a5c1c;
+    color: #e8d2a0;
+}
+.is-victory .endgame-btn:hover { background: rgba(246, 196, 83, 0.12); }
+
+.is-victory .endgame-btn.is-primary {
+    border-color: #f6c453;
+    background: linear-gradient(180deg, #f6c453 0%, #d9a02c 100%);
+    color: #2a1f06;
+}
+
+.is-defeat .endgame-btn {
+    border: 1px solid #3c4761;
+    color: #b3bdd0;
+}
+.is-defeat .endgame-btn:hover { background: rgba(148, 163, 184, 0.12); }
+
+.is-defeat .endgame-btn.is-primary {
+    border-color: #64748b;
+    background: #47536b;
+    color: #eef2f8;
+}
+
+/* ── Accessibilità ───────────────────────────────────────────── */
+/* Chi ha chiesto meno animazioni le riceve rallentate, non tolte: la
+   schermata deve restare leggibile e comparire comunque. */
+@media (prefers-reduced-motion: reduce) {
+    .endgame-overlay.is-open,
+    .endgame-card,
+    .endgame-crest,
+    .endgame-stat {
+        animation-duration: 1ms;
+    }
+    .endgame-rays { animation-duration: 240s; }
+    .is-victory .endgame-title { animation: none; }
+}
+
+@media (max-width: 620px) {
+    .endgame-stats { grid-template-columns: repeat(2, 1fr); }
+    .endgame-title { font-size: 1.9em; }
+}

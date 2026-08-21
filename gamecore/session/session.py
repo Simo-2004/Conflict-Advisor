@@ -7,6 +7,7 @@ quando perdono uno scontro, si ritirano al proprio castello invece di sparire.
 """
 
 import random
+import time
 from enum import Enum
 from collections import Counter, deque
 from typing import Any, Dict, List, Optional, Tuple
@@ -297,6 +298,13 @@ class GameSession:
         self.state:      SessionState  = SessionState.ACTIVE
         self.winner:     Optional[str] = None
         self.battle_log: List[str]     = create_battle_log_capture(self)
+        # [ENDGAME-STATS] Due numeri che il gioco non teneva da nessuna parte
+        # e che non si possono ricostruire a posteriori: quando è cominciata
+        # la partita e quante truppe ha perso ciascuno. Servono alla
+        # schermata di fine partita; li legge solo `to_dict`, nessuna
+        # formula di gioco li guarda. Rimozione: grep ENDGAME-STATS.
+        self.started_at: float = time.time()
+        self.troops_lost: Dict[Occupation, int] = {PLAYER: 0, AI: 0}
         self.grux_balance: Dict[Occupation, int] = {
             PLAYER: player_budget,
             AI: ai_data.get("remaining_grux", STARTING_GRUX - self.ai_army_cost),
@@ -1790,6 +1798,7 @@ class GameSession:
         remaining = list(unit_ids)
         for unit_id in removed:
             remaining.remove(unit_id)
+        self.troops_lost[entity] += len(removed)  # [ENDGAME-STATS]
 
         if entity == AI:
             # `ai_units` è l'esercito autoritativo dell'IA: senza rimuoverle anche
@@ -3426,6 +3435,7 @@ class GameSession:
         removed = sorted_for_losses[:losses]
         for unit_id in removed:
             units.remove(unit_id)
+        self.troops_lost[attacker] += losses      # [ENDGAME-STATS]
 
         self._recompute_entity_army_state(attacker)
         if attacker == AI:
@@ -5704,6 +5714,16 @@ class GameSession:
             "movement": self.movement_system.export_config(),
             "map":        self.game_map.to_dict(),
             "battle_log": self.battle_log,
+            # [ENDGAME-STATS] Numeri per la schermata di fine partita. Il tempo
+            # sta qui e non nel browser perché deve sopravvivere a un ricarico
+            # della pagina: la sessione vive nel server, la scheda no.
+            "stats": {
+                "elapsed_seconds": max(0, int(time.time() - self.started_at)),
+                "troops_lost": {
+                    "player": int(self.troops_lost.get(PLAYER, 0)),
+                    "ai": int(self.troops_lost.get(AI, 0)),
+                },
+            },
             # [DEBUG-MODULE] Letto dal pannello debug per mostrare lo stato dello
             # switch. Rimuovibile con il modulo: nessun'altra parte lo consuma.
             "debug": {
