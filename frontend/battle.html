@@ -7,6 +7,11 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
     <link rel="stylesheet" href="/static/battle/battle.css">
     <link rel="stylesheet" href="/static/battle/legions/legions_panel.css">
+    <!-- [ENDGAME-MODULE] Schermata di vittoria/sconfitta. Puramente
+         presentazionale: si aggancia da sola a renderBattleState e non
+         viene chiamata da nessun file. Rimozione: cancella questa riga,
+         quella dello script in fondo e frontend/battle/endgame/. -->
+    <link rel="stylesheet" href="/static/battle/endgame/endgame.css">
 </head>
 <body>
     <div class="page">
@@ -290,6 +295,8 @@
          Per rimuoverli, cancella questa riga e la cartella
          frontend/battle/atmosphere/. Istruzioni nel README di quella cartella. -->
     <script src="/static/battle/atmosphere/atmosphere.js"></script>
+    <!-- [ENDGAME-MODULE] -->
+    <script src="/static/battle/endgame/endgame.js"></script>
     <script>
         // Hook: ogni volta che renderBattleState aggiorna la UI,
         // propaga lo stato anche al pannello Legioni (se visibile)
