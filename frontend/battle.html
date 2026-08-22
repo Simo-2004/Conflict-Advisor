@@ -12,6 +12,11 @@
          viene chiamata da nessun file. Rimozione: cancella questa riga,
          quella dello script in fondo e frontend/battle/endgame/. -->
     <link rel="stylesheet" href="/static/battle/endgame/endgame.css">
+    <!-- [AUDIO-MODULE] Tema ed effetti sonori, pilotati dal canale eventi.
+         Si aggancia da solo e nessun file lo chiama. Rimozione: questa
+         riga, quella dello script in fondo, frontend/battle/audio/ e il
+         mount /assets in main.py. -->
+    <link rel="stylesheet" href="/static/battle/audio/audio.css">
 </head>
 <body>
     <div class="page">
@@ -297,6 +302,8 @@
     <script src="/static/battle/atmosphere/atmosphere.js"></script>
     <!-- [ENDGAME-MODULE] -->
     <script src="/static/battle/endgame/endgame.js"></script>
+    <!-- [AUDIO-MODULE] -->
+    <script src="/static/battle/audio/audio.js"></script>
     <script>
         // Hook: ogni volta che renderBattleState aggiorna la UI,
         // propaga lo stato anche al pannello Legioni (se visibile)

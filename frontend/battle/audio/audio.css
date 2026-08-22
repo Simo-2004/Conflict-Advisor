@@ -1,0 +1,39 @@
+/*
+ * War Advisor - Audio di battaglia (SGANCIABILE)
+ * Solo il pulsante di silenzio: il resto del modulo non disegna niente.
+ */
+
+.war-audio-btn {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    /* Sotto la schermata di fine partita (400), sopra tutto il resto: durante
+       vittoria o sconfitta il pulsante non deve galleggiare sopra il referto. */
+    z-index: 330;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #1e293b;
+    font-size: 1.05em;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.18);
+    transition: transform 140ms ease, background 140ms ease, opacity 140ms ease;
+}
+
+.war-audio-btn:hover {
+    transform: translateY(-2px);
+    background: #f1f5f9;
+}
+
+.war-audio-btn.is-muted {
+    background: #f1f5f9;
+    color: #94a3b8;
+    opacity: 0.75;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .war-audio-btn { transition: none; }
+}
