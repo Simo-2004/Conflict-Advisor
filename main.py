@@ -76,6 +76,13 @@ async def disable_static_cache(request: Request, call_next):
 # Monta la cartella statica per il frontend
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR, html=True), name="static")
 
+# [AUDIO-MODULE] I suoni stanno in assets/, fuori da frontend/: senza questo
+# mount il browser non li vedrebbe. Nel pacchetto .exe serve anche
+# --add-data "assets;assets", se no la cartella non finisce nel bundle.
+ASSETS_DIR = os.path.join(APP_BASE_DIR, "assets")
+if os.path.isdir(ASSETS_DIR):
+    app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
+
 # Carica i dati all'avvio
 try:
     DATA = load_data()

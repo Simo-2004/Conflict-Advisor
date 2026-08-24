@@ -10,7 +10,7 @@ import random
 import time
 from enum import Enum
 from collections import Counter, deque
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from engine import aggregate_army, apply_modifiers, compute_ranking, euclidean_distance
 from gamecore.economy import (
@@ -24,6 +24,12 @@ from gamecore.maps import GameMap, Occupation
 from gamecore.session import abilities as ab
 from gamecore.session.abilities import DOMAIN_ENGINEERING_ID, build_default_ability_states
 from gamecore.session.black_market import BlackMarketState
+# [EVENT-CHANNEL] Eventi strutturati per gli effetti del frontend. Se il
+# file sparisce, `_evento()` diventa un no-op e la partita non cambia.
+try:
+    from gamecore.session import turn_events as ev
+except ImportError:                                           # canale rimosso
+    ev = None
 from gamecore.session.ai_core.ai_builder import (
     build_ai_army,
     build_ai_policy,
@@ -288,6 +294,9 @@ class GameSession:
         self.player_legions: Dict[str, Dict[str, Any]] = {}
         self.ai_legions: Dict[str, Dict[str, Any]] = {}
         self.next_legion_id: int = 1
+        # [EVENT-CHANNEL] Id delle legioni che hanno già annunciato di
+        # essere diventate armate: l'annuncio si fa una volta sola.
+        self._armate_annunciate: set = set()
         self.ai_legion_respawn_delay_turns: int = 2
         self.ai_last_legion_loss_turn: Optional[int] = None
 
@@ -304,6 +313,8 @@ class GameSession:
         # schermata di fine partita; li legge solo `to_dict`, nessuna
         # formula di gioco li guarda. Rimozione: grep ENDGAME-STATS.
         self.started_at: float = time.time()
+        # [EVENT-CHANNEL] Coda degli eventi del turno.
+        self.event_log = ev.EventLog() if ev is not None else None
         self.troops_lost: Dict[Occupation, int] = {PLAYER: 0, AI: 0}
         self.grux_balance: Dict[Occupation, int] = {
             PLAYER: player_budget,
@@ -565,6 +576,12 @@ class GameSession:
         }
 
         type_label = LEGION_TYPE_LABELS[legion_type]
+        self._evento(                                         # [EVENT-CHANNEL]
+            ev.LEGIONE_CREATA if ev else "legione_creata",
+            entita=PLAYER, pos=spawn_pos,
+            quantita=len(legion_units),
+            dettaglio={"nome": name, "tipo": legion_type},
+        )
         self.battle_log.append(
             f"⚔️ PLAYER addestra la legione '{name}' ({type_label}) e la invia verso "
             f"{target if target else 'attesa'}."
@@ -574,7 +591,11 @@ class GameSession:
         cell = self.game_map.get_cell(*spawn_pos)
         if cell and cell.occupation != PLAYER:
             cell.occupation = PLAYER
-            
+
+        # [EVENT-CHANNEL] Il player forma le sue legioni fuori dal turno:
+        # senza questa chiamata l'annuncio arriverebbe solo al turno dopo.
+        self._annuncia_armate()
+
         return {
             "ok": True,
             "message": f"Legione {name} creata",
@@ -752,6 +773,21 @@ class GameSession:
         }
 
         self._sync_ai_legion_units()
+
+        # [EVENT-CHANNEL] L'annuncio arriva solo adesso: la legione IA nasce
+        # vuota e sono le righe qui sopra a darle le truppe. Emetterlo alla
+        # creazione avrebbe portato sempre `quantita=0`, e chi ascolta non
+        # avrebbe potuto distinguere un'armata da una pattuglia. Se la
+        # ripartizione non le ha assegnato nessuno l'ha già sciolta, e allora
+        # non c'è nessuna legione da annunciare.
+        nata = self.ai_legions.get(legion_id)
+        if nata is not None:
+            self._evento(                                     # [EVENT-CHANNEL]
+                ev.LEGIONE_CREATA if ev else "legione_creata",
+                entita=AI, pos=spawn_pos,
+                quantita=len(nata.get("units") or []),
+                dettaglio={"nome": legion_name, "tipo": LEGION_TYPE_ARMY},
+            )
 
         cell = self.game_map.get_cell(*spawn_pos)
         if cell is not None:
@@ -1608,6 +1644,11 @@ class GameSession:
                 f"🏰 {attacker.value.upper()} abbatte il castello ({to_pos}) "
                 f"con {damage} danni (HP {hp_before}->{hp_after})."
             )
+            self._evento(                                     # [EVENT-CHANNEL]
+                ev.CASTELLO_CADUTO if ev else "castello_caduto",
+                entita=attacker, pos=to_pos, quantita=damage,
+                dettaglio={"artiglieria": self._ha_artiglieria(legion_unit_ids)},
+            )
             return
 
         self._log_condition_change(attacker, legion, status_before, logs)
@@ -1635,6 +1676,15 @@ class GameSession:
         logs.append(
             f"🏰 Assalto respinto: {attacker.value.upper()} infligge {damage} danni "
             f"al castello (HP {hp_before}->{hp_after}) e le truppe rientrano al castello d'origine."
+        )
+        self._evento(                                         # [EVENT-CHANNEL]
+            ev.ASSALTO_CASTELLO if ev else "assalto_castello",
+            entita=attacker, pos=to_pos, quantita=damage,
+            dettaglio={"hp_prima": hp_before, "hp_dopo": hp_after,
+                       "hp_max": castle_max, "respinto": True,
+                       # Un castello preso a cannonate suona diverso da uno
+                       # preso d'assalto con le scale.
+                       "artiglieria": self._ha_artiglieria(legion_unit_ids)},
         )
 
     def _legion_battle_strength(
@@ -1869,6 +1919,14 @@ class GameSession:
             movement_key=self._legion_movement_key(defender, def_id),
         )
 
+        # [EVENT-CHANNEL] L'artiglieria va fotografata adesso: l'evento viene
+        # emesso a perdite già applicate, e se i pezzi cadono nello scontro le
+        # liste sono già state ripulite — lo scontro suonerebbe di spade dopo
+        # essere stato un bombardamento.
+        artiglieria_in_campo = self._ha_artiglieria(
+            atk_legion.get("units"), def_legion.get("units")
+        )
+
         # Le difese della cella aumentano anche l'attrito subito dall'attaccante.
         atk_losses = self._calculate_losses_for_battle(
             atk["units"],
@@ -1918,6 +1976,20 @@ class GameSession:
                 f" — difese: fort. {dfn['fortification_level']}, presidio {dfn['garrison_strength']}"
             )
         logs.append(header + ".")
+        self._evento(                                         # [EVENT-CHANNEL]
+            ev.BATTAGLIA if ev else "battaglia",
+            entita=attacker, pos=pos,
+            quantita=int(atk["strength"]) + int(dfn["strength"]),
+            dettaglio={
+                "attaccante": attacker.value, "difensore": defender.value,
+                "forza_attaccante": int(atk["strength"]),
+                "forza_difensore": int(dfn["strength"]),
+                "terreno": terrain,
+                # Basta che una delle due parti abbia artiglieria perché lo
+                # scontro suoni come un bombardamento invece che come spade.
+                "artiglieria": artiglieria_in_campo,
+            },
+        )
 
         if atk_n or def_n:
             logs.append(
@@ -1926,6 +1998,12 @@ class GameSession:
                 f"{defender.value.upper()} -{def_n}"
                 f"{f' ({def_text})' if def_text else ''}."
             )
+            for chi, quante in ((attacker, atk_n), (defender, def_n)):   # [EVENT-CHANNEL]
+                if quante:
+                    self._evento(
+                        ev.PERDITE if ev else "perdite",
+                        entita=chi, pos=pos, quantita=quante,
+                    )
 
         # Entrambe annientate: la cella resta contesa.
         if not atk_alive and not def_alive:
@@ -3163,6 +3241,11 @@ class GameSession:
             if cell and getattr(cell, "occupation", None) != PLAYER:
                 cell.occupation = PLAYER
                 logs.append(f"⚔️ La legione PLAYER '{legion['name']}' conquista la cella ({row},{col}).")
+                self._evento(                                 # [EVENT-CHANNEL]
+                    ev.CELLA_CONQUISTATA if ev else "cella_conquistata",
+                    entita=PLAYER, pos=(row, col),
+                    dettaglio={"legione": legion.get("name")},
+                )
 
             self._apply_legion_castle_assault(PLAYER, legion, current_pos, next_pos, logs)
             if tuple(legion.get("pos", ())) != next_pos:
@@ -3260,6 +3343,11 @@ class GameSession:
                     if cell and getattr(cell, "occupation", None) != AI:
                         cell.occupation = AI
                         logs.append(f"🤖 La legione IA '{legion['name']}' conquista la cella ({row},{col}).")
+                        self._evento(                         # [EVENT-CHANNEL]
+                            ev.CELLA_CONQUISTATA if ev else "cella_conquistata",
+                            entita=AI, pos=(row, col),
+                            dettaglio={"legione": legion.get("name")},
+                        )
 
                     self._apply_legion_castle_assault(AI, legion, current_pos, next_pos, logs)
                     if tuple(legion.get("pos", ())) != next_pos:
@@ -3285,6 +3373,10 @@ class GameSession:
             self._advance_weather(logs)
 
         self._prune_legion_movement_states()
+
+        # [EVENT-CHANNEL] Dopo reclute e ripartizioni: le legioni hanno
+        # adesso la forza definitiva di questo turno.
+        self._annuncia_armate()
 
         self.game_map.turn += 1
         self.battle_log.extend(logs)
@@ -4037,6 +4129,73 @@ class GameSession:
             existing_mines=self.game_map.count_mines(entity),
         )
 
+    # [EVENT-CHANNEL] Punto unico di emissione: gli agganci sparsi nel motore
+    # sono tutti una riga sola che passa di qui. Non ritorna niente e non può
+    # sollevare, così un evento malformato non porta giù un turno.
+    def _evento(
+        self,
+        tipo: str,
+        *,
+        entita: Optional[Occupation] = None,
+        pos: Optional[Tuple[int, int]] = None,
+        quantita: Optional[float] = None,
+        dettaglio: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if self.event_log is None:
+            return
+        self.event_log.emetti(
+            tipo,
+            turno=self.game_map.turn,
+            entita=entita.value if entita is not None else None,
+            pos=pos,
+            quantita=quantita,
+            dettaglio=dettaglio,
+        )
+
+    def _annuncia_armate(self) -> None:
+        """[EVENT-CHANNEL] Segnala le legioni che sono diventate armate.
+
+        `LEGIONE_CREATA` racconta la nascita, e per l'IA la nascita è
+        sempre un pugno di uomini: le sue legioni vengono formate vuote e
+        le riempie `_sync_ai_legion_units` mano a mano che arrivano le
+        reclute. Misurato su 12 partite: nascono con 1-6 unità e arrivano
+        a 13-147. Chi ascolta gli eventi per marcare l'arrivo di una forza
+        grossa ha bisogno di questo momento, non di quello della nascita.
+
+        Ogni legione lo annuncia una volta sola: l'id resta segnato, così
+        una che ondeggia attorno alla soglia non lo ripete a ogni turno.
+        """
+        if self.event_log is None:
+            return
+        soglia = ev.SOGLIA_ARMATA if ev is not None else 10
+        for entita, legioni in ((PLAYER, self.player_legions), (AI, self.ai_legions)):
+            for legion_id, legione in legioni.items():
+                if legion_id in self._armate_annunciate:
+                    continue
+                forza = len(legione.get("units") or [])
+                if forza < soglia:
+                    continue
+                self._armate_annunciate.add(legion_id)
+                self._evento(
+                    ev.ARMATA_SCHIERATA if ev else "armata_schierata",
+                    entita=entita, pos=legione.get("pos"),
+                    quantita=forza,
+                    dettaglio={"nome": legione.get("name")},
+                )
+
+    @staticmethod
+    def _ha_artiglieria(*gruppi: Optional[Sequence[str]]) -> bool:
+        """[EVENT-CHANNEL] C'è artiglieria fra queste truppe?
+
+        Lo decide il motore, che sa cosa contengono le legioni: chi ascolta gli
+        eventi non deve andarselo a ricostruire.
+        """
+        unita = ev.UNITA_ARTIGLIERIA if ev is not None else "artillery"
+        for gruppo in gruppi:
+            if gruppo and unita in gruppo:
+                return True
+        return False
+
     def _ability_state(self, entity: Occupation, ability_id: str) -> Optional[Any]:
         return self.ability_states.get(entity, {}).get(ability_id)
 
@@ -4433,6 +4592,9 @@ class GameSession:
             f"con la legione '{legion['name']}'{remote}"
         )
         self.battle_log.append(log_entry)
+        self._evento(                                         # [EVENT-CHANNEL]
+            ev.MINIERA if ev else "miniera", entita=PLAYER, pos=(row, col),
+        )
         return {
             "ok": True,
             "message": log_entry,
@@ -4532,6 +4694,11 @@ class GameSession:
             f"con la legione '{legion['name']}' — Distaccata: {detach_result['unit_name']}"
         )
         self.battle_log.append(log_entry)
+        self._evento(                                         # [EVENT-CHANNEL]
+            ev.PRESIDIO if ev else "presidio", entita=PLAYER, pos=(row, col),
+            quantita=cell.garrison_strength,
+            dettaglio={"unita": detach_result.get("unit_name")},
+        )
         return {
             "ok": True,
             "message": log_entry,
@@ -4604,6 +4771,11 @@ class GameSession:
                 f"'{legion['name']}' → livello {cell.fortification_level} (costo {cost} grux){remote}"
             )
         self.battle_log.append(log_entry)
+        self._evento(                                         # [EVENT-CHANNEL]
+            ev.FORTIFICAZIONE if ev else "fortificazione",
+            entita=PLAYER, pos=(row, col), quantita=cell.fortification_level,
+            dettaglio={"castello": bool(is_own_castle)},
+        )
         return {
             "ok": True,
             "message": log_entry,
@@ -4638,6 +4810,9 @@ class GameSession:
             return None
 
         self.game_map.place_mine(AI, best_cell.row, best_cell.col)
+        self._evento(                                         # [EVENT-CHANNEL]
+            ev.MINIERA if ev else "miniera", entita=AI, pos=(best_cell.row, best_cell.col),
+        )
         return f"[Turno {self.game_map.turn}] ⛏ IA costruisce una miniera su ({best_cell.row},{best_cell.col})"
 
     def _ai_castle_ring_cells(self) -> List[Any]:
@@ -4692,6 +4867,11 @@ class GameSession:
         self.grux_balance[AI] -= cost
         cell.garrison_unit_ids.append(best_unit["id"])
         cell.garrison_strength = max(cell.garrison_strength, len(cell.garrison_unit_ids))
+        self._evento(                                         # [EVENT-CHANNEL]
+            ev.PRESIDIO if ev else "presidio", entita=AI, pos=(cell.row, cell.col),
+            quantita=cell.garrison_strength,
+            dettaglio={"unita": best_unit.get("name"), "castello": True},
+        )
         return [
             f"[Turno {self.game_map.turn}] 🛡 IA arruola {best_unit['name']} a presidio "
             f"del CASTELLO — {cost} grux ({len(cell.garrison_unit_ids)}/{target})"
@@ -4728,6 +4908,11 @@ class GameSession:
                 break
             self.grux_balance[AI] -= cost
             placed = self.game_map.place_fortification(AI, cell.row, cell.col)
+            self._evento(                                     # [EVENT-CHANNEL]
+                ev.FORTIFICAZIONE if ev else "fortificazione",
+                entita=AI, pos=(placed.row, placed.col),
+                quantita=placed.fortification_level,
+            )
             logs.append(
                 f"[Turno {self.game_map.turn}] 🧱 IA blinda l'anello del castello "
                 f"({placed.row},{placed.col}) → livello {placed.fortification_level} "
@@ -4756,6 +4941,11 @@ class GameSession:
             self.grux_balance[AI] -= cost
             cell.garrison_unit_ids.append(best_unit["id"])
             cell.garrison_strength = max(cell.garrison_strength, len(cell.garrison_unit_ids))
+            self._evento(                                     # [EVENT-CHANNEL]
+                ev.PRESIDIO if ev else "presidio", entita=AI, pos=(cell.row, cell.col),
+                quantita=cell.garrison_strength,
+                dettaglio={"unita": best_unit.get("name"), "anello": True},
+            )
             logs.append(
                 f"[Turno {self.game_map.turn}] 🛡 IA arruola {best_unit['name']} a presidio "
                 f"di ({cell.row},{cell.col}) — {cost} grux, anello del castello"
@@ -4823,6 +5013,15 @@ class GameSession:
         self.grux_balance[AI] -= cost
         max_level = CASTLE_MAX_FORTIFICATION_LEVEL if cell.is_castle else None
         placed = self.game_map.place_fortification(AI, cell.row, cell.col, max_level=max_level)
+        # [EVENT-CHANNEL] Prima del bivio: il ramo del castello esce con un
+        # return anticipato, e più sotto l'evento non sarebbe mai scattato per
+        # la fortificazione più importante che l'IA costruisce.
+        self._evento(
+            ev.FORTIFICAZIONE if ev else "fortificazione",
+            entita=AI, pos=(placed.row, placed.col),
+            quantita=placed.fortification_level,
+            dettaglio={"castello": bool(placed.is_castle)},
+        )
         if placed.is_castle:
             riduzione = int(placed.fortification_level * CASTLE_FORT_DAMAGE_REDUCTION_PER_LEVEL * 100)
             return (
@@ -5714,6 +5913,10 @@ class GameSession:
             "movement": self.movement_system.export_config(),
             "map":        self.game_map.to_dict(),
             "battle_log": self.battle_log,
+            # [EVENT-CHANNEL] Cosa è successo e dove, per gli effetti del
+            # frontend. Lista a id crescente: chi la consuma tiene da parte
+            # l'ultimo id già mostrato e riproduce solo i più recenti.
+            "events": self.event_log.to_list() if self.event_log is not None else [],
             # [ENDGAME-STATS] Numeri per la schermata di fine partita. Il tempo
             # sta qui e non nel browser perché deve sopravvivere a un ricarico
             # della pagina: la sessione vive nel server, la scheda no.
