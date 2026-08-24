@@ -56,6 +56,7 @@ MINIERA = "miniera"
 FORTIFICAZIONE = "fortificazione"
 PRESIDIO = "presidio"
 LEGIONE_CREATA = "legione_creata"
+ARMATA_SCHIERATA = "armata_schierata"  # una legione ha superato la soglia
 
 #: Chiave che gli eventi di combattimento portano nel `dettaglio`: dice se fra
 #: le truppe coinvolte c'era artiglieria. La calcola il motore, che sa cosa c'è
@@ -64,6 +65,17 @@ CHIAVE_ARTIGLIERIA = "artiglieria"
 
 #: Id dell'unità artiglieria in `data/units.json`.
 UNITA_ARTIGLIERIA = "artillery"
+
+#: Da quante unità una legione smette di essere un reparto e diventa
+#: un'armata.
+#:
+#: Esiste perché `LEGIONE_CREATA` non basta a riconoscere le forze grosse.
+#: Le legioni dell'IA nascono quasi vuote e si riempiono turno dopo turno
+#: con le reclute: misurate su 12 partite complete, alla nascita hanno da
+#: 1 a 6 unità e arrivano a 13-147. Chi ascolta vuole il momento in cui la
+#: legione diventa grossa, non quello in cui viene formata, ed è per
+#: quello che c'è `ARMATA_SCHIERATA`.
+SOGLIA_ARMATA = 10
 
 #: Quanti eventi tenere. Una partita lunga ne produce qualche centinaio: qui
 #: serve solo la coda recente, il resto lo racconta già il registro.

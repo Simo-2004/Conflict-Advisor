@@ -19,7 +19,8 @@
  *   scontro con artiglieria da una parte   →  Astronomical Explosion
  *   assalto al castello con artiglieria    →  Astronomical Explosion
  *   assalto al castello senza artiglieria  →  Sword Fight
- *   nuova legione formata                  →  Cinematic Sound BRAAAM
+ *   armata schierata (soglia dal backend)  →  Cinematic Sound BRAAAM
+ *   vittoria / sconfitta                   →  Victory / Defeat
  *
  * Chi ha l'artiglieria lo decide il backend e lo scrive nell'evento: qui non
  * si va a frugare nella composizione delle legioni.
@@ -33,11 +34,15 @@
  *  3. Se nello stesso turno c'è sia artiglieria sia acciaio, vince
  *     l'esplosione: è l'evento più forte, e sono comunque uno solo.
  *  4. Niente sovrapposizioni: c'è una coda, e un suono parte solo quando il
- *     precedente ha finito (con un tetto di attesa, se no un file lungo
- *     bloccherebbe tutto).
- *  5. Le celle neutre non producono eventi di scontro, quindi non suonano:
+ *     precedente ha finito davvero.
+ *  5. La coda non si allunga: un effetto già in corso non si richiama, ne
+ *     aspetta al massimo un altro, e quello che ha atteso troppo si butta
+ *     invece di suonare in ritardo su un turno ormai passato.
+ *  6. I suoni di fine partita passano davanti a tutto e chiudono il banco:
+ *     dopo la fanfara non arriva più nessuno dei colpi che l'hanno decisa.
+ *  7. Le celle neutre non producono eventi di scontro, quindi non suonano:
  *     è il canale eventi a garantirlo, non un controllo qui.
- *  6. Al primo caricamento la coda arretrata NON viene suonata: entrando in
+ *  8. Al primo caricamento la coda arretrata NON viene suonata: entrando in
  *     una partita già avviata partirebbero tutti insieme gli scontri delle
  *     ultime decine di turni.
  */
@@ -53,17 +58,44 @@
         tema:       { file: 'Civil War Field Loop.mp3',   volume: 0.22, loop: true },
         spade:      { file: 'Sword Fight.mp3',            volume: 0.55 },
         esplosione: { file: 'Astronomical Explosion.mp3', volume: 0.55 },
-        legione:    { file: 'Cinematic Sound BRAAAM.mp3', volume: 0.45 },
-        /* Fine partita. `chiudeTema: true` spegne la musica invece di
-           abbassarla: la partita è finita, il tema di sottofondo sotto la
-           fanfara di vittoria suonerebbe come un disco rimasto acceso. */
-        victory:    { file: 'Victory.mp3',                volume: 0.6, chiudeTema: true },
-        defeat:     { file: 'Defeat.mp3',                 volume: 0.6, chiudeTema: true }
+        /* `pazienza` alta: schierare un'armata capita una volta o due a
+           partita, mentre gli scontri sono continui. Con la stessa attesa
+           degli altri il BRAAAM scadeva sempre dietro a un'esplosione e non
+           si sentiva mai; qualche secondo di ritardo, per un evento così
+           raro, vale molto più del silenzio. */
+        legione:    { file: 'Cinematic Sound BRAAAM.mp3', volume: 0.45, pazienza: 12000 },
+        /* Fine partita. `finale: true` vuol dire due cose: spegne la musica
+           invece di abbassarla — il tema di sottofondo sotto la fanfara
+           suonerebbe come un disco rimasto acceso — e chiude il banco,
+           cioè passa davanti a qualsiasi effetto e non ne lascia entrare
+           altri dopo. */
+        victory:    { file: 'Victory.mp3',                volume: 0.6, finale: true },
+        defeat:     { file: 'Defeat.mp3',                 volume: 0.6, finale: true }
     };
 
-    /* Quanto al massimo si aspetta che un effetto finisca prima di far partire
-       il successivo in coda. Senza tetto un file lungo terrebbe fermo tutto. */
-    const ATTESA_MASSIMA_MS = 2600;
+    /* Quanto a lungo un effetto in attesa resta attuale. Un suono di scontro
+       racconta il turno in cui è nato: se la coda lo fa partire cinque secondi
+       dopo, il giocatore sta già guardando altro e quello che sente è solo
+       rumore. Scaduto si butta, invece di suonarlo in ritardo.
+
+       I suoni rari possono dichiarare la loro `pazienza` e aspettare di più. */
+    const SCADENZA_MS = 3500;
+
+    /* Quanti effetti possono aspettare il loro turno. Due: l'esplosione dura
+       oltre cinque secondi e gli scontri di artiglieria si ripetono turno
+       dopo turno, quindi senza un tetto la coda cresceva più in fretta di
+       quanto riuscisse a smaltirla e l'audio raccontava battaglie di parecchi
+       turni prima. Con un solo posto, però, un evento raro come l'armata
+       schierata restava sempre fuori. */
+    const CODA_MASSIMA = 2;
+
+    /* Rete di sicurezza per quando la durata del file non è ancora nota:
+       serve solo a non lasciare la coda ferma per sempre se `onended` non
+       arriva mai (file corrotto, scheda in secondo piano). Deve stare SOPRA
+       la durata dell'effetto più lungo: un tetto troppo basso scattava a
+       suono ancora in corso, e il successivo partiva sovrapposto proprio
+       come se la coda non ci fosse. */
+    const DURATA_IGNOTA_MS = 9000;
 
     /* Il tema si abbassa mentre suona un effetto, e risale dopo: senza, la
        musica e l'esplosione si impastano. */
@@ -74,9 +106,15 @@
     let elementi = {};           // nome → HTMLAudioElement
     let sbloccato = false;       // il browser vieta l'audio prima di un gesto
     let muto = false;
-    let coda = [];
+    let coda = [];               // voci { nome, nato }
     let inRiproduzione = null;
     let timerCoda = null;
+    let partitaFinita = false;   // dopo la fanfara non entra più nessun effetto
+
+    function adesso() {
+        return (window.performance && window.performance.now)
+            ? window.performance.now() : Date.now();
+    }
 
     /* ── Caricamento ─────────────────────────────────────────────── */
 
@@ -143,7 +181,13 @@
                 /* Partita davvero: solo adesso smettiamo di stare in ascolto. */
                 staccaAscoltatori();
             }).catch(function () {
-                /* Rifiutata: si resta in ascolto e si ritenta al gesto dopo. */
+                /* Rifiutata: si torna in ascolto e si ritenta al gesto dopo.
+                   Rimettersi in ascolto, invece di darlo per scontato, serve
+                   quando il tema era già partito una volta ed è stato spento
+                   dalla fanfara di fine partita: lì gli ascoltatori erano
+                   stati staccati, e senza questa riga la musica non sarebbe
+                   più tornata per il resto della sessione. */
+                ascoltaGesti();
             });
         } else {
             staccaAscoltatori();
@@ -160,29 +204,75 @@
     /* ── Coda: un effetto per volta ──────────────────────────────── */
 
     function accoda(nome) {
-        if (!SUONI[nome] || SUONI[nome].loop) return;
+        const spec = SUONI[nome];
+        if (!spec || spec.loop) return;
         /* Finché l'audio è bloccato o muto gli effetti si buttano via invece
            di accodarli. Accodandoli, al primo clic dell'utente sarebbero
            partiti tutti insieme gli scontri dei turni precedenti — e la coda
            restava incastrata, perché il controllo anti-doppione qui sotto
            trovava il nome già dentro e non ripartiva più. */
         if (!sbloccato || muto) return;
-        /* Lo stesso effetto non si mette due volte in attesa: è la protezione
-           contro più scontri identici nello stesso turno. */
-        if (coda.indexOf(nome) !== -1) return;
-        coda.push(nome);
+
+        /* I suoni di fine partita non fanno la fila: quello che sta suonando
+           appartiene a un turno che non conta più.
+
+           Senza questo si sentiva la fanfara PRIMA della battaglia che
+           aveva deciso la partita: la schermata finale chiede il suo suono
+           durante il render, gli eventi del turno vengono letti subito dopo
+           (questo modulo avvolge `renderBattleState` dall'esterno di quello
+           della schermata), e in coda finivano nell'ordine sbagliato. */
+        if (spec.finale) {
+            partitaFinita = true;
+            /* Richiesta due volte (un render ripetuto a partita già finita):
+               si lascia suonare quella in corso invece di farla ripartire
+               da capo. */
+            if (inRiproduzione === nome) return;
+            coda = [{ nome: nome, nato: adesso() }];
+            interrompiCorrente();
+            serviCoda();
+            return;
+        }
+        if (partitaFinita) return;
+
+        /* Un effetto non si sovrappone a se stesso né si mette due volte in
+           attesa: è la protezione contro gli scontri di artiglieria a
+           ripetizione, che chiedono la stessa esplosione turno dopo turno.
+           Guardare solo la coda non bastava, perché quello in riproduzione
+           dalla coda è già uscito. */
+        if (inRiproduzione === nome) return;
+        for (let i = 0; i < coda.length; i++) {
+            if (coda[i].nome === nome) return;
+        }
+        if (coda.length >= CODA_MASSIMA) return;
+
+        coda.push({ nome: nome, nato: adesso() });
         serviCoda();
     }
 
     function serviCoda() {
-        if (muto || !sbloccato || inRiproduzione || coda.length === 0) return;
+        if (muto || !sbloccato || inRiproduzione) return;
 
-        const nome = coda.shift();
+        /* Si scartano gli effetti che hanno aspettato troppo: raccontano un
+           turno che il giocatore ha già dimenticato. I suoni di fine partita
+           non scadono mai — quelli si aspettano. */
+        let voce = null;
+        while (coda.length) {
+            const candidata = coda.shift();
+            const suo = SUONI[candidata.nome];
+            const attesa = suo && suo.pazienza ? suo.pazienza : SCADENZA_MS;
+            if (suo && (suo.finale || adesso() - candidata.nato <= attesa)) {
+                voce = candidata;
+                break;
+            }
+        }
+        if (!voce) return;
+
+        const nome = voce.nome;
         const audio = elementi[nome];
         if (!audio) return;
 
         inRiproduzione = nome;
-        if (SUONI[nome].chiudeTema) {
+        if (SUONI[nome].finale) {
             fermaTema();
         } else {
             abbassaTema(true);
@@ -197,25 +287,33 @@
         }
 
         audio.onended = fine;
-        /* Rete di sicurezza: se `onended` non arriva (file corrotto, scheda in
-           secondo piano) la coda non deve restare bloccata per sempre. Quando
-           la durata è nota si usa quella: le fanfare di fine partita durano
-           più del tetto fisso e verrebbero considerate finite troppo presto. */
         clearTimeout(timerCoda);
-        const durataNota = isFinite(audio.duration) && audio.duration > 0
-            ? (audio.duration * 1000) + 250
-            : ATTESA_MASSIMA_MS;
-        timerCoda = setTimeout(fine, Math.max(ATTESA_MASSIMA_MS, durataNota));
+        const durata = (isFinite(audio.duration) && audio.duration > 0)
+            ? audio.duration * 1000
+            : DURATA_IGNOTA_MS;
+        timerCoda = setTimeout(fine, durata + 250);
+    }
+
+    /* Zittisce l'effetto in corso e libera il posto, senza far ripartire
+       niente: cosa viene dopo lo decide chi chiama. */
+    function interrompiCorrente() {
+        clearTimeout(timerCoda);
+        const audio = inRiproduzione ? elementi[inRiproduzione] : null;
+        if (audio) {
+            audio.onended = null;
+            audio.pause();
+            try { audio.currentTime = 0; } catch (_) {}
+        }
+        inRiproduzione = null;
     }
 
     function fine() {
-        clearTimeout(timerCoda);
         const precedente = inRiproduzione;
-        if (inRiproduzione && elementi[inRiproduzione]) {
-            elementi[inRiproduzione].onended = null;
-        }
-        const chiuso = precedente && SUONI[precedente] && SUONI[precedente].chiudeTema;
-        inRiproduzione = null;
+        const chiuso = precedente && SUONI[precedente] && SUONI[precedente].finale;
+        /* Si ferma davvero l'effetto uscente: se a chiamare `fine` è stata
+           la rete di sicurezza e non `onended`, il file sta ancora suonando
+           e il prossimo gli si accavallerebbe sopra. */
+        interrompiCorrente();
         if (coda.length === 0 && !chiuso) {
             abbassaTema(false);
         }
@@ -306,7 +404,13 @@
                 } else if (combattimento !== 'esplosione') {
                     combattimento = 'spade';
                 }
-            } else if (tipo === 'legione_creata') {
+            } else if (tipo === 'armata_schierata') {
+                /* Non `legione_creata`: quello è il momento della nascita, e
+                   le legioni dell'IA nascono con una manciata di uomini per
+                   poi riempirsi turno dopo turno. Il BRAAAM è l'arrivo di
+                   un'armata, e a stabilire quando una legione lo diventa è il
+                   backend — come per l'artiglieria, qui non si contano le
+                   truppe. */
                 nuovaLegione = true;
             }
         }
@@ -317,6 +421,21 @@
 
     function applica(stato) {
         if (!stato || !Array.isArray(stato.events)) return;
+
+        /* Fuori dal game over il banco riapre. Ci si potrebbe affidare agli id
+           che ripartono da capo, ma quello succede solo se la partita nuova ha
+           gia' prodotto meno eventi della precedente: qui il segnale è
+           diretto e non dipende da quanto è durata la partita di prima. */
+        if (stato.state !== 'game_over' && partitaFinita) {
+            partitaFinita = false;
+            /* E con il banco riparte la musica. "Ricomincia scontro" rifa la
+               partita SENZA ricaricare la pagina (`restartFromStoredSetup` in
+               features.js), quindi il modulo non si reinizializza: il tema,
+               che la fanfara aveva spento, resterebbe fermo fino al tocco
+               successivo sul pulsante dell'audio. */
+            avviaTema();
+        }
+
         const eventi = stato.events;
 
         /* Primo giro: si prende nota di dove siamo e basta. Entrando in una

@@ -294,6 +294,9 @@ class GameSession:
         self.player_legions: Dict[str, Dict[str, Any]] = {}
         self.ai_legions: Dict[str, Dict[str, Any]] = {}
         self.next_legion_id: int = 1
+        # [EVENT-CHANNEL] Id delle legioni che hanno già annunciato di
+        # essere diventate armate: l'annuncio si fa una volta sola.
+        self._armate_annunciate: set = set()
         self.ai_legion_respawn_delay_turns: int = 2
         self.ai_last_legion_loss_turn: Optional[int] = None
 
@@ -588,7 +591,11 @@ class GameSession:
         cell = self.game_map.get_cell(*spawn_pos)
         if cell and cell.occupation != PLAYER:
             cell.occupation = PLAYER
-            
+
+        # [EVENT-CHANNEL] Il player forma le sue legioni fuori dal turno:
+        # senza questa chiamata l'annuncio arriverebbe solo al turno dopo.
+        self._annuncia_armate()
+
         return {
             "ok": True,
             "message": f"Legione {name} creata",
@@ -766,6 +773,21 @@ class GameSession:
         }
 
         self._sync_ai_legion_units()
+
+        # [EVENT-CHANNEL] L'annuncio arriva solo adesso: la legione IA nasce
+        # vuota e sono le righe qui sopra a darle le truppe. Emetterlo alla
+        # creazione avrebbe portato sempre `quantita=0`, e chi ascolta non
+        # avrebbe potuto distinguere un'armata da una pattuglia. Se la
+        # ripartizione non le ha assegnato nessuno l'ha già sciolta, e allora
+        # non c'è nessuna legione da annunciare.
+        nata = self.ai_legions.get(legion_id)
+        if nata is not None:
+            self._evento(                                     # [EVENT-CHANNEL]
+                ev.LEGIONE_CREATA if ev else "legione_creata",
+                entita=AI, pos=spawn_pos,
+                quantita=len(nata.get("units") or []),
+                dettaglio={"nome": legion_name, "tipo": LEGION_TYPE_ARMY},
+            )
 
         cell = self.game_map.get_cell(*spawn_pos)
         if cell is not None:
@@ -3352,6 +3374,10 @@ class GameSession:
 
         self._prune_legion_movement_states()
 
+        # [EVENT-CHANNEL] Dopo reclute e ripartizioni: le legioni hanno
+        # adesso la forza definitiva di questo turno.
+        self._annuncia_armate()
+
         self.game_map.turn += 1
         self.battle_log.extend(logs)
 
@@ -4125,6 +4151,37 @@ class GameSession:
             quantita=quantita,
             dettaglio=dettaglio,
         )
+
+    def _annuncia_armate(self) -> None:
+        """[EVENT-CHANNEL] Segnala le legioni che sono diventate armate.
+
+        `LEGIONE_CREATA` racconta la nascita, e per l'IA la nascita è
+        sempre un pugno di uomini: le sue legioni vengono formate vuote e
+        le riempie `_sync_ai_legion_units` mano a mano che arrivano le
+        reclute. Misurato su 12 partite: nascono con 1-6 unità e arrivano
+        a 13-147. Chi ascolta gli eventi per marcare l'arrivo di una forza
+        grossa ha bisogno di questo momento, non di quello della nascita.
+
+        Ogni legione lo annuncia una volta sola: l'id resta segnato, così
+        una che ondeggia attorno alla soglia non lo ripete a ogni turno.
+        """
+        if self.event_log is None:
+            return
+        soglia = ev.SOGLIA_ARMATA if ev is not None else 10
+        for entita, legioni in ((PLAYER, self.player_legions), (AI, self.ai_legions)):
+            for legion_id, legione in legioni.items():
+                if legion_id in self._armate_annunciate:
+                    continue
+                forza = len(legione.get("units") or [])
+                if forza < soglia:
+                    continue
+                self._armate_annunciate.add(legion_id)
+                self._evento(
+                    ev.ARMATA_SCHIERATA if ev else "armata_schierata",
+                    entita=entita, pos=legione.get("pos"),
+                    quantita=forza,
+                    dettaglio={"nome": legione.get("name")},
+                )
 
     @staticmethod
     def _ha_artiglieria(*gruppi: Optional[Sequence[str]]) -> bool:

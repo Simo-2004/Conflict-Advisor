@@ -17,6 +17,11 @@
          riga, quella dello script in fondo, frontend/battle/audio/ e il
          mount /assets in main.py. -->
     <link rel="stylesheet" href="/static/battle/audio/audio.css">
+    <!-- [ALERT-MODULE] Avviso rosso quando l'IA ammassa un'armata. Si
+         aggancia da solo e nessun file lo chiama. Rimozione: questa riga,
+         quella dello script in fondo e frontend/battle/alert/.
+         Istruzioni nel README di quella cartella. -->
+    <link rel="stylesheet" href="/static/battle/alert/alert.css">
 </head>
 <body>
     <div class="page">
@@ -304,6 +309,8 @@
     <script src="/static/battle/endgame/endgame.js"></script>
     <!-- [AUDIO-MODULE] -->
     <script src="/static/battle/audio/audio.js"></script>
+    <!-- [ALERT-MODULE] -->
+    <script src="/static/battle/alert/alert.js"></script>
     <script>
         // Hook: ogni volta che renderBattleState aggiorna la UI,
         // propaga lo stato anche al pannello Legioni (se visibile)

@@ -1,0 +1,118 @@
+/*
+ * War Advisor - Avviso armate nemiche (SGANCIABILE)
+ * Stili del solo modulo alert: nessun'altra parte del gioco li usa.
+ */
+
+.war-alert-zona {
+    position: fixed;
+    top: 16px;
+    right: 18px;
+    /* Sopra i pannelli di gioco (skill tree 320, autoreclutamento 321, mercato
+       322, consigliere 324) ma sotto la schermata di fine partita (400): a
+       partita finita comanda quella. */
+    z-index: 350;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: min(330px, calc(100vw - 36px));
+    /* Non deve MAI rubare un clic alla mappa sotto: è un avviso, non un
+       pannello. Sta sopra il campo di battaglia e senza questo un clic su una
+       casella nell'angolo in alto a destra finirebbe qui. */
+    pointer-events: none;
+}
+
+.war-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 11px 14px 12px;
+    border-radius: 10px;
+    /* Rosso cupo su pagina chiara: si legge come un allarme senza doverlo far
+       lampeggiare. Il bordo sinistro è la stessa nota di --accent (#e94560)
+       che il gioco usa già per il pericolo. */
+    background: linear-gradient(135deg, #92142a 0%, #5c0c18 100%);
+    border: 1px solid rgba(233, 69, 96, 0.5);
+    border-left: 4px solid #e94560;
+    box-shadow: 0 12px 28px rgba(70, 8, 18, 0.34);
+    color: #fdeaee;
+    animation: war-alert-entrata 340ms cubic-bezier(0.16, 0.9, 0.3, 1) both;
+}
+
+.war-alert.is-uscita {
+    animation: war-alert-uscita 320ms ease forwards;
+}
+
+@keyframes war-alert-entrata {
+    from { opacity: 0; transform: translateX(26px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes war-alert-uscita {
+    from { opacity: 1; transform: translateX(0); }
+    to   { opacity: 0; transform: translateX(26px); }
+}
+
+.war-alert-icona {
+    flex: 0 0 auto;
+    font-size: 17px;
+    line-height: 1.25;
+    /* Respiro lento, non lampeggio: prende l'occhio anche se l'avviso compare
+       mentre si sta guardando l'altra metà dello schermo. */
+    animation: war-alert-battito 1.6s ease-in-out infinite;
+}
+
+@keyframes war-alert-battito {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.45; }
+}
+
+.war-alert-testo {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.war-alert-titolo {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #ffb9c4;
+}
+
+.war-alert-corpo {
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.25;
+}
+
+.war-alert-dettaglio {
+    font-size: 11.5px;
+    color: rgba(253, 234, 238, 0.74);
+    /* Un nome di legione lungo non deve allargare il riquadro. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Chi ha chiesto meno animazioni non deve vedersi pulsare niente addosso. */
+@media (prefers-reduced-motion: reduce) {
+    .war-alert,
+    .war-alert.is-uscita,
+    .war-alert-icona {
+        animation: none;
+    }
+    .war-alert.is-uscita { opacity: 0; }
+}
+
+/* Su schermi stretti non c'è spazio per una colonna a destra: l'avviso
+   attraversa, restando comunque in alto e fuori dai piedi. */
+@media (max-width: 720px) {
+    .war-alert-zona {
+        top: 10px;
+        right: 10px;
+        left: 10px;
+        width: auto;
+    }
+}
