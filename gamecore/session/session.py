@@ -24,6 +24,9 @@ from gamecore.maps import GameMap, Occupation
 from gamecore.session import abilities as ab
 from gamecore.session.abilities import DOMAIN_ENGINEERING_ID, build_default_ability_states
 from gamecore.session.black_market import BlackMarketState
+# [CARAVAN] Le reclute dell'IA marciano dal castello al fronte invece di
+# comparirci dentro. Il perché, con i numeri, sta nel docstring del modulo.
+from gamecore.session import caravans as cv
 # [EVENT-CHANNEL] Eventi strutturati per gli effetti del frontend. Se il
 # file sparisce, `_evento()` diventa un no-op e la partita non cambia.
 try:
@@ -294,6 +297,10 @@ class GameSession:
         self.player_legions: Dict[str, Dict[str, Any]] = {}
         self.ai_legions: Dict[str, Dict[str, Any]] = {}
         self.next_legion_id: int = 1
+        # [CARAVAN] Rinforzi IA in marcia. Le truppe che stanno qui NON sono
+        # in `ai_units`: sono fuori dall'esercito finché non arrivano, quindi
+        # non contano in battaglia.
+        self.ai_convoys = cv.Convogli()
         # [EVENT-CHANNEL] Id delle legioni che hanno già annunciato di
         # essere diventate armate: l'annuncio si fa una volta sola.
         self._armate_annunciate: set = set()
@@ -3206,6 +3213,11 @@ class GameSession:
 
         logs = []
 
+        # [CARAVAN] Prima di tutto il resto: i rinforzi arrivati stanotte
+        # combattono già oggi. Metterlo dopo il movimento avrebbe fatto
+        # incontrare al giocatore una legione più debole di quella vera.
+        self._muovi_carovane(logs)
+
         # 1. Movimento Legioni Player
         for legion_id, legion in list(self.player_legions.items()):
             # Ordine di cattura d'area: la meta di questo turno esce dalla coda
@@ -4152,6 +4164,177 @@ class GameSession:
             dettaglio=dettaglio,
         )
 
+    def _ricalcola_esercito_ia(self) -> None:
+        """[CARAVAN] Riallinea i vettori di forza IA a `ai_units`.
+
+        Serve quando le truppe escono dall'esercito per mettersi in viaggio:
+        finché marciano non devono pesare nel calcolo della forza.
+        """
+        self.ai_army = aggregate_army(self.ai_units, self.data["units"])
+        self.ai_modified, _ = apply_modifiers(
+            army_vector=self.ai_army,
+            terrain_name=self.ai_home_terrain,
+            weather_name=self.weather,
+            troop_status_name=self.ai_troop_status,
+            modifiers_data=self.data,
+        )
+
+    def _fronte_ia(self) -> Optional[Tuple[Tuple[int, int], str]]:
+        """[CARAVAN] Dove sta il grosso dell'esercito IA: (posizione, nome).
+
+        La legione più numerosa, non la più vicina: è lì che i rinforzi
+        servono, ed è lì che il giocatore deve aspettarseli.
+        """
+        if not self.ai_legions:
+            return None
+        legione = max(
+            self.ai_legions.values(),
+            key=lambda lg: len(lg.get("units") or []),
+        )
+        pos = legione.get("pos")
+        if not pos or len(pos) < 2:
+            return None
+        return (int(pos[0]), int(pos[1])), str(legione.get("name") or "")
+
+    def _instrada_rinforzi(self, unita: List[str]) -> None:
+        """[CARAVAN] Porta al raduno le truppe appena entrate nell'esercito IA.
+
+        `unita` sono già dentro `ai_units` — ce le hanno messe il reclutamento o
+        il mercato nero. Qui escono: aspetteranno al castello che si formi una
+        carovana, e fino ad allora non contano in battaglia. Prima di questo
+        modulo comparivano invece dentro la legione all'istante, ovunque fosse
+        (misurato: 98% dei casi, mediana 8 caselle, massimo 18).
+
+        Senza nessuna legione in campo non c'è un fronte da raggiungere: le
+        truppe restano nell'esercito, e saranno loro a formare la prossima
+        legione al castello.
+        """
+        if not unita or not self.ai_legions:
+            self._sync_ai_legion_units()
+            return
+
+        for unit_id in unita:
+            if unit_id in self.ai_units:
+                self.ai_units.remove(unit_id)
+        self._ricalcola_esercito_ia()
+        self._sync_ai_legion_units()
+        self.ai_convoys.raduna(unita, turno=self.game_map.turn)
+
+    def _muovi_carovane(self, logs: List[str]) -> None:
+        """[CARAVAN] Consegna le carovane arrivate e fa partire il raduno pronto."""
+        self._consegna_carovane(logs)
+        self._parti_carovana(logs)
+
+    def _consegna_carovane(self, logs: List[str]) -> None:
+        """[CARAVAN] Le carovane giunte a destinazione versano le truppe."""
+        giunte = self.ai_convoys.arrivate(self.game_map.turn)
+        if not giunte:
+            return
+
+        for carovana in giunte:
+            self.ai_units.extend(carovana.unita)
+        self._ricalcola_esercito_ia()
+        self._sync_ai_legion_units()
+
+        for carovana in giunte:
+            fronte = self._fronte_ia()
+            quante = len(carovana.unita)
+            etichetta = self._etichetta_unita(carovana.unita)
+            if fronte is None:
+                # La legione a cui erano dirette non c'è più: le truppe
+                # rientrano nell'esercito e formeranno la prossima.
+                logs.append(
+                    f"[Turno {self.game_map.turn}] 🚚 IA: la carovana di {quante} "
+                    f"({etichetta}) trova il fronte sciolto e rientra al castello"
+                )
+                nome, forza = carovana.legione, 0
+            else:
+                nome = fronte[1]
+                forza = max(
+                    (len(lg.get("units") or []) for lg in self.ai_legions.values()),
+                    default=0,
+                )
+                logs.append(
+                    f"[Turno {self.game_map.turn}] 🚚 IA: rinforzi arrivati al fronte — "
+                    f"{quante} ({etichetta}) raggiungono '{nome}', "
+                    f"che sale a {forza} unità"
+                )
+            pos = fronte[0] if fronte else carovana.destinazione
+            self._evento(                                 # [EVENT-CHANNEL]
+                ev.CAROVANA_ARRIVATA if ev else "carovana_arrivata",
+                entita=AI, pos=pos,
+                quantita=len(carovana.unita),
+                dettaglio={
+                    "legione": nome,
+                    "forza_legione": forza,
+                    "unita": etichetta,
+                },
+            )
+
+    def _parti_carovana(self, logs: List[str]) -> None:
+        """[CARAVAN] Il raduno al castello si mette in marcia, se è ora."""
+        fronte = self._fronte_ia()
+        castello = self.game_map.castle_positions.get(AI)
+
+        # Nessun fronte da raggiungere (legioni annientate): le truppe radunate
+        # rientrano nell'esercito invece di restare in un limbo al castello —
+        # da lì `_ensure_ai_legions_initialized` ci formerà la legione nuova.
+        if fronte is None or castello is None:
+            rientrate = self.ai_convoys.svuota_raduno()
+            if rientrate:
+                self.ai_units.extend(rientrate)
+                self._ricalcola_esercito_ia()
+                self._sync_ai_legion_units()
+            return
+
+        if not self.ai_convoys.raduno_pronto(self.game_map.turn):
+            return
+
+        destinazione, nome_legione = fronte
+        carovana = self.ai_convoys.parti(
+            turno=self.game_map.turn,
+            origine=castello,
+            destinazione=destinazione,
+            legione=nome_legione,
+        )
+        if carovana is None:
+            # Fronte a distanza zero: la legione è a casa, niente da percorrere.
+            rientrate = self.ai_convoys.svuota_raduno()
+            if rientrate:
+                self.ai_units.extend(rientrate)
+                self._ricalcola_esercito_ia()
+                self._sync_ai_legion_units()
+            return
+
+        etichetta = self._etichetta_unita(carovana.unita)
+        logs.append(
+            f"[Turno {self.game_map.turn}] 🚚 IA: carovana di {len(carovana.unita)} "
+            f"({etichetta}) parte dal castello verso '{nome_legione}' — "
+            f"{carovana.distanza} caselle, arrivo previsto al turno "
+            f"{carovana.arrivo_turno}"
+        )
+        self._evento(                                     # [EVENT-CHANNEL]
+            ev.CAROVANA_PARTITA if ev else "carovana_partita",
+            entita=AI, pos=destinazione,
+            quantita=len(carovana.unita),
+            dettaglio={
+                "legione": nome_legione,
+                "arrivo_turno": carovana.arrivo_turno,
+                "turni_mancanti": carovana.turni_mancanti(self.game_map.turn),
+                "distanza": carovana.distanza,
+                "unita": etichetta,
+            },
+        )
+
+    def _etichetta_unita(self, unita: Sequence[str]) -> str:
+        """[CARAVAN] '2 Fanteria Pesante, 1 Arcieri' da una lista di id."""
+        conteggio = Counter(unita)
+        pezzi = []
+        for unit_id, quante in conteggio.most_common():
+            nome = self.units_map.get(unit_id, {}).get("name", unit_id)
+            pezzi.append(f"{quante}× {nome}" if quante > 1 else nome)
+        return ", ".join(pezzi)
+
     def _annuncia_armate(self) -> None:
         """[EVENT-CHANNEL] Segnala le legioni che sono diventate armate.
 
@@ -4477,7 +4660,9 @@ class GameSession:
         self.grux_balance[AI] -= offer.total_price
         self.ai_army_cost += offer.total_price
         self._absorb_market_block(AI, offer.unit_id, offer.quantity)
-        self._sync_ai_legion_units()
+        # [CARAVAN] Anche il blocco comprato al banco marcia: erano 2-5 unità
+        # che comparivano al fronte tutte insieme, nel turno dell'acquisto.
+        self._instrada_rinforzi([offer.unit_id] * offer.quantity)
 
         return [
             f"[Turno {self.game_map.turn}] 🕯 IA compra al Mercato Nero: "
@@ -5260,15 +5445,12 @@ class GameSession:
         log_entry = f"[Turno {self.game_map.turn}] 💰 {side} recluta {unit_name} per {cost} grux"
         self.battle_log.append(log_entry)
 
-        # La recluta IA deve raggiungere le legioni in campo, non restare a castello.
-        if entity == AI and self._sync_ai_legion_units() and self.ai_legions:
-            detail = " · ".join(
-                f"'{lg.get('name', lid)}' {len(lg.get('units', []))}"
-                for lid, lg in sorted(self.ai_legions.items())
-            )
-            self.battle_log.append(
-                f"[Turno {self.game_map.turn}] 🤖 IA rinforza le legioni → {detail} unità"
-            )
+        # [CARAVAN] La recluta IA deve raggiungere le legioni in campo, e ci
+        # deve arrivare marciando. Prima qui c'era un `_sync_ai_legion_units()`
+        # diretto, e la truppa compariva dentro la legione anche a diciotto
+        # caselle di distanza, nello stesso turno in cui veniva arruolata.
+        if entity == AI:
+            self._instrada_rinforzi([unit_id])
         self.last_recruit_turn[entity] = self.game_map.turn
 
         after_breakdown = self._strength_breakdown(entity, home_terrain)
@@ -5909,6 +6091,10 @@ class GameSession:
                     self.game_map.turn, self._black_market_open(AI)
                 ),
                 "unit_costs":    {unit_id: self.unit_costs[unit_id] for unit_id in self.ai_units},
+                # [CARAVAN] Rinforzi in marcia, esposti finché viaggiano: sono
+                # truppe dirette all'avversario del giocatore, e devono restare
+                # sotto gli occhi invece di affidarsi a un avviso di passaggio.
+                "convoys":       self.ai_convoys.to_payload(self.game_map.turn),
             },
             "movement": self.movement_system.export_config(),
             "map":        self.game_map.to_dict(),
