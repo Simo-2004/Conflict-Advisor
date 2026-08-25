@@ -43,6 +43,7 @@ PATH_ORDER = (PATH_ENGINEERING, PATH_ECONOMY, PATH_STYLE)
 FLAG_BUILD_ANYWHERE = "build_anywhere"
 FLAG_BUILD_ANY_LEGION = "build_any_legion"
 FLAG_BLACK_MARKET = "black_market"
+FLAG_SPY_NETWORK = "spy_network"
 
 #: Contesti in cui si chiede il bonus di una unità.
 CTX_ATTACK = "attack"
@@ -216,6 +217,25 @@ CATALOG: Tuple[AbilityDef, ...] = (
         min_turn=12,
         flags=(FLAG_BLACK_MARKET,),
     ),
+    AbilityDef(
+        ability_id="spy_industry",
+        name="Industria dello Spionaggio",
+        path=PATH_ECONOMY,
+        description=(
+            "Gli stessi contatti che ti procurano le truppe procurano anche le "
+            "carte. Cartografi comprati, corrieri intercettati, un ufficiale "
+            "nemico con debiti di gioco: la nebbia sul campo si dirada."
+        ),
+        effect_text=(
+            "Info Strategie e autoreclutamento diventano esatti · "
+            "sblocca il dossier sul nemico"
+        ),
+        turns_required=26,
+        grux_cost=340,
+        min_turn=20,
+        requires=("black_market",),
+        flags=(FLAG_SPY_NETWORK,),
+    ),
     # ── Stili di gioco (se ne sceglie UNO) ────────────────────────
     AbilityDef(
         ability_id="style_siege",
@@ -286,6 +306,8 @@ ABILITIES: Dict[str, AbilityDef] = {ability.ability_id: ability for ability in C
 
 # Compatibilità: il resto del motore chiama questa abilità per nome.
 DOMAIN_ENGINEERING_ID = "domain_engineering"
+#: Serve a chi deve spiegare all'utente *quale* ricerca gli manca.
+SPY_INDUSTRY_ID = "spy_industry"
 DOMAIN_ENGINEERING_NAME = ABILITIES[DOMAIN_ENGINEERING_ID].name
 DOMAIN_ENGINEERING_TURNS = ABILITIES[DOMAIN_ENGINEERING_ID].turns_required
 

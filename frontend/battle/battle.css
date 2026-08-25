@@ -821,6 +821,22 @@
         .economy-side.player .economy-chip { border-color: #d6f0e0; }
         .economy-side.ai .economy-chip { border-color: #f6dada; }
 
+        /* [ABILITY-EFFECTS] Reparto nemico non identificato. Tratteggio e
+           grigio: deve leggersi come "manca un'informazione", non come una
+           truppa di un tipo strano. */
+        .economy-chip.is-ignoto {
+            border-style: dashed;
+            border-color: #cbd5e1;
+            background: #f8fafc;
+            color: #94a3b8;
+            font-weight: 800;
+            min-width: 26px;
+            text-align: center;
+            cursor: help;
+        }
+
+        .economy-side.ai .economy-chip.is-ignoto { border-color: #e6c9c9; }
+
         .recruit-row {
             display: flex;
             gap: 8px;
@@ -1811,6 +1827,29 @@
             font-weight: 700;
         }
 
+        /* [ABILITY-EFFECTS] Industria dello Spionaggio: al posto della riga blu
+           di affidabilità parziale e dell'avviso viola di inaccuratezza — che
+           spariscono entrambi — resta questa sola riga verde. */
+        .strategy-advisor-reliability.is-esatta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-color: #a7e8c0;
+            border-left-color: #15803d;
+            background: linear-gradient(135deg, #f0fdf4 0%, #ffffff 70%);
+            color: #14532d;
+        }
+
+        .advisor-sigillo { font-size: 1.05em; }
+
+        .advisor-fonte {
+            margin-left: auto;
+            font-size: 0.86em;
+            font-weight: 700;
+            color: #4d7c5a;
+            font-style: italic;
+        }
+
         .strategy-advisor-note {
             border: 1px solid #f5d0fe;
             border-left: 4px solid #c026d3;
@@ -1828,34 +1867,47 @@
             gap: 10px;
         }
 
+        /* Le tre carte erano bianche identiche con un filo di colore a
+           sinistra: per capire quale fosse la consigliata bisognava leggere
+           l'etichetta. Adesso la tinta la dice da sola. */
         .advisor-card {
             border: 1px solid #dbe3ef;
             border-radius: 11px;
             background: #fff;
-            padding: 10px;
+            padding: 10px 11px 11px;
             display: grid;
-            gap: 5px;
+            gap: 6px;
+            align-content: start;
         }
 
         .advisor-card.best {
+            border-color: #a7e8c0;
             border-left: 4px solid #16a34a;
+            background: linear-gradient(150deg, #f0fdf4 0%, #ffffff 64%);
         }
 
         .advisor-card.alt {
+            border-color: #bae0f5;
             border-left: 4px solid #0284c7;
+            background: linear-gradient(150deg, #f0f9ff 0%, #ffffff 64%);
         }
 
         .advisor-card.worst {
+            border-color: #f6cccc;
             border-left: 4px solid #dc2626;
+            background: linear-gradient(150deg, #fef2f2 0%, #ffffff 64%);
         }
 
         .advisor-card-label {
-            font-size: 0.74em;
+            font-size: 0.72em;
             text-transform: uppercase;
-            letter-spacing: 0.04em;
+            letter-spacing: 0.08em;
             font-weight: 800;
-            color: #64748b;
         }
+
+        .advisor-card.best  .advisor-card-label { color: #15803d; }
+        .advisor-card.alt   .advisor-card-label { color: #0369a1; }
+        .advisor-card.worst .advisor-card-label { color: #b91c1c; }
 
         .advisor-card h4 {
             margin: 0;
@@ -1863,11 +1915,194 @@
             font-size: 1em;
         }
 
+        /* I numeri in pastiglia invece che dentro una frase: si confrontano
+           fra le tre carte a colpo d'occhio. */
+        .advisor-card-stats {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
+        .advisor-stat {
+            font-size: 0.74em;
+            font-weight: 700;
+            color: #475569;
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 999px;
+            padding: 2px 8px;
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .advisor-stat.is-forte {
+            font-size: 0.86em;
+            font-weight: 800;
+            color: #0f172a;
+        }
+
+        .advisor-card.best  .advisor-stat.is-forte { color: #15803d; border-color: #a7e8c0; }
+        .advisor-card.alt   .advisor-stat.is-forte { color: #0369a1; border-color: #bae0f5; }
+        .advisor-card.worst .advisor-stat.is-forte { color: #b91c1c; border-color: #f6cccc; }
+
         .advisor-card p {
             margin: 0;
             color: #334155;
             font-size: 0.82em;
             line-height: 1.32;
+        }
+
+        /* ── Dossier sul nemico ──────────────────────────────────────
+           Viola scuro su una pagina chiara: è la stessa mossa del Mercato Nero,
+           che è marrone e oro. Un riquadro losco in mezzo a card pulite si
+           riconosce prima di leggerlo, ed è quello che deve succedere — non è
+           informazione che si dovrebbe avere. */
+
+        .advisor-spia { display: grid; }
+
+        .advisor-spia-btn {
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            width: 100%;
+            padding: 11px 14px;
+            border-radius: 12px;
+            border: 1px solid #6d28d9;
+            background:
+                radial-gradient(120% 130% at 8% 0%, #3b2063 0%, #241041 60%, #180b2c 100%);
+            color: #ede4ff;
+            cursor: pointer;
+            text-align: left;
+            box-shadow: 0 10px 26px rgba(38, 12, 70, 0.28), inset 0 0 40px rgba(0, 0, 0, 0.35);
+            transition: transform 0.14s, box-shadow 0.14s, border-color 0.14s;
+        }
+
+        .advisor-spia-btn:hover {
+            transform: translateY(-1px);
+            border-color: #a855f7;
+            box-shadow: 0 14px 32px rgba(38, 12, 70, 0.36), inset 0 0 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .advisor-spia-icona { font-size: 1.2em; flex: 0 0 auto; }
+
+        .advisor-spia-testo {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+            min-width: 0;
+            flex: 1 1 auto;
+        }
+
+        .advisor-spia-testo b {
+            font-size: 0.94em;
+            letter-spacing: 0.03em;
+            color: #d8b4fe;
+        }
+
+        .advisor-spia-testo em {
+            font-size: 0.78em;
+            font-style: italic;
+            color: #9d86c4;
+        }
+
+        .advisor-spia-freccia { color: #a855f7; font-size: 0.9em; flex: 0 0 auto; }
+
+        .advisor-dossier-attesa {
+            padding: 12px 14px;
+            border-radius: 12px;
+            border: 1px solid #6d28d9;
+            background: #241041;
+            color: #c9b6e8;
+            font-size: 0.86em;
+            font-style: italic;
+        }
+
+        .advisor-dossier {
+            border-radius: 12px;
+            border: 1px solid #6d28d9;
+            background:
+                radial-gradient(120% 90% at 10% 0%, #351c5c 0%, #221040 62%, #170a2a 100%);
+            color: #ede4ff;
+            overflow: hidden;
+            box-shadow: 0 12px 30px rgba(30, 10, 60, 0.3);
+        }
+
+        .advisor-dossier-testa {
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            padding: 11px 14px;
+            border-bottom: 1px solid rgba(168, 85, 247, 0.28);
+            background: linear-gradient(180deg, rgba(0, 0, 0, 0.28), transparent);
+        }
+
+        .advisor-dossier-sigillo { font-size: 1.25em; }
+
+        .advisor-dossier-testa h4 {
+            margin: 0;
+            font-size: 0.98em;
+            letter-spacing: 0.04em;
+            color: #d8b4fe;
+        }
+
+        .advisor-dossier-testa p {
+            margin: 1px 0 0;
+            font-size: 0.76em;
+            color: #9d86c4;
+        }
+
+        .advisor-dossier-corpo { padding: 6px 14px 12px; }
+
+        .advisor-dossier-riga {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            padding: 6px 0;
+            border-bottom: 1px dashed rgba(168, 85, 247, 0.18);
+        }
+
+        .advisor-dossier-riga:last-child { border-bottom: none; }
+
+        .advisor-dossier-etichetta {
+            flex: 0 0 34%;
+            font-size: 0.74em;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: #9d86c4;
+        }
+
+        .advisor-dossier-valore {
+            flex: 1 1 auto;
+            font-size: 0.84em;
+            line-height: 1.35;
+            min-width: 0;
+        }
+
+        .advisor-dossier-nota {
+            font-size: 0.88em;
+            color: #9d86c4;
+            font-style: italic;
+        }
+
+        /* Il nemico che NON sta usando la sua strategia migliore: è lì che si
+           colpisce, e deve saltare all'occhio. */
+        .advisor-dossier-nota.is-falla {
+            color: #fca5a5;
+            font-style: normal;
+            font-weight: 700;
+        }
+
+        .advisor-dossier-falla {
+            margin: 0 14px 13px;
+            padding: 9px 11px;
+            border-radius: 9px;
+            border: 1px solid rgba(248, 113, 113, 0.4);
+            border-left: 3px solid #f87171;
+            background: rgba(127, 29, 29, 0.28);
+            color: #fecaca;
+            font-size: 0.8em;
+            line-height: 1.4;
         }
 
         .strategy-advisor-chart-wrap {
@@ -1877,6 +2112,17 @@
             padding: 8px;
             min-height: 330px;
             position: relative;
+        }
+
+        /* [ABILITY-EFFECTS] Il riassunto della previsione diventa viola quando
+           i numeri sono esatti: stessa nota di colore del dossier, così si
+           riconosce da dove arriva la precisione. */
+        #autoRecruitSummary.is-esatta {
+            border-color: #ddd0f7;
+            border-left: 3px solid #7c3aed;
+            background: #faf7ff;
+            color: #4c1d95;
+            font-weight: 600;
         }
 
         .strategy-advisor-warnings {

@@ -156,11 +156,27 @@
             const unitPotential = evaluateUnitBattleValue(selectedUnitId, terrainName);
             const currentPotential = estimateArmyPotential(currentBattleState?.player?.units || [], terrainName);
 
+            /* [ABILITY-EFFECTS] Con l'Industria dello Spionaggio il quartiermastro
+               smette di andare a occhio: cooldown vero al posto della stima a due
+               turni, prezzo vero delle reclute, e il piano si ferma davvero dove
+               finiscono i grux invece di proseguire in una fascia di incertezza. */
+            const accurate = Boolean(currentBattleState?.player?.intel?.accurate);
+            const cooldown = Math.max(1, Number(currentBattleState?.player?.recruit_cooldown_turns) || 2);
+            const prezzo = Number(currentBattleState?.player?.recruit_costs?.[selectedUnitId]) || 0;
+            const casse = Number(currentBattleState?.player?.grux_balance) || 0;
+            const recluteFinanziabili = prezzo > 0 ? Math.floor(casse / prezzo) : Infinity;
+
             const values = [];
+            let recluteFinali = 0;
             for (let i = 0; i < turns; i += 1) {
-                const expectedRecruits = Math.floor((i + 2) / 2); // approssima cooldown a 2 turni
-                const expected = currentPotential + (expectedRecruits * unitPotential * 0.95);
-                const uncertainty = Math.max(0.14, 0.36 - (i * 0.02));
+                const previste = accurate
+                    ? Math.min(Math.floor(i / cooldown) + 1, recluteFinanziabili)
+                    : Math.floor((i + 2) / 2);   // approssima cooldown a 2 turni
+                recluteFinali = previste;
+                // Il fattore 0.95 era lo sconto per l'imprecisione: senza
+                // imprecisione non ha più niente da scontare.
+                const expected = currentPotential + (previste * unitPotential * (accurate ? 1 : 0.95));
+                const uncertainty = accurate ? 0 : Math.max(0.14, 0.36 - (i * 0.02));
                 values.push({
                     turn: i + 1,
                     expected,
@@ -207,11 +223,15 @@
             const endX = xForIndex(values.length - 1);
             const endY = yForValue(values[values.length - 1].expected);
 
-            const uncertaintyLayer = values.length > 1
-                ? `<polygon points="${areaPoints}" fill="rgba(56, 189, 248, 0.22)"></polygon>`
-                : `<line x1="${startX}" y1="${yForValue(values[0].max)}" x2="${startX}" y2="${yForValue(values[0].min)}" stroke="rgba(56, 189, 248, 0.8)" stroke-width="3" stroke-linecap="round"></line>`;
+            // Con i dati esatti la fascia di incertezza sparisce: disegnarla a
+            // spessore zero lascerebbe un filo scuro che sembra un secondo dato.
+            const uncertaintyLayer = accurate
+                ? ''
+                : (values.length > 1
+                    ? `<polygon points="${areaPoints}" fill="rgba(56, 189, 248, 0.22)"></polygon>`
+                    : `<line x1="${startX}" y1="${yForValue(values[0].max)}" x2="${startX}" y2="${yForValue(values[0].min)}" stroke="rgba(56, 189, 248, 0.8)" stroke-width="3" stroke-linecap="round"></line>`);
             const trendLayer = values.length > 1
-                ? `<polyline points="${expectedPoints}" fill="none" stroke="#0369a1" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"></polyline>`
+                ? `<polyline points="${expectedPoints}" fill="none" stroke="${accurate ? '#7c3aed' : '#0369a1'}" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"></polyline>`
                 : '';
             const endMarker = values.length > 1
                 ? `<circle cx="${endX}" cy="${endY}" r="3" fill="#7c2d12"></circle>`
@@ -231,10 +251,30 @@
             `;
 
             const finalExpected = values[values.length - 1]?.expected || currentPotential;
-            const firstUncertainty = values[0] ? ((values[0].max - values[0].min) / Math.max(1, values[0].expected)) * 100 : 0;
-            summary.textContent =
-                `Unità: ${unitName} · Durata: ${turns} turni · Terreno attuale: ${terrainName} · ` +
-                `Potenziale stimato finale: ${Math.round(finalExpected)} · Incertezza iniziale ±${Math.round(firstUncertainty / 2)}% (stima preliminare)`;
+
+            if (accurate) {
+                const grezze = Math.floor((turns - 1) / cooldown) + 1;
+                const costo = recluteFinali * prezzo;
+                const pezzi = [
+                    `Unità: ${unitName}`,
+                    `Durata: ${turns} turni`,
+                    `Terreno: ${terrainName}`,
+                    `Reclute: ${recluteFinali} (una ogni ${cooldown} turn${cooldown === 1 ? 'o' : 'i'})`,
+                    `Costo: ${costo.toLocaleString('it-IT')} grux su ${casse.toLocaleString('it-IT')}`,
+                ];
+                if (recluteFinali < grezze) {
+                    pezzi.push(`⚠ le casse si fermano a ${recluteFinali} sulle ${grezze} possibili`);
+                }
+                pezzi.push(`Potenziale proiettato: ${Math.round(finalExpected)}`);
+                summary.textContent = pezzi.join(' · ');
+                summary.classList.add('is-esatta');
+            } else {
+                const firstUncertainty = values[0] ? ((values[0].max - values[0].min) / Math.max(1, values[0].expected)) * 100 : 0;
+                summary.textContent =
+                    `Unità: ${unitName} · Durata: ${turns} turni · Terreno attuale: ${terrainName} · ` +
+                    `Potenziale stimato finale: ${Math.round(finalExpected)} · Incertezza iniziale ±${Math.round(firstUncertainty / 2)}% (stima preliminare)`;
+                summary.classList.remove('is-esatta');
+            }
         }
 
         async function startAutoRecruitFromMenu() {
@@ -351,21 +391,27 @@
             }[ch]));
         }
 
-        function advisorCardHtml(cssClass, label, strategy) {
+        // Con l'Industria dello Spionaggio i numeri sono quelli veri, quindi
+        // cambiano anche le parole: niente più "stimata", niente "confidenza"
+        // (che a rumore azzerato varrebbe sempre quanto la compatibilità).
+        function advisorCardHtml(cssClass, label, strategy, accurate) {
             const s = strategy || {};
+            const pastiglie = accurate
+                ? `<span class="advisor-stat is-forte">${formatAdvisorPct(s.compatibility)}</span>
+                   <span class="advisor-stat">scarto ${formatAdvisorDistance(s.distance)}</span>`
+                : `<span class="advisor-stat is-forte">~${formatAdvisorPct(s.compatibility)}</span>
+                   <span class="advisor-stat">confidenza ${formatAdvisorPct(s.confidence)}</span>`;
             return `
                 <div class="advisor-card ${cssClass}">
                     <div class="advisor-card-label">${label}</div>
                     <h4>${escapeAdvisorText(s.name || '---')}</h4>
-                    <p>Compatibilità stimata: ${formatAdvisorPct(s.compatibility)} ·
-                       Confidenza: ${formatAdvisorPct(s.confidence)} ·
-                       Distanza: ${formatAdvisorDistance(s.distance)}</p>
+                    <div class="advisor-card-stats">${pastiglie}</div>
                     <p>${escapeAdvisorText(s.description || 'Nessuna descrizione disponibile.')}</p>
                 </div>`;
         }
 
         /** Un blocco advisor: stesso contenuto di sempre, ora ripetuto per ogni legione. */
-        function advisorSectionHtml(report, chartId, weatherLabel, troopStatusLabel) {
+        function advisorSectionHtml(report, chartId, weatherLabel, troopStatusLabel, accurate) {
             const top = report?.top_strategy || {};
             const second = report?.second_strategy || top;
             const worst = report?.worst_strategy || top;
@@ -421,24 +467,40 @@
                         <h4>${titolo} ${attiva} ${badgeStato}</h4>
                         <p>${dettagli.join(' · ')} · Meteo ${escapeAdvisorText(weatherLabel)}</p>
                     </header>
-                    <div class="strategy-advisor-reliability">
-                        Affidabilità report: ${reliability.score_pct ?? '--'}% ·
-                        Incertezza: ${reliability.uncertainty_pct ?? '--'}%
-                        (${escapeAdvisorText(reliability.label || 'stima in-battle')})
-                    </div>
-                    <div class="strategy-advisor-note">
-                        ${escapeAdvisorText(reliability.note || 'Analisi tattica preliminare.')}
-                    </div>
+                    ${affidabilitaHtml(reliability, accurate)}
                     <div class="strategy-advisor-cards">
-                        ${advisorCardHtml('best', 'Consigliata ora', top)}
-                        ${advisorCardHtml('alt', 'Alternativa', second)}
-                        ${advisorCardHtml('worst', 'Sconsigliata', worst)}
+                        ${advisorCardHtml('best', 'Consigliata ora', top, accurate)}
+                        ${advisorCardHtml('alt', 'Alternativa', second, accurate)}
+                        ${advisorCardHtml('worst', 'Sconsigliata', worst, accurate)}
                     </div>
                     <div class="strategy-advisor-chart-wrap">
                         <canvas id="${chartId}"></canvas>
                     </div>
                     ${warningsHtml}
                 </section>`;
+        }
+
+        /* Con i dati esatti l'avviso di inaccuratezza non ha più senso e
+           sparisce: al suo posto una riga verde che dice da dove arrivano i
+           numeri. Senza l'abilità resta tutto com'era. */
+        function affidabilitaHtml(reliability, accurate) {
+            if (accurate) {
+                return `
+                    <div class="strategy-advisor-reliability is-esatta">
+                        <span class="advisor-sigillo">🕯</span>
+                        Rilevamento diretto · dati esatti
+                        <span class="advisor-fonte">rete di informatori attiva</span>
+                    </div>`;
+            }
+            return `
+                <div class="strategy-advisor-reliability">
+                    Affidabilità report: ${reliability.score_pct ?? '--'}% ·
+                    Incertezza: ${reliability.uncertainty_pct ?? '--'}%
+                    (${escapeAdvisorText(reliability.label || 'stima in-battle')})
+                </div>
+                <div class="strategy-advisor-note">
+                    ${escapeAdvisorText(reliability.note || 'Analisi tattica preliminare.')}
+                </div>`;
         }
 
         function renderInGameAdvisor(advisor) {
@@ -457,11 +519,13 @@
                     `${legioni.length} legion${legioni.length === 1 ? 'e' : 'i'} in campo`;
             }
 
+            const accurate = Boolean(currentBattleState?.player?.intel?.accurate);
+
             // Riserva prima, poi una sezione per legione nell'ordine in cui esistono.
             const reports = [advisor, ...legioni];
-            body.innerHTML = reports
+            body.innerHTML = spiaHtml(accurate) + reports
                 .map((report, index) => advisorSectionHtml(
-                    report, `advisorRadar_${index}`, weatherLabel, troopStatusLabel,
+                    report, `advisorRadar_${index}`, weatherLabel, troopStatusLabel, accurate,
                 ))
                 .join('');
 
@@ -478,6 +542,124 @@
             });
 
             body.scrollTop = 0;
+        }
+
+        /* ── Dossier sul nemico ──────────────────────────────────────
+           Compare solo con l'Industria dello Spionaggio, e solo su richiesta:
+           il tasto sta qui e non nel pannello laterale perché quello che
+           racconta è la stessa cosa che l'advisor dice di te, vista dall'altra
+           parte del campo. */
+
+        function spiaHtml(accurate) {
+            if (!accurate) return '';
+            return `
+                <div class="advisor-spia" id="advisorSpia">
+                    <button class="advisor-spia-btn" type="button" onclick="openEnemyDossier()">
+                        <span class="advisor-spia-icona">🕯</span>
+                        <span class="advisor-spia-testo">
+                            <b>Dossier sul nemico</b>
+                            <em>quello che nessuno dovrebbe sapere</em>
+                        </span>
+                        <span class="advisor-spia-freccia">▸</span>
+                    </button>
+                </div>`;
+        }
+
+        async function openEnemyDossier() {
+            const box = document.getElementById('advisorSpia');
+            if (!box) return;
+            box.innerHTML = '<div class="advisor-dossier-attesa">Gli informatori stanno parlando…</div>';
+
+            try {
+                const response = await fetch('http://127.0.0.1:8000/game/enemy-intel');
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Errore recupero dossier');
+                }
+                const intel = await response.json();
+                if (!intel.available) {
+                    box.innerHTML = `<div class="advisor-dossier-attesa">
+                        Serve la ricerca «${escapeAdvisorText(intel.required_ability || 'Industria dello Spionaggio')}».
+                    </div>`;
+                    return;
+                }
+                box.innerHTML = dossierHtml(intel);
+            } catch (error) {
+                box.innerHTML = `<div class="advisor-dossier-attesa">Dossier non disponibile: ${escapeAdvisorText(error.message)}</div>`;
+            }
+        }
+
+        function dossierRigaHtml(etichetta, valore) {
+            return `
+                <div class="advisor-dossier-riga">
+                    <span class="advisor-dossier-etichetta">${etichetta}</span>
+                    <span class="advisor-dossier-valore">${valore}</span>
+                </div>`;
+        }
+
+        function dossierHtml(intel) {
+            const s = intel.strategy || {};
+            const best = intel.best || {};
+            // La riga "non reggerebbe" c'era e non c'è più: diceva qual è la
+            // strategia peggiore PER L'IA, e si leggeva come un consiglio su
+            // cosa usare contro di lei. Il backend continua a mandare il dato,
+            // che resta buono per chi lo sa interpretare.
+            const army = intel.army || {};
+            const ric = intel.research || {};
+
+            // Se sta usando la sua strategia migliore non c'è niente da
+            // sfruttare; se non lo fa, è esattamente il buco da cercare.
+            const sceltaBuona = s.rank === 1;
+            const giudizio = s.rank
+                ? `${sceltaBuona ? 'la sua scelta migliore' : `solo ${s.rank}ª su ${s.out_of}`}`
+                : '—';
+
+            const debolezze = (intel.weaknesses || []).length
+                ? `<div class="advisor-dossier-falla">
+                       <b>Falle rilevate</b><br>${intel.weaknesses.map(escapeAdvisorText).join('<br>')}
+                   </div>`
+                : '';
+
+            const ricerche = [];
+            if (ric.in_progress) {
+                ricerche.push(`in corso: <b>${escapeAdvisorText(ric.in_progress.name)}</b> fra ${ric.in_progress.turns_remaining} turni`);
+            }
+            if (ric.next_planned) {
+                ricerche.push(`poi punta a <b>${escapeAdvisorText(ric.next_planned)}</b>`);
+            }
+            if ((ric.unlocked || []).length) {
+                ricerche.push(`già in mano: ${ric.unlocked.map(escapeAdvisorText).join(', ')}`);
+            }
+
+            return `
+                <div class="advisor-dossier">
+                    <div class="advisor-dossier-testa">
+                        <span class="advisor-dossier-sigillo">🕯</span>
+                        <div>
+                            <h4>Dossier sul nemico</h4>
+                            <p>Turno ${intel.turn} · difficoltà ${escapeAdvisorText(intel.difficulty || '?')}</p>
+                        </div>
+                    </div>
+                    <div class="advisor-dossier-corpo">
+                        ${dossierRigaHtml('Sta usando',
+                            `<b>${escapeAdvisorText(s.name || '—')}</b>
+                             <span class="advisor-dossier-nota ${sceltaBuona ? '' : 'is-falla'}">${giudizio}</span>`)}
+                        ${dossierRigaHtml('Compatibilità reale',
+                            s.compatibility != null ? `${s.compatibility}%` : '—')}
+                        ${dossierRigaHtml('Gli servirebbe',
+                            `${escapeAdvisorText(best.name || '—')} · ${formatAdvisorPct(best.compatibility)}`)}
+                        ${dossierRigaHtml('In campo',
+                            `${army.units_count} unità · forza ${army.strength} · ${escapeAdvisorText(army.terrain_name || '—')}`)}
+                        ${dossierRigaHtml('Composizione', escapeAdvisorText(army.composition || '—'))}
+                        ${army.in_marcia
+                            ? dossierRigaHtml('In arrivo', `${army.in_marcia} unità ancora per strada`)
+                            : ''}
+                        ${ricerche.length
+                            ? dossierRigaHtml('Laboratori', ricerche.join(' · '))
+                            : ''}
+                    </div>
+                    ${debolezze}
+                </div>`;
         }
 
         function formatAdvisorPct(value) {

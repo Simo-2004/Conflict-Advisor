@@ -171,6 +171,70 @@
             };
         }
 
+        /* [ABILITY-EFFECTS] Quello che sai dell'esercito nemico.
+           Del nemico non si vede tutto: la condizione delle sue truppe è ignota
+           e di ogni due uomini in campo ne identifichi uno solo. L'Industria
+           dello Spionaggio alza la nebbia e rimette tutto in chiaro.
+
+           Le pastiglie non spariscono, diventano "?": lasciare il posto vuoto
+           avrebbe fatto sembrare quell'esercito più piccolo di com'è, che è
+           l'errore opposto a quello che si vuole. */
+        function offuscaComposizione(composizione) {
+            const totale = composizione.reduce((n, c) => n + c.count, 0);
+            if (totale <= 0) return [];
+
+            // Metà degli UOMINI, uno per uno. La prima stesura sorteggiava
+            // reparti interi e scopriva un reparto solo se ci stava tutto nel
+            // budget: con tredici arcieri e un'artiglieria si vedeva
+            // l'artiglieria e basta, cioè una truppa su quattordici.
+            const identificate = Math.floor(totale / 2);
+            const ignote = totale - identificate;
+            if (identificate <= 0) {
+                return [{ ignoto: true, count: totale }];
+            }
+
+            /* Pseudo-casuale ma STABILE: il seme dipende solo da cosa c'è in
+               campo. Con Math.random() il pannello avrebbe cambiato idea su
+               chi mostrare a ogni singolo render, cioè più volte per turno, e
+               sarebbe sembrato un guasto. */
+            let seme = totale * 7 + composizione.length;
+            for (const c of composizione) seme += c.name.length * 31 + c.count * 17;
+
+            /* Finalizzatore di murmur3: sparpaglia bit vicini. Serviva perché
+               la prima versione usava seme + i×costante, e le chiavi restavano
+               in ordine crescente qualunque fosse il seme. */
+            const chiave = (i) => {
+                let x = (seme + (i + 1) * 2654435761) >>> 0;
+                x ^= x >>> 15; x = Math.imul(x, 2246822507) >>> 0;
+                x ^= x >>> 13; x = Math.imul(x, 3266489909) >>> 0;
+                return (x ^ (x >>> 16)) >>> 0;
+            };
+
+            // Lista piatta di uomini, mescolata: i primi `identificate` sono
+            // quelli di cui gli informatori hanno riconosciuto la divisa.
+            const uomini = [];
+            for (const c of composizione) {
+                for (let i = 0; i < c.count; i++) uomini.push(c.name);
+            }
+            const mescolati = uomini
+                .map((nome, i) => ({ nome, k: chiave(i) }))
+                .sort((a, b) => a.k - b.k);
+
+            const conteggi = new Map();
+            for (let i = 0; i < identificate; i++) {
+                const nome = mescolati[i].nome;
+                conteggi.set(nome, (conteggi.get(nome) || 0) + 1);
+            }
+
+            const visti = [...conteggi.entries()]
+                .map(([name, count]) => ({ name, count }))
+                .sort((a, b) => (b.count - a.count) || a.name.localeCompare(b.name, 'it'));
+
+            // La pastiglia finale dice quanti restano senza nome: il totale è
+            // già scritto sopra, quindi non svela niente e toglie l'ambiguità.
+            return ignote > 0 ? visti.concat([{ ignoto: true, count: ignote }]) : visti;
+        }
+
         // Pannello "Economia e Presidi", un lato per volta.
         //
         // Le fortificazioni non stanno più qui: si contano a occhio sulla mappa,
@@ -178,6 +242,9 @@
         // Quello che resta è ridotto all'osso: quanti soldi hai, cosa puoi
         // costruire ancora, e chi hai in campo.
         function renderEconomySide(prefix, side, legion, mines) {
+            // La nebbia vale solo sull'IA: del proprio esercito si sa tutto.
+            const nebbia = prefix === 'ai'
+                && !currentBattleState?.player?.intel?.accurate;
             const set = (id, text, title) => {
                 const el = document.getElementById(prefix + id);
                 if (!el) return;
@@ -199,21 +266,35 @@
                 `Guarnigioni disponibili: ${side.available_garrisons}`);
 
             // Condizione per esteso nel tooltip: in riga sta l'etichetta, che è
-            // la parte su cui si decide qualcosa.
-            const status = side.troop_status || 'N/D';
+            // la parte su cui si decide qualcosa. Quanti sono si vede comunque:
+            // è il conteggio a occhio di chi guarda la mappa, non un segreto.
+            const status = nebbia ? '?' : (side.troop_status || 'N/D');
             set('LegionSummary',
                 legion.totalUnits ? `${legion.totalUnits} unità · ${status}` : 'Nessuna unità in campo',
-                describeTroopCondition(side));
+                nebbia
+                    ? 'Condizione delle truppe nemiche ignota — serve l\'Industria dello Spionaggio'
+                    : describeTroopCondition(side));
 
             const chips = document.getElementById(prefix + 'LegionComposition');
             if (chips) {
-                chips.replaceChildren(...legion.composition.map(({ name, count }) => {
+                const composizione = nebbia
+                    ? offuscaComposizione(legion.composition)
+                    : legion.composition;
+                chips.replaceChildren(...composizione.map((voce) => {
                     const chip = document.createElement('span');
+                    if (voce.ignoto) {
+                        chip.className = 'economy-chip is-ignoto';
+                        chip.title = `${voce.count} unità non identificate`;
+                        const q = document.createElement('b');
+                        q.textContent = voce.count;
+                        chip.append(q, ' ', '?');
+                        return chip;
+                    }
                     chip.className = 'economy-chip';
-                    chip.title = `${name}: ${count}`;
+                    chip.title = `${voce.name}: ${voce.count}`;
                     const n = document.createElement('b');
-                    n.textContent = count;
-                    chip.append(n, ' ', name);
+                    n.textContent = voce.count;
+                    chip.append(n, ' ', voce.name);
                     return chip;
                 }));
             }

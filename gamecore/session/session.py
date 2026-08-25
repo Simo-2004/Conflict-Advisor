@@ -4049,6 +4049,8 @@ class GameSession:
             troop_status_name=reserve_status,
             terrain_name=terrain_name,
             weather_name=self.weather,
+            # [ABILITY-EFFECTS] Industria dello Spionaggio: via il rumore.
+            perfect=self._ability_flag(PLAYER, ab.FLAG_SPY_NETWORK),
         )
         payload["troop_condition"] = tc.describe(self.reserve_condition[PLAYER])
         payload["scope"] = "reserve"
@@ -4065,6 +4067,107 @@ class GameSession:
             for legion_id, legion in self.player_legions.items()
         ]
         return payload
+
+    def get_enemy_intel(self) -> Dict[str, Any]:
+        """[ABILITY-EFFECTS] Dossier sull'IA, aperto dall'Industria dello Spionaggio.
+
+        Non ripete quello che il pannello mostra già a tutti — truppe, grux,
+        legioni sono in chiaro nel payload da sempre. Qui c'è solo ciò che il
+        gioco non dice mai: quanto la strategia che l'IA sta usando le si addice
+        davvero, dove è scoperta, e cosa ha in cantiere.
+        """
+        if self.state != SessionState.ACTIVE:
+            raise ValueError("La partita è terminata.")
+
+        if not self._ability_flag(PLAYER, ab.FLAG_SPY_NETWORK):
+            return {
+                "available": False,
+                "required_ability": ab.ABILITIES[ab.SPY_INDUSTRY_ID].name,
+            }
+
+        terrain_name = self._current_army_terrain(AI)
+        troop_status = tc.resolve_status(self.reserve_condition[AI])
+        modified, warnings = apply_modifiers(
+            army_vector=self.ai_army,
+            terrain_name=terrain_name,
+            weather_name=self.weather,
+            troop_status_name=troop_status,
+            modifiers_data=self.data,
+        )
+        # Classifica VERA: nessun rumore. È il senso dell'abilità.
+        ranking = compute_ranking(
+            army_vector=modified,
+            strategies_list=self.data["strategies"],
+            unit_ids=list(self.ai_units),
+            terrain_name=terrain_name,
+            weather_name=self.weather,
+            affinities_data=self.data.get("unit_affinities", {}),
+        )
+        for indice, voce in enumerate(ranking):
+            voce["rank"] = indice + 1
+
+        in_uso = next(
+            (voce for voce in ranking if voce["id"] == self.ai_strategy_id),
+            None,
+        )
+
+        return {
+            "available": True,
+            "turn": self.game_map.turn,
+            "difficulty": self.ai_difficulty,
+            "strategy": {
+                "id": self.ai_strategy_id,
+                "name": self.ai_strategy_name,
+                "compatibility": round(float(in_uso["compatibility"]), 1) if in_uso else None,
+                "rank": in_uso["rank"] if in_uso else None,
+                "out_of": len(ranking),
+                "description": (in_uso or {}).get("description", ""),
+            },
+            "best": ranking[0] if ranking else None,
+            "worst": ranking[-1] if ranking else None,
+            "ranking": ranking,
+            # Gli attributi segnati CRITICAL che l'esercito IA non soddisfa: è
+            # letteralmente dove conviene colpirlo.
+            "weaknesses": warnings,
+            "army": {
+                "units_count": len(self.ai_units),
+                "composition": self._etichetta_unita(self.ai_units),
+                "strength": int(round(self._effective_army_strength(AI, terrain_name))),
+                "terrain_name": terrain_name,
+                "troop_status_name": troop_status,
+                "in_marcia": self.ai_convoys.unita_in_marcia(),
+            },
+            "research": self._dossier_ricerche(),
+        }
+
+    def _dossier_ricerche(self) -> Dict[str, Any]:
+        """[ABILITY-EFFECTS] Cosa l'IA ha ricercato, cosa sta ricercando, cosa vuole."""
+        stati = self.ability_states[AI]
+        turno = self.game_map.turn
+
+        in_corso_id = ab.researching_id(stati, turno)
+        in_corso = None
+        if in_corso_id and in_corso_id in stati:
+            stato = stati[in_corso_id]
+            in_corso = {
+                "name": stato.name,
+                "turns_remaining": stato.turns_remaining(turno),
+            }
+
+        prossima_id = ab.ai_next_research(
+            self.ai_difficulty, stati, turno, self.grux_balance[AI]
+        )
+
+        return {
+            "unlocked": [
+                stati[aid].name for aid in ab.unlocked_ids(stati, turno) if aid in stati
+            ],
+            "in_progress": in_corso,
+            "next_planned": (
+                stati[prossima_id].name
+                if prossima_id and prossima_id in stati else None
+            ),
+        }
 
     def _legion_advisor_payload(self, legion_id: str, legion: Dict[str, Any]) -> Dict[str, Any]:
         """Report advisor calcolato sulla singola legione."""
@@ -4107,6 +4210,7 @@ class GameSession:
             troop_status_name=troop_status,
             terrain_name=terrain_name,
             weather_name=self.weather,
+            perfect=self._ability_flag(PLAYER, ab.FLAG_SPY_NETWORK),  # [ABILITY-EFFECTS]
         )
         breakdown = self._legion_battle_strength(
             PLAYER, legion, terrain_name,
@@ -6050,6 +6154,13 @@ class GameSession:
                 "build_rules": {
                     "anywhere": self._ability_flag(PLAYER, ab.FLAG_BUILD_ANYWHERE),
                     "any_legion": self._ability_flag(PLAYER, ab.FLAG_BUILD_ANY_LEGION),
+                },
+                # [ABILITY-EFFECTS] Con l'Industria dello Spionaggio i numeri
+                # mostrati sono quelli veri: la UI toglie gli avvisi di
+                # approssimazione e apre il dossier sul nemico.
+                "intel": {
+                    "accurate": self._ability_flag(PLAYER, ab.FLAG_SPY_NETWORK),
+                    "ability_name": ab.ABILITIES[ab.SPY_INDUSTRY_ID].name,
                 },
                 "black_market": self.black_market[PLAYER].to_dict(
                     self.game_map.turn, self._black_market_open(PLAYER)
