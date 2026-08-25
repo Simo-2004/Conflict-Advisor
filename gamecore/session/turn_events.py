@@ -57,6 +57,8 @@ FORTIFICAZIONE = "fortificazione"
 PRESIDIO = "presidio"
 LEGIONE_CREATA = "legione_creata"
 ARMATA_SCHIERATA = "armata_schierata"  # una legione ha superato la soglia
+CAROVANA_PARTITA = "carovana_partita"      # rinforzi in marcia verso il fronte
+CAROVANA_ARRIVATA = "carovana_arrivata"    # rinforzi consegnati alla legione
 
 #: Chiave che gli eventi di combattimento portano nel `dettaglio`: dice se fra
 #: le truppe coinvolte c'era artiglieria. La calcola il motore, che sa cosa c'è
