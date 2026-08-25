@@ -565,6 +565,25 @@ async def game_in_game_advisor():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/game/enemy-intel")
+async def game_enemy_intel():
+    """[ABILITY-EFFECTS] Dossier sull'IA: aperto solo dall'Industria dello Spionaggio.
+
+    Senza la ricerca risponde comunque 200, con `available: false`: è la UI a
+    decidere cosa mostrare, e un 403 avrebbe costretto il frontend a trattare
+    come errore una condizione normalissima di inizio partita.
+    """
+    if _active_session is None:
+        raise HTTPException(status_code=404, detail="Nessuna partita attiva.")
+
+    try:
+        return _active_session.get_enemy_intel()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/game/place-mine")
 async def game_place_mine(request: LegionBuildRequest):
     """Piazza una miniera con una legione Mineraria, sulla cella dove si trova."""

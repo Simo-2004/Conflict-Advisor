@@ -1,63 +1,72 @@
 /*
- * War Advisor - Avvisi sulle forze nemiche (SGANCIABILE)
+ * War Advisor - Log pericoli (SGANCIABILE)
  *
- * Due cose, nello stesso angolo in alto a destra:
+ * Una card nella barra laterale, sotto "Economia e Presidi", con quello che
+ * l'IA sta facendo e che al giocatore conviene sapere:
  *
- *   1. AVVISI DI PASSAGGIO — riquadri che compaiono e spariscono
- *      · rosso   quando l'IA schiera un'armata (`armata_schierata`)
- *      · ambra   quando parte una carovana grossa (`carovana_partita`)
+ *   🔴 ⚠   ha schierato un'armata          (`armata_schierata`)
+ *   🟠 🚚  ha mandato rinforzi al fronte   (`carovana_partita`)
+ *   🟠 📥  i rinforzi sono arrivati        (`carovana_arrivata`)
  *
- *   2. PANNELLO PERMANENTE — resta a schermo finché l'IA ha rinforzi in
- *      marcia, con quante carovane, quante truppe e quando arrivano.
+ * In cima alla card c'è una riga di stato con quello che è in viaggio adesso:
+ * quante carovane, quante truppe, quando arriva la prima. Sotto, la cronologia
+ * dal più recente. Le voci delle carovane ancora in marcia portano un conto
+ * alla rovescia che si aggiorna a ogni turno.
  *
- * Perché tutti e due. Gli avvisi prendono l'occhio nel momento giusto ma si
- * possono perdere: se stai guardando l'altra metà dello schermo, sei turni
- * dopo non sai più niente. Il pannello invece non si perde — ed è la parte che
- * conta, perché quelle sono truppe che stanno arrivando all'avversario.
- * L'avviso serve a farti alzare gli occhi, il pannello a rispondere.
+ * Prima tutto questo compariva come riquadri fissi in alto a destra, sopra la
+ * mappa: si sovrapponevano al campo di battaglia e sparivano dopo sei secondi,
+ * quindi bastava guardare altrove per perderli. In una card, la cronologia
+ * resta.
  *
  * A stabilire quando una legione è un'armata e quanto ci mette una carovana è
  * il backend (`SOGLIA_ARMATA` in turn_events.py, `caravans.py`): qui non si
  * contano truppe né turni, si mostra quello che il gioco ha già deciso.
  *
  * Rimozione: cancella questa cartella e le due righe marcate [ALERT-MODULE] in
- * battle.html. Nessun file del gioco lo chiama.
+ * battle.html. La card se la costruisce da sé, quindi non resta niente di
+ * vuoto nella barra laterale. Nessun file del gioco lo chiama.
  */
 (function () {
     'use strict';
 
-    const ZONA_ID = 'warAlertZona';
-    const PANNELLO_ID = 'warAlertCarovane';
+    const CARD_ID = 'dangerLog';
+    const LISTA_ID = 'dangerLogList';
+    const STATO_ID = 'dangerLogStatus';
 
-    /* Quanto resta a schermo un avviso. Abbastanza da leggerlo con calma
-       mentre si sta facendo altro, non tanto da restare lì al turno dopo. */
-    const DURATA_MS = 6500;
-    const USCITA_MS = 340;
+    /* Quante voci tenere. Una partita lunga ne produce una sessantina: oltre
+       questa soglia le più vecchie escono, tanto la cronologia completa sta
+       già nel registro di battaglia. */
+    const MAX_VOCI = 40;
 
-    /* Quanti riquadri insieme. */
-    const MAX_A_SCHERMO = 3;
+    /* ── La card ─────────────────────────────────────────────────── */
+    /* Se la costruisce il modulo invece di stare in battle.html: così
+       cancellare la cartella non lascia una card vuota nella barra. Stesso
+       schema del pannello di debug. */
 
-    /* Da quante truppe in su una carovana merita di interrompere il giocatore.
-       Le carovane sono 37 a partita: avvisarle tutte sarebbe rumore, e il
-       rumore si smette di leggerlo. Misurata la distribuzione, la soglia a 4
-       lascia passare ~2,5 avvisi a partita — le ondate vere, quelle comprate
-       al Mercato Nero. Tutte le altre restano nel pannello permanente. */
-    const SOGLIA_CAROVANA = 4;
+    function card() {
+        let el = document.getElementById(CARD_ID);
+        if (el) return el;
 
-    /* ── Il contenitore ──────────────────────────────────────────── */
-    /* Sta su `body` e non sulla mappa: `renderMapBoard` ricostruisce tutte le
-       caselle a ogni render e si porterebbe via qualsiasi cosa attaccata lì. */
+        const barra = document.getElementById('battleSidebarColumn');
+        if (!barra) return null;
 
-    function zona() {
-        let z = document.getElementById(ZONA_ID);
-        if (!z) {
-            z = document.createElement('div');
-            z.id = ZONA_ID;
-            z.className = 'war-alert-zona';
-            document.body.appendChild(z);
-        }
-        return z;
+        el = document.createElement('div');
+        el.id = CARD_ID;
+        el.className = 'battle-card danger-log';
+        el.innerHTML =
+            '<div class="battle-card-header">'
+            + '<h3>Log pericoli</h3>'
+            + '</div>'
+            + '<div class="danger-log-body">'
+            + '<div class="danger-log-status" id="' + STATO_ID + '"></div>'
+            + '<ul class="danger-log-list" id="' + LISTA_ID + '"></ul>'
+            + '<p class="danger-log-empty">Nessun movimento nemico rilevato.</p>'
+            + '</div>';
+        barra.appendChild(el);
+        return el;
     }
+
+    /* ── Pezzi di markup ─────────────────────────────────────────── */
 
     function riga(classe, testo) {
         const el = document.createElement('span');
@@ -66,217 +75,235 @@
         return el;
     }
 
-    /* ── Avvisi di passaggio ─────────────────────────────────────── */
-
-    function mostra(opzioni) {
-        const z = zona();
-        const avvisi = z.querySelectorAll('.war-alert');
-        for (let i = 0; i <= avvisi.length - MAX_A_SCHERMO; i++) {
-            avvisi[i].remove();
-        }
-
-        const avviso = document.createElement('div');
-        avviso.className = 'war-alert' + (opzioni.variante ? ' ' + opzioni.variante : '');
-        avviso.setAttribute('role', 'status');
-        avviso.appendChild(riga('war-alert-icona', opzioni.icona));
-
-        const testo = document.createElement('div');
-        testo.className = 'war-alert-testo';
-        testo.appendChild(riga('war-alert-titolo', opzioni.titolo));
-        testo.appendChild(riga('war-alert-corpo', opzioni.corpo));
-        if (opzioni.dettaglio) {
-            const sotto = riga('war-alert-dettaglio', opzioni.dettaglio);
-            sotto.title = opzioni.dettaglio;   // il testo tagliato resta leggibile
-            testo.appendChild(sotto);
-        }
-        avviso.appendChild(testo);
-
-        /* In cima alla colonna: il pannello delle carovane sta in fondo e non
-           deve essere spinto giù dagli avvisi che arrivano. */
-        z.insertBefore(avviso, z.firstChild);
-        setTimeout(function () { chiudi(avviso); }, DURATA_MS);
-    }
-
-    function chiudi(avviso) {
-        if (!avviso || !avviso.parentNode) return;
-        avviso.classList.add('is-uscita');
-        setTimeout(function () {
-            if (avviso.parentNode) avviso.parentNode.removeChild(avviso);
-        }, USCITA_MS);
-    }
-
-    /* "unità" non cambia al plurale: la funzione esiste solo per non
-       ripetere la stessa concatenazione in cinque punti. */
+    /* "unità" non cambia al plurale: la funzione esiste solo per non ripetere
+       la stessa concatenazione in cinque punti. */
     function unita(n) {
         return n + ' unità';
     }
 
-    function avvisaArmata(evento) {
+    /* ── Le voci ─────────────────────────────────────────────────── */
+
+    function aggiungi(opzioni) {
+        const lista = document.getElementById(LISTA_ID);
+        if (!lista) return;
+
+        const voce = document.createElement('li');
+        voce.className = 'danger-entry ' + opzioni.tipo;
+        if (opzioni.arrivo) voce.dataset.arrivo = opzioni.arrivo;
+
+        voce.appendChild(riga('danger-entry-icona', opzioni.icona));
+
+        const testo = document.createElement('div');
+        testo.className = 'danger-entry-testo';
+        testo.appendChild(riga('danger-entry-corpo', opzioni.corpo));
+
+        const sotto = riga('danger-entry-dettaglio', opzioni.dettaglio || '');
+        sotto.title = opzioni.dettaglio || '';
+        testo.appendChild(sotto);
+        voce.appendChild(testo);
+
+        /* Turno e conto alla rovescia in colonna a destra, fuori dal testo che
+           si accorcia: a barra stretta il "fra 11" finiva tagliato dai puntini
+           di sospensione, ed è la mezza riga su cui si decide qualcosa. */
+        const tempo = document.createElement('div');
+        tempo.className = 'danger-entry-tempo';
+        tempo.appendChild(riga('danger-entry-turno', 'T' + opzioni.turno));
+        if (opzioni.arrivo) {
+            /* Si aggiorna a ogni turno: sta in un suo nodo così non si
+               riscrive tutta la voce. */
+            tempo.appendChild(riga('danger-entry-eta', ''));
+        }
+        voce.appendChild(tempo);
+
+        /* Il più recente in cima: la card è alta poche righe e quello che
+           conta è appena successo. */
+        lista.insertBefore(voce, lista.firstChild);
+        while (lista.children.length > MAX_VOCI) {
+            lista.removeChild(lista.lastChild);
+        }
+    }
+
+    function vociArmata(evento) {
         const parti = [];
         const nome = evento.dettaglio && evento.dettaglio.nome;
         if (nome) parti.push(nome);
-        if (evento.quantita) parti.push(unita(Math.round(evento.quantita)));
         if (evento.pos && evento.pos.length === 2) {
             /* Stesso formato del resto dell'interfaccia ("cella 8,7"). */
             parti.push('cella ' + evento.pos[0] + ',' + evento.pos[1]);
         }
-        mostra({
+        aggiungi({
+            tipo: 'is-armata',
             icona: '⚠',
-            titolo: 'Attenzione',
-            corpo: 'Grossa legione nemica rilevata',
-            dettaglio: parti.join(' · ')
+            corpo: 'Armata nemica: ' + unita(Math.round(evento.quantita || 0)),
+            dettaglio: parti.join(' · '),
+            turno: evento.turno
         });
     }
 
-    function avvisaCarovana(evento) {
+    function vocePartenza(evento) {
         const d = evento.dettaglio || {};
         const parti = [];
         if (d.unita) parti.push(d.unita);
-        if (d.arrivo_turno) parti.push('arrivo al turno ' + d.arrivo_turno);
-        if (d.legione) parti.push('verso ' + d.legione);
-        mostra({
-            variante: 'is-rifornimento',
+        if (d.arrivo_turno) parti.push('arrivo T' + d.arrivo_turno);
+        aggiungi({
+            tipo: 'is-partenza',
             icona: '🚚',
-            titolo: 'Rifornimenti nemici',
-            corpo: unita(Math.round(evento.quantita || 0)) + ' in marcia verso il fronte',
-            dettaglio: parti.join(' · ')
+            corpo: 'Rinforzi in marcia: ' + unita(Math.round(evento.quantita || 0)),
+            dettaglio: parti.join(' · '),
+            turno: evento.turno,
+            arrivo: d.arrivo_turno || null
         });
     }
 
-    /* ── Pannello permanente delle carovane ──────────────────────── */
-    /* Si ridisegna a ogni render invece di aggiornare i pezzi: sono quattro
-       righe di testo, e ricostruirle costa meno che tenerle sincronizzate. */
+    function voceArrivo(evento) {
+        const d = evento.dettaglio || {};
+        const parti = [];
+        if (d.unita) parti.push(d.unita);
+        if (d.legione) parti.push('a ' + d.legione);
+        aggiungi({
+            tipo: 'is-arrivo',
+            icona: '📥',
+            corpo: d.forza_legione
+                ? 'Rinforzi arrivati: +' + Math.round(evento.quantita || 0)
+                    + ' → ' + unita(d.forza_legione)
+                : 'Rinforzi arrivati: +' + Math.round(evento.quantita || 0),
+            dettaglio: parti.join(' · '),
+            turno: evento.turno
+        });
+    }
 
-    function aggiornaCarovane(stato) {
-        const dati = stato && stato.ai && stato.ai.convoys;
-        const vecchio = document.getElementById(PANNELLO_ID);
+    /* ── Riga di stato: cosa è in viaggio adesso ─────────────────── */
 
+    function aggiornaStato(stato) {
+        const box = document.getElementById(STATO_ID);
+        if (!box) return;
+
+        const dati = stato.ai && stato.ai.convoys;
         const inMarcia = dati ? (dati.unita_in_marcia || 0) : 0;
         if (!dati || inMarcia <= 0 || stato.state === 'game_over') {
-            if (vecchio) vecchio.remove();
+            box.replaceChildren();
+            box.classList.remove('is-attivo');
             return;
         }
 
-        const pannello = document.createElement('div');
-        pannello.id = PANNELLO_ID;
-        pannello.className = 'war-convoy';
-        pannello.setAttribute('role', 'status');
-
-        const testa = document.createElement('div');
-        testa.className = 'war-convoy-testa';
-        testa.appendChild(riga('war-convoy-icona', '🚚'));
-        testa.appendChild(riga('war-convoy-titolo', 'Rinforzi nemici in marcia'));
-        pannello.appendChild(testa);
-
         const carovane = dati.carovane || [];
-        const sommario = [];
+        const parti = [];
         if (carovane.length) {
-            sommario.push(carovane.length + (carovane.length === 1 ? ' carovana' : ' carovane'));
+            parti.push(carovane.length + (carovane.length === 1 ? ' carovana' : ' carovane'));
         }
-        sommario.push(unita(inMarcia));
-        if (dati.in_raduno) sommario.push(dati.in_raduno + ' al raduno');
-        pannello.appendChild(riga('war-convoy-sommario', sommario.join(' · ')));
+        parti.push(unita(inMarcia));
+        if (dati.in_raduno) parti.push(dati.in_raduno + ' al raduno');
 
-        /* Con poche carovane si elencano una per una: sapere QUANDO arriva
-           ciascuna è la sola cosa su cui il giocatore può agire. Con tante,
-           l'elenco diventerebbe più alto della mappa. */
-        if (carovane.length && carovane.length <= 4) {
-            const lista = document.createElement('div');
-            lista.className = 'war-convoy-lista';
-            carovane.forEach(function (c) {
-                const mancano = c.turni_mancanti;
-                const quando = mancano <= 0
-                    ? 'in arrivo'
-                    : 'turno ' + c.arrivo_turno + ' · fra ' + mancano;
-                lista.appendChild(riga('war-convoy-voce', unita(c.quantita) + ' → ' + quando));
-            });
-            pannello.appendChild(lista);
-        } else if (dati.prossimo_arrivo) {
-            pannello.appendChild(riga(
-                'war-convoy-voce',
-                'prossimo arrivo: turno ' + dati.prossimo_arrivo
-            ));
-        }
+        box.replaceChildren(
+            riga('danger-log-status-icona', '🚚'),
+            riga('danger-log-status-testo', parti.join(' · ')),
+            riga('danger-log-status-eta',
+                dati.prossimo_arrivo ? 'prossimo T' + dati.prossimo_arrivo : '')
+        );
+        box.classList.add('is-attivo');
+    }
 
-        if (vecchio) {
-            vecchio.replaceWith(pannello);
-        } else {
-            zona().appendChild(pannello);
+    /* Conto alla rovescia delle carovane ancora in marcia. Si tocca solo il
+       nodo del tempo, non tutta la voce: riscriverla farebbe saltare la
+       selezione del testo e lo scorrimento della lista. */
+    function aggiornaAttese(turno) {
+        const lista = document.getElementById(LISTA_ID);
+        if (!lista) return;
+        for (const voce of lista.children) {
+            const arrivo = Number(voce.dataset.arrivo);
+            if (!arrivo) continue;
+            const eta = voce.querySelector('.danger-entry-eta');
+            if (!eta) continue;
+            const mancano = arrivo - turno;
+            if (mancano > 0) {
+                eta.textContent = 'fra ' + mancano;
+                voce.classList.remove('is-conclusa');
+            } else {
+                eta.textContent = '';
+                voce.classList.add('is-conclusa');
+                delete voce.dataset.arrivo;
+            }
         }
+    }
+
+    function aggiornaVuoto() {
+        const el = document.getElementById(CARD_ID);
+        const lista = document.getElementById(LISTA_ID);
+        if (!el || !lista) return;
+        el.classList.toggle('is-vuoto', lista.children.length === 0);
     }
 
     /* ── Lettura degli eventi ────────────────────────────────────── */
 
     let ultimoIdVisto = null;
 
-    function applica(stato) {
-        if (!stato) return;
-
-        /* Il pannello guarda lo stato corrente, non gli eventi: deve essere
-           giusto anche ricaricando la pagina a metà partita. */
-        aggiornaCarovane(stato);
-
-        if (!Array.isArray(stato.events)) return;
-        const eventi = stato.events;
-
-        /* Primo giro: si prende nota di dove siamo e basta. Entrando in una
-           partita già avviata comparirebbero tutti insieme gli avvisi delle
-           ultime decine di turni. */
-        if (ultimoIdVisto === null) {
-            ultimoIdVisto = eventi.length ? eventi[eventi.length - 1].id : 0;
-            return;
-        }
-
-        /* Partita nuova: gli id ripartono da capo. */
-        const ultimo = eventi.length ? eventi[eventi.length - 1].id : 0;
-        if (ultimo < ultimoIdVisto) {
-            ultimoIdVisto = ultimo;
-            return;
-        }
-
-        const nuovi = eventi.filter(function (e) { return e.id > ultimoIdVisto; });
-        if (!nuovi.length) return;
-        ultimoIdVisto = nuovi[nuovi.length - 1].id;
-
-        /* A partita finita non si avvisa più di niente: davanti c'è la
-           schermata di vittoria o sconfitta, e un allarme tattico lì sotto
-           sarebbe solo rumore. */
-        if (stato.state === 'game_over') return;
-
-        for (const evento of nuovi) {
+    function smista(eventi) {
+        for (const evento of eventi) {
             if (evento.entita !== 'ai') continue;
             if (evento.tipo === 'armata_schierata') {
-                avvisaArmata(evento);
-            } else if (evento.tipo === 'carovana_partita'
-                       && (evento.quantita || 0) >= SOGLIA_CAROVANA) {
-                avvisaCarovana(evento);
+                vociArmata(evento);
+            } else if (evento.tipo === 'carovana_partita') {
+                vocePartenza(evento);
+            } else if (evento.tipo === 'carovana_arrivata') {
+                voceArrivo(evento);
             }
         }
+    }
+
+    function applica(stato) {
+        if (!stato || !Array.isArray(stato.events)) return;
+        if (!card()) return;
+
+        const eventi = stato.events;
+        const turno = (stato.map && stato.map.turn) || 0;
+
+        if (ultimoIdVisto === null) {
+            /* Primo giro: si riempie con quello che è già successo. Da toast
+               si saltava, se no partivano venti riquadri insieme; in un log
+               invece la cronologia è esattamente quello che si vuole trovare
+               ricaricando la pagina a metà partita. */
+            const arretrati = eventi.slice(-MAX_VOCI * 3);
+            smista(arretrati);
+            ultimoIdVisto = eventi.length ? eventi[eventi.length - 1].id : 0;
+        } else {
+            /* Partita nuova: gli id ripartono da capo e il log si svuota. */
+            const ultimo = eventi.length ? eventi[eventi.length - 1].id : 0;
+            if (ultimo < ultimoIdVisto) {
+                const lista = document.getElementById(LISTA_ID);
+                if (lista) lista.replaceChildren();
+                ultimoIdVisto = ultimo;
+            } else {
+                const nuovi = eventi.filter(function (e) { return e.id > ultimoIdVisto; });
+                if (nuovi.length) {
+                    ultimoIdVisto = nuovi[nuovi.length - 1].id;
+                    smista(nuovi);
+                }
+            }
+        }
+
+        aggiornaStato(stato);
+        aggiornaAttese(turno);
+        aggiornaVuoto();
     }
 
     /* ── Interfaccia pubblica ────────────────────────────────────── */
 
     window.WarAlert = {
-        /* Per vederli senza aspettare che l'IA si muova:
+        /* Per vedere com'è fatto senza aspettare che l'IA si muova:
            WarAlert.prova() dalla console. */
         prova: function () {
-            avvisaArmata({ dettaglio: { nome: 'Falange Nera' }, quantita: 12, pos: [8, 7] });
-            avvisaCarovana({
-                quantita: 5,
-                dettaglio: { unita: '5× Fanteria Pesante', arrivo_turno: 41, legione: 'Falange Nera' }
-            });
-            aggiornaCarovane({
-                map: { turn: 29 },
-                ai: {
-                    convoys: {
-                        carovane: [
-                            { quantita: 3, arrivo_turno: 34, turni_mancanti: 5 },
-                            { quantita: 5, arrivo_turno: 41, turni_mancanti: 12 }
-                        ],
-                        in_raduno: 2, unita_in_marcia: 10, prossimo_arrivo: 34
-                    }
-                }
-            });
+            if (!card()) return;
+            vocePartenza({ quantita: 3, turno: 39,
+                dettaglio: { unita: '3× Arcieri', arrivo_turno: 51, legione: "Fauci d'Acciaio" } });
+            vociArmata({ quantita: 14, turno: 42, pos: [8, 7],
+                dettaglio: { nome: "Fauci d'Acciaio" } });
+            voceArrivo({ quantita: 3, turno: 51,
+                dettaglio: { unita: '3× Arcieri', legione: "Fauci d'Acciaio", forza_legione: 17 } });
+            aggiornaStato({ state: 'active', map: { turn: 45 }, ai: { convoys: {
+                carovane: [{ quantita: 3, arrivo_turno: 51, turni_mancanti: 6 }],
+                in_raduno: 2, unita_in_marcia: 5, prossimo_arrivo: 51 } } });
+            aggiornaAttese(45);
+            aggiornaVuoto();
         }
     };
 
@@ -293,7 +320,7 @@
             try {
                 applica(arguments[0]);
             } catch (_) {
-                /* un avviso non deve mai far cadere il render della partita */
+                /* il log non deve mai far cadere il render della partita */
             }
             return risultato;
         };

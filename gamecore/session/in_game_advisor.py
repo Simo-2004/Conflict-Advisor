@@ -57,8 +57,16 @@ def build_in_game_advisor_payload(
     troop_status_name: Optional[str],
     terrain_name: str,
     weather_name: Optional[str],
+    perfect: bool = False,
 ) -> Dict[str, Any]:
-    """Costruisce il payload advisor per il popup in battaglia."""
+    """Costruisce il payload advisor per il popup in battaglia.
+
+    [ABILITY-EFFECTS] Con `perfect=True` — l'Industria dello Spionaggio —
+    il rumore sparisce del tutto: niente jitter sulle compatibilità, niente
+    scambio fra prima e seconda, confidenza pari alla compatibilità vera.
+    Non c'è un percorso di calcolo separato: si azzera `noise_scale`, e
+    tutte le formule qui sotto collassano da sole sui valori reali.
+    """
     modified_profile, critical_warnings = apply_modifiers(
         army_vector=player_army,
         terrain_name=terrain_name,
@@ -79,7 +87,7 @@ def build_in_game_advisor_payload(
     if not true_ranking:
         raise ValueError("Nessuna strategia disponibile per la valutazione in-game.")
 
-    reliability = _estimate_reliability(turn)
+    reliability = 1.0 if perfect else _estimate_reliability(turn)
     noise_scale = 1.0 - reliability
 
     rng = random.Random(
@@ -158,8 +166,15 @@ def build_in_game_advisor_payload(
         "reliability": {
             "score_pct": reliability_pct,
             "uncertainty_pct": uncertainty_pct,
-            "label": "stima preliminare in battaglia",
+            "perfect": perfect,
+            "label": (
+                "rilevamento diretto"
+                if perfect else "stima preliminare in battaglia"
+            ),
             "note": (
+                "Rete di informatori attiva: questi numeri sono quelli veri, "
+                "calcolati sulla composizione e sul terreno reali."
+                if perfect else
                 "Rapporto parziale: indicazione utile ma non completamente affidabile. "
                 "Verifica sempre il terreno e la composizione reale."
             ),

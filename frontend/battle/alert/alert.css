@@ -1,194 +1,242 @@
 /*
- * War Advisor - Avviso armate nemiche (SGANCIABILE)
+ * War Advisor - Log pericoli (SGANCIABILE)
  * Stili del solo modulo alert: nessun'altra parte del gioco li usa.
+ *
+ * Sta nella barra laterale, sotto "Economia e Presidi", e ne segue il
+ * linguaggio: pagina chiara, riquadri tondi, una tinta per significato.
+ * Rosso = c'è un'armata in campo adesso. Ambra = sta arrivando qualcosa.
  */
 
-.war-alert-zona {
-    position: fixed;
-    top: 16px;
-    right: 18px;
-    /* Sopra i pannelli di gioco (skill tree 320, autoreclutamento 321, mercato
-       322, consigliere 324) ma sotto la schermata di fine partita (400): a
-       partita finita comanda quella. */
-    z-index: 350;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    width: min(330px, calc(100vw - 36px));
-    /* Non deve MAI rubare un clic alla mappa sotto: è un avviso, non un
-       pannello. Sta sopra il campo di battaglia e senza questo un clic su una
-       casella nell'angolo in alto a destra finirebbe qui. */
-    pointer-events: none;
-}
-
-.war-alert {
-    display: flex;
-    align-items: flex-start;
+.danger-log {
+    display: grid;
     gap: 10px;
-    padding: 11px 14px 12px;
-    border-radius: 10px;
-    /* Rosso cupo su pagina chiara: si legge come un allarme senza doverlo far
-       lampeggiare. Il bordo sinistro è la stessa nota di --accent (#e94560)
-       che il gioco usa già per il pericolo. */
-    background: linear-gradient(135deg, #92142a 0%, #5c0c18 100%);
-    border: 1px solid rgba(233, 69, 96, 0.5);
-    border-left: 4px solid #e94560;
-    box-shadow: 0 12px 28px rgba(70, 8, 18, 0.34);
-    color: #fdeaee;
-    animation: war-alert-entrata 340ms cubic-bezier(0.16, 0.9, 0.3, 1) both;
 }
 
-.war-alert.is-uscita {
-    animation: war-alert-uscita 320ms ease forwards;
+.danger-log .battle-card-header h3 {
+    /* Il pallino rosso lo dice prima del testo: qui dentro non ci sono
+       buone notizie. */
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
 }
 
-@keyframes war-alert-entrata {
-    from { opacity: 0; transform: translateX(26px); }
-    to   { opacity: 1; transform: translateX(0); }
-}
-
-@keyframes war-alert-uscita {
-    from { opacity: 1; transform: translateX(0); }
-    to   { opacity: 0; transform: translateX(26px); }
-}
-
-.war-alert-icona {
+.danger-log .battle-card-header h3::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #dc2626;
     flex: 0 0 auto;
-    font-size: 17px;
-    line-height: 1.25;
-    /* Respiro lento, non lampeggio: prende l'occhio anche se l'avviso compare
-       mentre si sta guardando l'altra metà dello schermo. */
-    animation: war-alert-battito 1.6s ease-in-out infinite;
 }
 
-@keyframes war-alert-battito {
-    0%, 100% { opacity: 1; }
-    50%      { opacity: 0.45; }
-}
-
-.war-alert-testo {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+.danger-log-body {
+    display: grid;
+    gap: 8px;
     min-width: 0;
 }
 
-.war-alert-titolo {
-    font-size: 10px;
-    font-weight: 800;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: #ffb9c4;
+/* ── Riga di stato: cosa è in viaggio adesso ─────────────────────
+   Sopra la cronologia perché risponde a una domanda diversa: non "cos'è
+   successo" ma "cosa mi sta arrivando addosso". Sparisce quando non c'è
+   niente in marcia, invece di restare lì a dire zero. */
+
+.danger-log-status {
+    display: none;
 }
 
-.war-alert-corpo {
-    font-size: 13px;
+.danger-log-status.is-attivo {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    padding: 7px 10px;
+    border-radius: 9px;
+    background: linear-gradient(135deg, #fff6e6 0%, #fffdf8 70%);
+    border: 1px solid #f2d8a8;
+    min-width: 0;
+}
+
+.danger-log-status-icona {
+    font-size: 0.9em;
+    flex: 0 0 auto;
+}
+
+.danger-log-status-testo {
+    font-size: 0.8em;
     font-weight: 700;
-    line-height: 1.25;
-}
-
-.war-alert-dettaglio {
-    font-size: 11.5px;
-    color: rgba(253, 234, 238, 0.74);
-    /* Un nome di legione lungo non deve allargare il riquadro. */
+    color: #7c4a06;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-/* ── Variante rifornimenti ───────────────────────────────────────
-   Ambra, non rosso: una carovana in marcia è una minaccia che arriva fra
-   qualche turno, non un pericolo adesso. Distinguerle a colpo d'occhio evita
-   che l'allarme vero si confonda con l'avviso logistico. */
-
-.war-alert.is-rifornimento {
-    background: linear-gradient(135deg, #8a5209 0%, #5a3405 100%);
-    border-color: rgba(245, 165, 36, 0.5);
-    border-left-color: #f5a524;
-    box-shadow: 0 12px 28px rgba(70, 40, 4, 0.32);
-    color: #fdf1de;
-}
-
-.war-alert.is-rifornimento .war-alert-titolo { color: #ffd9a0; }
-.war-alert.is-rifornimento .war-alert-dettaglio { color: rgba(253, 241, 222, 0.74); }
-
-/* ── Pannello permanente delle carovane ──────────────────────────
-   Resta a schermo finché l'IA ha rinforzi in viaggio. È la parte che il
-   giocatore non può perdere, quindi non si dissolve e non pulsa: sta lì.
-   Più sobrio degli avvisi proprio perché è sempre presente — se gridasse
-   in permanenza si smetterebbe di vederlo dopo due turni. */
-
-.war-convoy {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    padding: 10px 13px 11px;
-    border-radius: 10px;
-    background: linear-gradient(135deg, rgba(43, 30, 8, 0.96) 0%, rgba(26, 19, 6, 0.96) 100%);
-    border: 1px solid rgba(245, 165, 36, 0.34);
-    border-left: 4px solid #f5a524;
-    box-shadow: 0 8px 20px rgba(24, 16, 3, 0.28);
-    color: #fdf1de;
-    animation: war-alert-entrata 340ms cubic-bezier(0.16, 0.9, 0.3, 1) both;
-}
-
-.war-convoy-testa {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.war-convoy-icona { font-size: 14px; line-height: 1; }
-
-.war-convoy-titolo {
-    font-size: 10px;
-    font-weight: 800;
-    letter-spacing: 0.13em;
-    text-transform: uppercase;
-    color: #ffd9a0;
-}
-
-.war-convoy-sommario {
-    font-size: 12.5px;
+.danger-log-status-eta {
+    font-size: 0.74em;
     font-weight: 700;
-    line-height: 1.25;
+    color: #a97c3c;
+    margin-left: auto;
+    flex: 0 0 auto;
+    white-space: nowrap;
 }
 
-.war-convoy-lista {
+/* ── La cronologia ───────────────────────────────────────────────
+   Alta al massimo quanto una decina di voci e poi scorre: la barra laterale
+   ha già l'economia sopra, e una lista che cresce all'infinito spingerebbe
+   tutto fuori schermo. */
+
+.danger-log-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 5px;
+    max-height: 260px;
+    overflow-y: auto;
+    /* Arrivata in fondo, la rotellina non deve proseguire sulla pagina. */
+    overscroll-behavior: contain;
+    min-width: 0;
+}
+
+.danger-log-empty {
+    display: none;
+    margin: 0;
+    padding: 10px 2px;
+    font-size: 0.8em;
+    color: #94a3b8;
+    text-align: center;
+}
+
+.danger-log.is-vuoto .danger-log-empty { display: block; }
+.danger-log.is-vuoto .danger-log-list { display: none; }
+
+/* ── La singola voce ─────────────────────────────────────────── */
+
+.danger-entry {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 8px 7px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    border-left-width: 3px;
+    min-width: 0;
+    /* Le voci entrano dall'alto: senza, in una lista che si aggiorna da sola
+       non si capisce quale sia la riga nuova. */
+    animation: danger-entrata 300ms cubic-bezier(0.16, 0.9, 0.3, 1) both;
+}
+
+@keyframes danger-entrata {
+    from { opacity: 0; transform: translateY(-5px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.danger-entry-icona {
+    font-size: 0.88em;
+    line-height: 1.35;
+    flex: 0 0 auto;
+}
+
+.danger-entry-testo {
     display: flex;
     flex-direction: column;
     gap: 1px;
-    padding-top: 2px;
-    border-top: 1px solid rgba(245, 165, 36, 0.18);
-    margin-top: 2px;
+    min-width: 0;
+    flex: 1 1 auto;
 }
 
-.war-convoy-voce {
-    font-size: 11.5px;
-    color: rgba(253, 241, 222, 0.78);
+.danger-entry-corpo {
+    font-size: 0.8em;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+.danger-entry-dettaglio {
+    font-size: 0.73em;
+    line-height: 1.3;
+    /* Un nome di legione lungo accorcia invece di allargare la card. */
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-/* Chi ha chiesto meno animazioni non deve vedersi pulsare niente addosso. */
-@media (prefers-reduced-motion: reduce) {
-    .war-alert,
-    .war-alert.is-uscita,
-    .war-alert-icona,
-    .war-convoy {
-        animation: none;
-    }
-    .war-alert.is-uscita { opacity: 0; }
+/* Colonna del tempo, a destra: quando è successo e — se la carovana è ancora
+   per strada — fra quanti turni arriva. Fuori dal testo che si accorcia, se no
+   a barra stretta era la prima cosa a sparire sotto i puntini. */
+.danger-entry-tempo {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+    flex: 0 0 auto;
+    padding-top: 1px;
 }
 
-/* Su schermi stretti non c'è spazio per una colonna a destra: l'avviso
-   attraversa, restando comunque in alto e fuori dai piedi. */
-@media (max-width: 720px) {
-    .war-alert-zona {
-        top: 10px;
-        right: 10px;
-        left: 10px;
-        width: auto;
-    }
+.danger-entry-turno {
+    font-size: 0.68em;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    color: #94a3b8;
+    font-variant-numeric: tabular-nums;
+}
+
+.danger-entry-eta {
+    font-size: 0.68em;
+    font-weight: 800;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.danger-entry.is-partenza .danger-entry-eta { color: #b45309; }
+
+/* ── Armata nemica in campo: rosso ─────────────────────────────── */
+
+.danger-entry.is-armata {
+    background: linear-gradient(135deg, #fdf0f2 0%, #fffafb 70%);
+    border-color: #f4d0d6;
+    border-left-color: #e94560;
+}
+
+.danger-entry.is-armata .danger-entry-corpo { color: #9f1239; }
+.danger-entry.is-armata .danger-entry-dettaglio { color: #b4707f; }
+
+/* ── Rinforzi in marcia: ambra chiara ──────────────────────────── */
+
+.danger-entry.is-partenza {
+    background: linear-gradient(135deg, #fff8ea 0%, #fffdf8 70%);
+    border-color: #f2ddb6;
+    border-left-color: #f5a524;
+}
+
+.danger-entry.is-partenza .danger-entry-corpo { color: #92600b; }
+.danger-entry.is-partenza .danger-entry-dettaglio { color: #b08544; }
+
+/* Arrivata a destinazione: la voce resta, ma smette di essere un'attesa. */
+.danger-entry.is-partenza.is-conclusa {
+    background: #fdfbf6;
+    border-left-color: #e2cfa8;
+}
+
+/* ── Rinforzi consegnati: ambra piena ──────────────────────────── */
+/* Più marcata della partenza: è il momento in cui il fronte nemico è
+   davvero cresciuto, e vale più dell'annuncio di dieci turni prima. */
+
+.danger-entry.is-arrivo {
+    background: linear-gradient(135deg, #fdf0d9 0%, #fffaf0 70%);
+    border-color: #ecc98a;
+    border-left-color: #d97706;
+}
+
+.danger-entry.is-arrivo .danger-entry-corpo { color: #7c4a06; }
+.danger-entry.is-arrivo .danger-entry-dettaglio { color: #a97c3c; }
+
+/* ── Barra laterale chiusa ─────────────────────────────────────── */
+/* Il pulsante ▶ comprime la colonna: il log sparisce come l'economia,
+   restando solo il titolo compresso della card. */
+
+.battle-sidebar.collapsed .danger-log-body { display: none; }
+
+/* ── Meno animazioni ───────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+    .danger-entry { animation: none; }
 }
