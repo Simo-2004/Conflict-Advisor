@@ -627,15 +627,6 @@
             color: #444;
         }
 
-        .economy-box {
-            background: #fff8e7;
-            border: 1px solid #f3d39a;
-            border-radius: 10px;
-            padding: 12px;
-            color: #7c2d12;
-            font-weight: 600;
-        }
-
         /* ── Economia e Presidi ──────────────────────────────────────
            Era una pila di riquadri bianchi dentro un riquadro bianco: cinque
            righe di testo per lato, tutte con lo stesso peso, e nessun modo di
