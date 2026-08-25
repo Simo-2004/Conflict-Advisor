@@ -22,27 +22,10 @@
             renderGarrisonUnitSelector(sessionData);
             updateGarrisonDefensePreview(sessionData);
 
-            document.getElementById('playerGruxValue').textContent = formatGrux(sessionData.player.grux_balance);
-            document.getElementById('playerGruxSub').textContent = `Costo legione: ${formatGrux(sessionData.player.army_cost)}`;
-            document.getElementById('playerMinesInfo').textContent = `Miniere attive: ${sessionData.map.stats.player_mines} · Slot liberi: ${sessionData.player.available_mine_slots}`;
-            document.getElementById('playerFortInfo').textContent = `Fortificazioni: ${sessionData.map.stats.player_fortification_levels} livelli su ${sessionData.map.stats.player_fortified_cells} celle`;
-            document.getElementById('playerReserveInfo').textContent = `Guarnigioni disponibili: ${sessionData.player.available_garrisons}`;
-            document.getElementById('playerLegionSummary').textContent = `Unità sul campo: ${playerLegion.totalUnits} (${playerLegion.totalTypes} tipi)`;
-            document.getElementById('playerLegionMeta').textContent =
-                `Strategia: ${sessionData.player.strategy_name || sessionData.player.strategy_id}`
-                + ` · Riserva: ${describeTroopCondition(sessionData.player)}`;
-            document.getElementById('playerLegionComposition').textContent = `Composizione: ${playerLegion.compositionText}`;
-
-            document.getElementById('aiGruxValue').textContent = formatGrux(sessionData.ai.grux_balance);
-            document.getElementById('aiGruxSub').textContent = `Costo legione: ${formatGrux(sessionData.ai.army_cost)}`;
-            document.getElementById('aiMinesInfo').textContent = `Miniere attive: ${sessionData.map.stats.ai_mines} · Slot liberi: ${sessionData.ai.available_mine_slots}`;
-            document.getElementById('aiFortInfo').textContent = `Fortificazioni: ${sessionData.map.stats.ai_fortification_levels} livelli su ${sessionData.map.stats.ai_fortified_cells} celle`;
-            document.getElementById('aiReserveInfo').textContent = `Guarnigioni disponibili: ${sessionData.ai.available_garrisons}`;
-            document.getElementById('aiLegionSummary').textContent = `Unità sul campo: ${aiLegion.totalUnits} (${aiLegion.totalTypes} tipi)`;
-            document.getElementById('aiLegionMeta').textContent =
-                `Strategia: ${sessionData.ai.strategy_name || sessionData.ai.strategy_id}`
-                + ` · Riserva: ${describeTroopCondition(sessionData.ai)}`;
-            document.getElementById('aiLegionComposition').textContent = `Composizione: ${aiLegion.compositionText}`;
+            renderEconomySide('player', sessionData.player, playerLegion,
+                sessionData.map.stats.player_mines);
+            renderEconomySide('ai', sessionData.ai, aiLegion,
+                sessionData.map.stats.ai_mines);
 
             // Il pulsante riassume TUTTO l'albero, non più la sola Costruzione
             // Territoriale: quante abilità hai e cosa sta uscendo dai laboratori.
@@ -166,11 +149,7 @@
 
         function buildLegionInfo(unitIds) {
             if (!Array.isArray(unitIds) || unitIds.length === 0) {
-                return {
-                    totalUnits: 0,
-                    totalTypes: 0,
-                    compositionText: 'nessuna unità disponibile',
-                };
+                return { totalUnits: 0, totalTypes: 0, composition: [] };
             }
 
             const namesById = new Map(recruitableUnits.map(unit => [unit.id, unit.name || unit.id]));
@@ -185,12 +164,59 @@
                 return a[0].localeCompare(b[0], 'it');
             });
 
-            const parts = sorted.map(([name, count]) => `${name} x${count}`);
             return {
                 totalUnits: unitIds.length,
                 totalTypes: sorted.length,
-                compositionText: parts.join(', '),
+                composition: sorted.map(([name, count]) => ({ name, count })),
             };
+        }
+
+        // Pannello "Economia e Presidi", un lato per volta.
+        //
+        // Le fortificazioni non stanno più qui: si contano a occhio sulla mappa,
+        // e la riga "N livelli su M celle" era la meno guardata delle cinque.
+        // Quello che resta è ridotto all'osso: quanti soldi hai, cosa puoi
+        // costruire ancora, e chi hai in campo.
+        function renderEconomySide(prefix, side, legion, mines) {
+            const set = (id, text, title) => {
+                const el = document.getElementById(prefix + id);
+                if (!el) return;
+                el.textContent = text;
+                if (title !== undefined) el.title = title;
+            };
+
+            const grux = Number.isFinite(side.grux_balance) ? side.grux_balance : 0;
+            set('GruxValue', grux.toLocaleString('it-IT'),
+                `Speso finora in truppe: ${formatGrux(side.army_cost)}`);
+            // Il nome lungo viene tagliato con i puntini: nel `title` resta intero.
+            const strategia = side.strategy_name || side.strategy_id || '—';
+            set('StrategyTag', strategia, strategia);
+
+            const slot = side.available_mine_slots;
+            set('MinesInfo', `⛏ ${mines}${slot ? ` · +${slot}` : ''}`,
+                `Miniere attive: ${mines} · Slot ancora liberi: ${slot}`);
+            set('ReserveInfo', `🛡 ${side.available_garrisons}`,
+                `Guarnigioni disponibili: ${side.available_garrisons}`);
+
+            // Condizione per esteso nel tooltip: in riga sta l'etichetta, che è
+            // la parte su cui si decide qualcosa.
+            const status = side.troop_status || 'N/D';
+            set('LegionSummary',
+                legion.totalUnits ? `${legion.totalUnits} unità · ${status}` : 'Nessuna unità in campo',
+                describeTroopCondition(side));
+
+            const chips = document.getElementById(prefix + 'LegionComposition');
+            if (chips) {
+                chips.replaceChildren(...legion.composition.map(({ name, count }) => {
+                    const chip = document.createElement('span');
+                    chip.className = 'economy-chip';
+                    chip.title = `${name}: ${count}`;
+                    const n = document.createElement('b');
+                    n.textContent = count;
+                    chip.append(n, ' ', name);
+                    return chip;
+                }));
+            }
         }
 
         const TACTICAL_LEGION_TYPE_LABELS = {

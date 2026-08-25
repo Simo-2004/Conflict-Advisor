@@ -636,117 +636,199 @@
             font-weight: 600;
         }
 
+        /* ── Economia e Presidi ──────────────────────────────────────
+           Era una pila di riquadri bianchi dentro un riquadro bianco: cinque
+           righe di testo per lato, tutte con lo stesso peso, e nessun modo di
+           capire a colpo d'occhio di chi fossero. Adesso ogni lato ha la sua
+           tinta — verde il player, rosso l'IA, le stesse due tinte della mappa
+           — e una sola cosa in grande, i grux, perché è quella che decide se
+           puoi fare qualcosa questo turno. */
+
         .economy-sections {
             display: grid;
-            gap: 12px;
+            gap: 10px;
+            /* Le celle di una griglia non scendono sotto la larghezza minima del
+               loro contenuto se non glielo si dice: senza questi `min-width`, un
+               nome di strategia lungo o un numero a sei cifre allargavano la card
+               oltre la colonna e la barra laterale scorreva di lato. */
+            min-width: 0;
         }
+
+        .battle-sidebar .battle-card { min-width: 0; }
 
         .economy-side {
             border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 10px;
-            background: #f8fafc;
+            border-radius: 12px;
+            padding: 11px 12px 12px;
+            display: grid;
+            gap: 9px;
+            min-width: 0;
         }
 
+        /* Anche i figli: sono celle di griglia, e senza questo nessuno di loro
+           scende sotto la larghezza del proprio contenuto. La barra laterale si
+           può stringere col divisore fino a un quinto della finestra, e a quel
+           punto era la riga dei grux a tenere aperta la card. */
+        .economy-side > * { min-width: 0; }
+
         .economy-side.player {
-            border-left: 4px solid #16a34a;
+            border-color: #bbf0cd;
+            background: linear-gradient(150deg, #f1fbf4 0%, #ffffff 62%);
         }
 
         .economy-side.ai {
-            border-left: 4px solid #dc2626;
+            border-color: #f6cccc;
+            background: linear-gradient(150deg, #fef4f4 0%, #ffffff 62%);
         }
 
-        .economy-side-title {
-            margin: 0 0 8px;
-            font-size: 0.92em;
+        /* ── Intestazione: chi e con che strategia ─────────────── */
+
+        .economy-side-head {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 8px;
+            min-width: 0;
+        }
+
+        .economy-side-name {
+            flex: 0 0 auto;
+            font-size: 0.78em;
             font-weight: 800;
-            color: #0f172a;
-            letter-spacing: 0.01em;
-        }
-
-        .economy-kpi {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 2px;
-            margin-bottom: 8px;
-            padding: 9px 10px;
-            border-radius: 10px;
-            background: #fff;
-            border: 1px solid #e2e8f0;
-        }
-
-        .economy-kpi-label {
-            font-size: 0.73em;
-            color: #64748b;
-            font-weight: 700;
+            letter-spacing: 0.12em;
             text-transform: uppercase;
-            letter-spacing: 0.04em;
-        }
-
-        .economy-kpi-value {
-            font-size: 1.25em;
-            font-weight: 800;
-            color: #7c2d12;
-        }
-
-        .economy-kpi-sub {
-            font-size: 0.8em;
-            color: #475569;
-            font-weight: 600;
-        }
-
-        .economy-metrics {
-            display: grid;
+            display: inline-flex;
+            align-items: center;
             gap: 6px;
-            margin-bottom: 9px;
         }
 
-        .economy-metric {
+        /* Il pallino colorato fa il lavoro che prima faceva il bordo spesso a
+           sinistra, senza rubare spazio orizzontale. */
+        .economy-side-name::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex: 0 0 auto;
+        }
+
+        .economy-side.player .economy-side-name { color: #15803d; }
+        .economy-side.player .economy-side-name::before { background: #16a34a; }
+        .economy-side.ai .economy-side-name { color: #b91c1c; }
+        .economy-side.ai .economy-side-name::before { background: #dc2626; }
+
+        .economy-side-strategy {
+            font-size: 0.78em;
+            font-weight: 700;
+            color: #64748b;
+            text-align: right;
+            /* Un nome di strategia lungo non deve spingere il pallino a capo. */
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* ── La riga dei soldi ────────────────────────────────── */
+
+        .economy-hero {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            /* Se la colonna si stringe — la si può ridimensionare col divisore —
+               le pillole scendono sotto il numero invece di sfondare la card. */
+            flex-wrap: wrap;
+            gap: 6px 10px;
+            padding: 8px 10px;
+            border-radius: 10px;
+            background: #fffdf6;
+            border: 1px solid #f0e3c4;
+        }
+
+        .economy-hero-grux {
+            display: flex;
+            align-items: baseline;
+            flex-wrap: wrap;
+            gap: 0 4px;
+            min-width: 0;
+        }
+
+        .economy-hero-value {
+            font-size: 1.45em;
+            font-weight: 800;
+            color: #92400e;
+            line-height: 1.05;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .economy-hero-unit {
+            font-size: 0.72em;
+            font-weight: 700;
+            color: #b08544;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+
+        .economy-hero-stats {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+
+        /* Miniere e guarnigioni: due numeri, non due frasi. Il testo per esteso
+           sta nel `title`, che è dove serve solo la prima volta. */
+        .economy-stat {
+            font-size: 0.8em;
+            font-weight: 700;
+            color: #475569;
+            background: #fff;
+            border: 1px solid #e6ecf4;
+            border-radius: 999px;
+            padding: 3px 8px;
+            white-space: nowrap;
+            cursor: help;
+        }
+
+        /* ── Truppe in campo ──────────────────────────────────── */
+
+        .economy-troops {
             margin: 0;
             font-size: 0.86em;
+            font-weight: 700;
+            color: #1e293b;
+            cursor: help;
+        }
+
+        .economy-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
+        .economy-chips:empty { display: none; }
+
+        .economy-chip {
+            font-size: 0.76em;
+            font-weight: 600;
             color: #334155;
             background: #fff;
             border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 6px 8px;
-            font-weight: 600;
+            border-radius: 6px;
+            padding: 2px 7px;
+            white-space: nowrap;
+            /* Un nome d'unità lunghissimo si accorcia invece di allargare tutto. */
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
-        .legion-box {
-            background: #ffffff;
-            border: 1px solid #dbe3ef;
-            border-radius: 10px;
-            padding: 8px;
-        }
-
-        .legion-title {
-            margin: 0 0 4px;
-            font-size: 0.8em;
+        .economy-chip b {
             font-weight: 800;
-            color: #1e293b;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-        }
-
-        .legion-summary,
-        .legion-meta,
-        .legion-composition {
-            margin: 0;
-            font-size: 0.82em;
-            color: #334155;
-            line-height: 1.35;
-        }
-
-        .legion-meta {
-            color: #475569;
-            margin-top: 3px;
-        }
-
-        .legion-composition {
             color: #0f172a;
-            margin-top: 4px;
-            font-weight: 600;
         }
+
+        .economy-side.player .economy-chip { border-color: #d6f0e0; }
+        .economy-side.ai .economy-chip { border-color: #f6dada; }
 
         .recruit-row {
             display: flex;
