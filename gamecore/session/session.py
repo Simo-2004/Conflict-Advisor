@@ -160,6 +160,14 @@ MAX_LEGIONS_PER_SIDE = 4
 # acceso all'infinito.
 AUTO_RECRUIT_MAX_WAIT = 8
 
+# Terreni che le legioni non attraversano. Il fiume era già trattato come
+# invalicabile dalle celle di schieramento, dalla pianificazione dell'IA e dal
+# percorso disegnato sulla mappa — ma NON dal movimento vero, che guardava solo
+# le legioni alleate e il castello nemico. Risultato: le legioni camminavano
+# sull'acqua, e il segnalino mostrava una strada diversa da quella percorsa.
+# Con un fiume centrale e pochi guadi la differenza è tutta la mappa.
+TERRENI_INVALICABILI = ("Fiume",)
+
 # ── Reclutamento IA ────────────────────────────────────────────────
 # Prima l'IA sceglieva la recluta con una somma fissa di cinque attributi:
 # una funzione costante, quindi il massimo era sempre la stessa truppa e
@@ -512,6 +520,10 @@ class GameSession:
             viste.add(pos)
             if cell.occupation == PLAYER:
                 continue
+            # Sul fiume non ci si arriva, quindi non lo si conquista: tenerlo
+            # in coda avrebbe fatto girare la legione a vuoto per sempre.
+            if cell.terrain in TERRENI_INVALICABILI:
+                continue
             pulite.append(pos)
 
         if len(pulite) > CAPTURE_AREA_MAX_CELLS:
@@ -544,6 +556,11 @@ class GameSession:
             )
         if capture_area and not area:
             raise ValueError("Nell'area selezionata non c'è niente da conquistare: è già tua.")
+
+        if target is not None:
+            self._rifiuta_destinazione_impraticabile(
+                (int(target[0]), int(target[1]))
+            )
 
         if len(self.player_legions) >= MAX_LEGIONS_PER_SIDE:
             raise ValueError(
@@ -679,6 +696,7 @@ class GameSession:
         target = (int(target[0]), int(target[1]))
         if self.game_map.get_cell(*target) is None:
             raise ValueError("Cella di destinazione fuori dai limiti della mappa.")
+        self._rifiuta_destinazione_impraticabile(target)
 
         legion["target"] = target
         # Una destinazione annulla l'ordine di cattura: sono due ordini diversi
@@ -1135,7 +1153,7 @@ class GameSession:
             for neighbor in ((r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)):
                 if neighbor in visited or neighbor in blocked:
                     continue
-                if self.game_map.get_cell(*neighbor) is None:
+                if not self._cella_attraversabile(neighbor):
                     continue
                 visited.add(neighbor)
                 queue.append((neighbor, dist + 1))
@@ -1234,8 +1252,15 @@ class GameSession:
 
         Le celle bloccate non si attraversano; il traguardo invece è sempre
         raggiungibile, anche se occupato — chi ci arriva ci combatte.
+
+        L'eccezione è il terreno impraticabile: una meta in mezzo al fiume non
+        vale nemmeno come traguardo, se no la legione ci camminava dentro
+        proprio perché era la destinazione. Con la mappa vuota il chiamante
+        ripiega sulla cella utile più vicina, che è il comportamento giusto.
         """
         rows, cols = self.game_map.rows, self.game_map.cols
+        if not self._cella_attraversabile(goal):
+            return {}
         distance: Dict[Tuple[int, int], int] = {goal: 0}
         queue = deque([goal])
         while queue:
@@ -1246,6 +1271,8 @@ class GameSession:
                 if not (0 <= nr < rows and 0 <= nc < cols):
                     continue
                 if neighbor in distance or neighbor in blocked:
+                    continue
+                if not self._cella_attraversabile(neighbor):
                     continue
                 distance[neighbor] = step
                 queue.append(neighbor)
@@ -2550,6 +2577,55 @@ class GameSession:
     def _order_distance(a: Tuple[int, int], b: Tuple[int, int]) -> int:
         return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
+    def _rifiuta_destinazione_impraticabile(self, pos: Tuple[int, int]) -> None:
+        """Alza un errore se la meta è su un terreno che nessuno può calpestare.
+
+        Senza questo la legione accettava l'ordine e poi ripiegava in silenzio
+        sulla cella più vicina: dal pannello sembrava che ignorasse il comando.
+        """
+        cella = self.game_map.get_cell(*pos)
+        if cella is not None and cella.terrain in TERRENI_INVALICABILI:
+            raise ValueError(
+                f"Le legioni non attraversano il {cella.terrain.lower()}: "
+                f"la cella {pos} non può essere una destinazione. "
+                f"Punta un guado o la sponda."
+            )
+
+    def _cella_attraversabile(self, pos: Tuple[int, int]) -> bool:
+        """Una legione può passare di qui?
+
+        Fuori mappa no, e nemmeno sui terreni invalicabili: è il controllo che
+        rende i guadi del fiume delle vere strettoie invece che decorazione.
+        """
+        cella = self.game_map.get_cell(*pos)
+        return cella is not None and cella.terrain not in TERRENI_INVALICABILI
+
+    def _meta_praticabile(self, pos: Tuple[int, int]) -> Tuple[int, int]:
+        """La meta più vicina a `pos` su cui si possa davvero mettere piede.
+
+        L'IA sceglie i suoi obiettivi con la dottrina, che ragiona di corsie e
+        di distanze e ogni tanto punta una cella d'acqua. Invece di rifiutare
+        l'ordine — l'IA non ha nessuno a cui dirlo — lo si sposta sulla sponda
+        più vicina.
+        """
+        pos = tuple(pos)
+        if self._cella_attraversabile(pos):
+            return pos
+        visitate = {pos}
+        coda = deque([pos])
+        while coda:
+            r, c = coda.popleft()
+            for vicino in ((r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)):
+                if vicino in visitate:
+                    continue
+                if self.game_map.get_cell(*vicino) is None:
+                    continue
+                if self._cella_attraversabile(vicino):
+                    return vicino
+                visitate.add(vicino)
+                coda.append(vicino)
+        return pos
+
     def execute_turn(self) -> dict:
         """Avanza il turno di tutte le legioni e risolve i conflitti."""
         if self.state != SessionState.ACTIVE:
@@ -2663,6 +2739,9 @@ class GameSession:
                         continue
                     if plan.target is not None:
                         target_pos = tuple(plan.target)
+                    # La dottrina ragiona di corsie e distanze, non di terreno:
+                    # ogni tanto punta una cella di fiume. Si sposta sulla sponda.
+                    target_pos = self._meta_praticabile(target_pos)
 
                     lock_until = int(legion.get("target_lock_until", 0) or 0)
                     existing_target_raw = legion.get("target")

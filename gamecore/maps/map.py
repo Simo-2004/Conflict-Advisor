@@ -30,6 +30,51 @@ NEUTRAL = Occupation.NEUTRAL
 DEFAULT_ROWS: int = 14
 DEFAULT_COLS: int = 16
 
+# ══════════════════════════════════════════════════════════════════
+# COMPOSIZIONE DELLA MAPPA
+#
+# Prima le montagne si dipingevano solo nelle prime righe, con densità 0.82:
+# il castello IA nasceva dentro una catena montuosa (misurato: 76% di montagna
+# sulla riga 0) e quello del giocatore in mezzo alla pianura (90%). Non era il
+# seme, era una regola fissa — e regalava a un lato un muro che l'altro non
+# aveva. Dalla riga 7 in giù non c'era una montagna in nessuna partita.
+#
+# Adesso valgono tre regole, e le manopole sono queste.
+# ══════════════════════════════════════════════════════════════════
+
+# ── Fiume ──────────────────────────────────────────────────────────
+# Uno solo, orizzontale, in mezzo. Il fiume è INVALICABILE (le legioni non
+# entrano nelle sue celle): senza guadi taglierebbe la mappa in due e nessuno
+# raggiungerebbe più l'altro castello. I guadi sono le posizioni chiave della
+# partita, ed è il motivo per cui sono pochi.
+RIVER_BAND = 2                  # righe di scarto concesse dalla riga centrale
+RIVER_FORDS = (2, 3)            # quanti guadi lascia aperti
+RIVER_MEANDER_CHANCE = 0.30     # quanto spesso il corso si sposta di una riga
+RIVER_MIN_FORD_GAP = 3          # colonne minime fra un guado e l'altro
+RIVER_FORD_EDGE_MARGIN = 2      # niente guadi a ridosso dei bordi della mappa
+
+# ── Montagne ───────────────────────────────────────────────────────
+# A grappoli, più probabili al centro ma possibili ovunque: il peso dipende
+# solo dalla distanza dalla riga centrale, quindi le due metà ricevono la
+# stessa quantità senza doverla imporre.
+MOUNTAIN_CLUSTERS = (5, 9)
+MOUNTAIN_CENTER_BIAS = 1.7      # più alto = più concentrate al centro
+MOUNTAIN_EDGE_FLOOR = 0.10      # probabilità residua ai bordi: mai zero
+MOUNTAIN_FILL = 0.68            # quanto è pieno un grappolo
+
+# ── Foreste e paludi ───────────────────────────────────────────────
+FOREST_CLUSTERS = (7, 11)
+FOREST_FILL = 0.70
+SWAMP_NEAR_RIVER = 0.26         # acquitrini sulle sponde
+SWAMP_CLUSTERS = (1, 3)         # e qualche pantano lontano dall'acqua
+SWAMP_FILL = 0.55
+
+# ── Castelli ───────────────────────────────────────────────────────
+# L'anello attorno a ogni castello resta praticabile, uguale per i due lati:
+# niente montagne che rallentano l'uscita, niente fiume che la chiude.
+CASTLE_CLEAR_RADIUS = 1
+CASTLE_CLEAR_TERRAINS = ("Pianura", "Foresta")
+
 
 # ──────────────────────────────────────────────────────────
 # FUNZIONE DI SCORING (indipendente dalla classe)
@@ -121,110 +166,155 @@ class GameMap:
     # ──────────────────────────────────────────────────────────
 
     def _generate_map(self, seed: Optional[int]) -> None:
-        """
-                Genera la griglia con distribuzione procedurale bilanciata:
+        """Genera la griglia.
 
-                    - Pattern principali casuali (fiumi/foreste) per evitare mappe ripetitive.
-                    - Distribuzione con limiti min/max per ciascun bioma.
-                    - Garanzia presenza di tutti i terreni disponibili.
-                    - Nessuna mappa mono-bioma o quasi tutta Fiume.
+        L'ordine conta: il fiume passa sopra le montagne, le paludi nascono
+        sulle sue sponde, e le ultime due passate sono garanzie — l'anello
+        libero attorno ai castelli e il controllo che i due castelli si
+        raggiungano davvero.
         """
         rng = random.Random(seed)
 
-        # 1. Inizializza tutto a Pianura
         self.grid = [
             [Cell(row=r, col=c, terrain="Pianura") for c in range(self.cols)]
             for r in range(self.rows)
         ]
 
-        self._paint_mountain_bands(rng)
-        river_cells = self._paint_river_pattern(rng)
-        self._paint_swamps_near_rivers(rng, river_cells)
-        self._paint_forest_clusters(rng)
+        self._paint_mountains(rng)
+        river_cells = self._paint_river(rng)
+        self._paint_swamps(rng, river_cells)
+        self._paint_forests(rng)
         self._rebalance_terrain_distribution(rng)
         self._ensure_all_terrains_present(rng)
-
-        # 6. Marchia le celle strategiche
+        self._clear_castle_rings(rng)
+        self._ensure_castles_connected(rng)
         self._mark_strategic_cells(rng)
 
-    def _paint_mountain_bands(self, rng: random.Random) -> None:
-        """Crea catene montuose principali a nord e rilievi laterali sparsi."""
-        north_depth = max(2, self.rows // 4)
-        for r in range(north_depth):
-            density = 0.82 - (r * 0.16)
-            for c in range(self.cols):
-                if rng.random() < density:
-                    self.grid[r][c].terrain = "Montagna"
+    # ──────────────────────────────────────────────────────────
+    # PITTURA DEI BIOMI
+    # ──────────────────────────────────────────────────────────
 
-        for r in range(north_depth, max(north_depth + 1, self.rows // 2)):
-            for c in [0, 1, self.cols - 2, self.cols - 1]:
-                if 0 <= c < self.cols and rng.random() < 0.26:
-                    self.grid[r][c].terrain = "Montagna"
+    def _castle_cells(self) -> List[Tuple[int, int]]:
+        """Dove finiranno i due castelli.
 
-    def _paint_river_pattern(self, rng: random.Random) -> List[Tuple[int, int]]:
-        """Disegna fiumi con pattern variabili ma controllati."""
-        pattern = rng.choice(["double_horizontal", "meander", "broken_vertical"])
-        river_cells: set[Tuple[int, int]] = set()
+        `_place_armies` gira dopo la generazione, quindi qui le posizioni si
+        ricavano dalla stessa formula: sono fisse per costruzione.
+        """
+        return [(self.rows - 1, self.cols // 2), (0, self.cols // 2)]
 
-        def add_river_cell(row: int, col: int) -> None:
-            if 0 <= row < self.rows and 0 <= col < self.cols:
-                self.grid[row][col].terrain = "Fiume"
-                river_cells.add((row, col))
+    def _castle_ring(self) -> set:
+        """Le celle da tenere praticabili: i castelli e quello che li circonda."""
+        anello = set()
+        for cr, cc in self._castle_cells():
+            for dr in range(-CASTLE_CLEAR_RADIUS, CASTLE_CLEAR_RADIUS + 1):
+                for dc in range(-CASTLE_CLEAR_RADIUS, CASTLE_CLEAR_RADIUS + 1):
+                    r, c = cr + dr, cc + dc
+                    if 0 <= r < self.rows and 0 <= c < self.cols:
+                        anello.add((r, c))
+        return anello
 
-        if pattern == "double_horizontal":
-            rows = [self.rows // 3, (self.rows * 2) // 3]
-            for base_row in rows:
-                wobble = rng.randint(-1, 1)
-                rr = min(self.rows - 2, max(1, base_row + wobble))
-                for c in range(self.cols):
-                    if rng.random() < 0.88:
-                        add_river_cell(rr, c)
-                for _ in range(max(2, self.cols // 8)):
-                    add_river_cell(rr + rng.choice([-1, 1]), rng.randrange(self.cols))
+    def _row_center_weights(self) -> List[float]:
+        """Peso di ogni riga in funzione di quanto è centrale.
 
-        elif pattern == "meander":
-            row = self.rows // 2 + rng.randint(-1, 1)
-            for col in range(self.cols):
-                add_river_cell(row, col)
-                if rng.random() < 0.34:
-                    row += rng.choice([-1, 1])
-                row = min(self.rows - 2, max(1, row))
-                if rng.random() < 0.22:
-                    add_river_cell(row + rng.choice([-1, 1]), col)
+        Simmetrico per costruzione — dipende solo da |riga - centro| — quindi
+        metà nord e metà sud ricevono la stessa quantità di montagna senza che
+        nessuno debba imporlo.
+        """
+        centro = (self.rows - 1) / 2.0
+        pesi = []
+        for r in range(self.rows):
+            distanza = abs(r - centro) / max(1e-9, centro)
+            pesi.append(((1.0 - distanza) ** MOUNTAIN_CENTER_BIAS) + MOUNTAIN_EDGE_FLOOR)
+        return pesi
 
-            # secondo corso ridotto per evitare mono-pattern
-            row2 = (self.rows // 3) if row > self.rows // 2 else (self.rows * 2) // 3
-            for col in range(0, self.cols, 2):
-                if rng.random() < 0.75:
-                    add_river_cell(min(self.rows - 2, max(1, row2 + rng.randint(-1, 1))), col)
+    def _paint_mountains(self, rng: random.Random) -> None:
+        """Rilievi a grappoli, più fitti verso il centro della mappa."""
+        righe = list(range(self.rows))
+        pesi = self._row_center_weights()
+        for _ in range(rng.randint(*MOUNTAIN_CLUSTERS)):
+            seed_r = rng.choices(righe, weights=pesi, k=1)[0]
+            seed_c = rng.randrange(self.cols)
+            raggio_r = rng.randint(1, 2)
+            raggio_c = rng.randint(1, 3)
+            for dr in range(-raggio_r, raggio_r + 1):
+                for dc in range(-raggio_c, raggio_c + 1):
+                    r, c = seed_r + dr, seed_c + dc
+                    if 0 <= r < self.rows and 0 <= c < self.cols:
+                        if rng.random() < MOUNTAIN_FILL:
+                            self.grid[r][c].terrain = "Montagna"
 
-        else:  # broken_vertical
-            base_col = self.cols // 2 + rng.randint(-2, 2)
-            for row in range(self.rows):
-                current_col = min(self.cols - 2, max(1, base_col + rng.randint(-2, 2)))
-                if rng.random() < 0.82:
-                    add_river_cell(row, current_col)
-                if rng.random() < 0.45:
-                    add_river_cell(row, current_col + rng.choice([-1, 1]))
+    def _scegli_guadi(self, rng: random.Random) -> set:
+        """Le colonne in cui il fiume si interrompe, distanziate fra loro.
 
-            # ramo trasversale centrale
-            branch_row = self.rows // 2 + rng.randint(-1, 1)
-            for col in range(self.cols):
-                if rng.random() < 0.48:
-                    add_river_cell(branch_row, col)
+        Mai a ridosso del bordo: un guado in penultima colonna lascerebbe
+        l'ultima cella d'acqua staccata dal resto — una pozza, non un fiume —
+        e regalerebbe un passaggio di lato che nessuno nota.
+        """
+        primo = min(RIVER_FORD_EDGE_MARGIN, max(0, (self.cols - 1) // 2))
+        ultimo = max(primo, self.cols - 1 - RIVER_FORD_EDGE_MARGIN)
+        quanti = rng.randint(*RIVER_FORDS)
+        guadi: List[int] = []
+        for _ in range(quanti * 20):
+            if len(guadi) >= quanti:
+                break
+            colonna = rng.randint(primo, ultimo)
+            if all(abs(colonna - g) >= RIVER_MIN_FORD_GAP for g in guadi):
+                guadi.append(colonna)
+        if not guadi:                       # sorteggio sfortunato: uno serve
+            guadi.append(rng.randint(primo, ultimo))
+        return set(guadi)
 
-        # Evita eccesso fiumi: massimo 22% della mappa
-        max_river_cells = int(self.rows * self.cols * 0.22)
-        if len(river_cells) > max_river_cells:
-            to_remove = rng.sample(list(river_cells), len(river_cells) - max_river_cells)
-            for r, c in to_remove:
-                self.grid[r][c].terrain = "Pianura"
-                river_cells.discard((r, c))
+    def _paint_river(self, rng: random.Random) -> List[Tuple[int, int]]:
+        """Un fiume solo: orizzontale, in mezzo, con due o tre guadi.
 
-        return list(river_cells)
+        Serpeggia di una riga alla volta restando nella fascia centrale, così
+        è riconoscibile a colpo d'occhio senza essere una linea dritta.
+        """
+        # Con un numero pari di righe il centro cade fra due: si sorteggia
+        # quale delle due, se no il fiume nasce sempre mezza riga più vicino
+        # a un castello che all'altro.
+        centro_alto = (self.rows - 1) // 2
+        centro_basso = self.rows // 2
+        riga = rng.choice((centro_alto, centro_basso)) + rng.randint(-1, 1)
+        banda_min = centro_alto - RIVER_BAND
+        banda_max = centro_basso + RIVER_BAND
+        guadi = self._scegli_guadi(rng)
+        celle: List[Tuple[int, int]] = []
 
-    def _paint_swamps_near_rivers(self, rng: random.Random, river_cells: List[Tuple[int, int]]) -> None:
-        """Genera paludi in prossimità dei fiumi con densità moderata."""
+        for c in range(self.cols):
+            riga = min(banda_max, max(banda_min, riga))
+            if c not in guadi:
+                self.grid[riga][c].terrain = "Fiume"
+                celle.append((riga, c))
+            if rng.random() < RIVER_MEANDER_CHANCE:
+                riga += rng.choice([-1, 1])
+
+        return self._asciuga_pozze(celle)
+
+    def _asciuga_pozze(self, celle: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+        """Toglie le celle d'acqua rimaste sole: sono pozze, non fiume.
+
+        Rete di sicurezza per qualunque combinazione di guadi e meandri lasci
+        un frammento staccato dal corso principale.
+        """
+        rimaste = set(celle)
+        cambiato = True
+        while cambiato:
+            cambiato = False
+            for r, c in list(rimaste):
+                vicine = {
+                    (r + dr, c + dc)
+                    for dr in (-1, 0, 1) for dc in (-1, 0, 1)
+                    if (dr, dc) != (0, 0)
+                }
+                if not (vicine & rimaste):
+                    rimaste.discard((r, c))
+                    self.grid[r][c].terrain = "Pianura"
+                    cambiato = True
+        return sorted(rimaste)
+
+    def _paint_swamps(self, rng: random.Random, river_cells: List[Tuple[int, int]]) -> None:
+        """Acquitrini sulle sponde, e qualche pantano anche lontano dall'acqua."""
         for rr, cc in river_cells:
             for dr in (-1, 0, 1):
                 for dc in (-1, 0, 1):
@@ -232,28 +322,101 @@ class GameMap:
                         continue
                     r, c = rr + dr, cc + dc
                     if 0 <= r < self.rows and 0 <= c < self.cols:
-                        cell = self.grid[r][c]
-                        if cell.terrain == "Pianura" and rng.random() < 0.24:
-                            cell.terrain = "Palude"
+                        cella = self.grid[r][c]
+                        if cella.terrain == "Pianura" and rng.random() < SWAMP_NEAR_RIVER:
+                            cella.terrain = "Palude"
 
-    def _paint_forest_clusters(self, rng: random.Random) -> None:
-        """Crea cluster forestali in zone centrali e diagonali per varietà tattica."""
-        clusters = rng.randint(7, 11)
-        center_min = self.rows // 5
-        center_max = (self.rows * 4) // 5
-
-        for _ in range(clusters):
-            seed_r = rng.randint(center_min, center_max)
-            seed_c = rng.randint(1, self.cols - 2)
-            radius_r = rng.randint(1, 2)
-            radius_c = rng.randint(1, 3)
-            for dr in range(-radius_r, radius_r + 1):
-                for dc in range(-radius_c, radius_c + 1):
+        for _ in range(rng.randint(*SWAMP_CLUSTERS)):
+            seed_r = rng.randrange(self.rows)
+            seed_c = rng.randrange(self.cols)
+            for dr in (-1, 0, 1):
+                for dc in (-1, 0, 1):
                     r, c = seed_r + dr, seed_c + dc
                     if 0 <= r < self.rows and 0 <= c < self.cols:
-                        cell = self.grid[r][c]
-                        if cell.terrain == "Pianura" and rng.random() < 0.72:
-                            cell.terrain = "Foresta"
+                        cella = self.grid[r][c]
+                        if cella.terrain == "Pianura" and rng.random() < SWAMP_FILL:
+                            cella.terrain = "Palude"
+
+    def _paint_forests(self, rng: random.Random) -> None:
+        """Boschi a grappoli, su tutta la mappa.
+
+        Prima stavano solo nella fascia centrale: era un'altra regola fissa
+        che rendeva le due metà diverse.
+        """
+        for _ in range(rng.randint(*FOREST_CLUSTERS)):
+            seed_r = rng.randrange(self.rows)
+            seed_c = rng.randrange(self.cols)
+            raggio_r = rng.randint(1, 2)
+            raggio_c = rng.randint(1, 3)
+            for dr in range(-raggio_r, raggio_r + 1):
+                for dc in range(-raggio_c, raggio_c + 1):
+                    r, c = seed_r + dr, seed_c + dc
+                    if 0 <= r < self.rows and 0 <= c < self.cols:
+                        cella = self.grid[r][c]
+                        if cella.terrain == "Pianura" and rng.random() < FOREST_FILL:
+                            cella.terrain = "Foresta"
+
+    # ──────────────────────────────────────────────────────────
+    # GARANZIE
+    # ──────────────────────────────────────────────────────────
+
+    def _clear_castle_rings(self, rng: random.Random) -> None:
+        """Attorno ai due castelli solo terreno praticabile, alle stesse condizioni.
+
+        È la regola che impedisce il ritorno del vecchio squilibrio: nessuno
+        dei due si sveglia con una catena montuosa in cortile e l'altro no.
+        """
+        for r, c in self._castle_ring():
+            cella = self.grid[r][c]
+            if cella.terrain in CASTLE_CLEAR_TERRAINS:
+                continue
+            cella.terrain = "Foresta" if rng.random() < 0.25 else "Pianura"
+
+    def _percorso_esiste(self, partenza: Tuple[int, int], arrivo: Tuple[int, int]) -> bool:
+        """Si va da una cella all'altra senza attraversare il fiume?"""
+        if partenza == arrivo:
+            return True
+        visitate = {partenza}
+        coda = [partenza]
+        while coda:
+            r, c = coda.pop()
+            for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                nr, nc = r + dr, c + dc
+                if not (0 <= nr < self.rows and 0 <= nc < self.cols):
+                    continue
+                if (nr, nc) in visitate:
+                    continue
+                if self.grid[nr][nc].terrain == "Fiume":
+                    continue
+                if (nr, nc) == arrivo:
+                    return True
+                visitate.add((nr, nc))
+                coda.append((nr, nc))
+        return False
+
+    def _ensure_castles_connected(self, rng: random.Random) -> None:
+        """Se il fiume ha chiuso la mappa, apre un varco.
+
+        Il fiume è invalicabile: un sorteggio sfortunato — o una passata di
+        ribilanciamento — potrebbe sigillare il corso e rendere la partita
+        ingiocabile. Qui si controlla e, se serve, si toglie l'acqua da una
+        colonna intera.
+        """
+        sud, nord = self._castle_cells()
+        if self._percorso_esiste(sud, nord):
+            return
+
+        colonne = list(range(self.cols))
+        rng.shuffle(colonne)
+        for colonna in colonne:
+            tolte = [
+                (r, colonna) for r in range(self.rows)
+                if self.grid[r][colonna].terrain == "Fiume"
+            ]
+            for r, c in tolte:
+                self.grid[r][c].terrain = "Pianura"
+            if self._percorso_esiste(sud, nord):
+                return
 
     def _count_terrains(self) -> Dict[str, int]:
         counts = {terrain: 0 for terrain in TERRAIN_TYPES}
@@ -262,33 +425,49 @@ class GameMap:
                 counts[cell.terrain] += 1
         return counts
 
-    def _random_cells_of_terrain(self, terrain: str, rng: random.Random) -> List[Tuple[int, int]]:
+    def _random_cells_of_terrain(
+        self,
+        terrain: str,
+        rng: random.Random,
+        escluse: Optional[set] = None,
+    ) -> List[Tuple[int, int]]:
+        """Celle di quel terreno, mescolate. `escluse` protegge chi non va toccato."""
+        vietate = escluse or set()
         coords = [
             (cell.row, cell.col)
             for row in self.grid
             for cell in row
-            if cell.terrain == terrain and not cell.is_castle
+            if cell.terrain == terrain
+            and not cell.is_castle
+            and (cell.row, cell.col) not in vietate
         ]
         rng.shuffle(coords)
         return coords
 
     def _rebalance_terrain_distribution(self, rng: random.Random) -> None:
-        """Ribilancia i biomi per evitare mappe estreme e mantenere varietà."""
+        """Ribilancia i biomi per evitare mappe estreme e mantenere varietà.
+
+        Il Fiume resta fuori da questa passata: è disegnato una volta sola,
+        orizzontale e con i suoi guadi, e spostarne le celle a caso avrebbe
+        rimesso pozze d'acqua sparse in giro. Le sue soglie sono larghe apposta,
+        così né il taglio né il riempimento lo toccano mai.
+        """
         total = self.rows * self.cols
         min_ratio = {
             "Pianura": 0.22,
             "Foresta": 0.11,
             "Montagna": 0.09,
-            "Fiume": 0.06,
+            "Fiume": 0.03,
             "Palude": 0.06,
         }
         max_ratio = {
             "Pianura": 0.62,
             "Foresta": 0.34,
             "Montagna": 0.30,
-            "Fiume": 0.22,
+            "Fiume": 0.16,
             "Palude": 0.20,
         }
+        protette = self._castle_ring()
 
         min_counts = {k: max(1, int(total * v)) for k, v in min_ratio.items()}
         max_counts = {k: max(min_counts[k], int(total * v)) for k, v in max_ratio.items()}
@@ -296,9 +475,9 @@ class GameMap:
         counts = self._count_terrains()
 
         # Riduci eccessi riconvertendo in Pianura
-        for terrain in ("Fiume", "Palude", "Montagna", "Foresta"):
+        for terrain in ("Palude", "Montagna", "Foresta"):
             while counts[terrain] > max_counts[terrain]:
-                candidates = self._random_cells_of_terrain(terrain, rng)
+                candidates = self._random_cells_of_terrain(terrain, rng, protette)
                 if not candidates:
                     break
                 r, c = candidates[0]
@@ -307,11 +486,11 @@ class GameMap:
                 counts["Pianura"] += 1
 
         # Colma carenze attingendo da Pianura (o Foresta come fallback)
-        for terrain in ("Montagna", "Foresta", "Fiume", "Palude"):
+        for terrain in ("Montagna", "Foresta", "Palude"):
             while counts[terrain] < min_counts[terrain]:
-                donors = self._random_cells_of_terrain("Pianura", rng)
+                donors = self._random_cells_of_terrain("Pianura", rng, protette)
                 if not donors:
-                    donors = self._random_cells_of_terrain("Foresta", rng)
+                    donors = self._random_cells_of_terrain("Foresta", rng, protette)
                 if not donors:
                     break
                 r, c = donors[0]
@@ -325,7 +504,7 @@ class GameMap:
             donors = []
             for terrain in ("Foresta", "Palude", "Montagna"):
                 if counts[terrain] > min_counts[terrain]:
-                    donors.extend(self._random_cells_of_terrain(terrain, rng))
+                    donors.extend(self._random_cells_of_terrain(terrain, rng, protette))
             if not donors:
                 break
             r, c = donors[0]
@@ -341,13 +520,14 @@ class GameMap:
             if counts.get(terrain, 0) > 0:
                 continue
 
-            donors = self._random_cells_of_terrain("Pianura", rng)
+            protette = self._castle_ring()
+            donors = self._random_cells_of_terrain("Pianura", rng, protette)
             if not donors:
                 donors = [
                     (cell.row, cell.col)
                     for row in self.grid
                     for cell in row
-                    if not cell.is_castle
+                    if not cell.is_castle and (cell.row, cell.col) not in protette
                 ]
                 rng.shuffle(donors)
             if not donors:
