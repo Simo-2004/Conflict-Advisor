@@ -285,6 +285,14 @@ class NightmareAIDifficultyPolicy:
         # Non salta mai una miniera disponibile.
         return min(2, max(0, available_slots))
 
+    def recruit_sharpness(self) -> float:
+        """Compra la truppa giusta per il terreno e per la sua strategia.
+
+        Le altre difficoltà lasciano margine all'errore, questa no: è il
+        profilo che deve far pesare ogni grux.
+        """
+        return 12.0
+
     def should_recruit(self, *, grux_balance: int, turn: int) -> bool:
         return True
 

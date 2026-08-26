@@ -160,6 +160,28 @@ MAX_LEGIONS_PER_SIDE = 4
 # acceso all'infinito.
 AUTO_RECRUIT_MAX_WAIT = 8
 
+# ── Reclutamento IA ────────────────────────────────────────────────
+# Prima l'IA sceglieva la recluta con una somma fissa di cinque attributi:
+# una funzione costante, quindi il massimo era sempre la stessa truppa e
+# l'esercito diventava mono-tipo (misurato: 90% arcieri a fine partita).
+# Adesso il punteggio guarda tre cose, e queste sono le loro manopole.
+#
+# VARIETA:  quanto penalizza una truppa di cui l'IA è già piena.
+#           0 = nessun freno, 1 = una truppa al 100% vale zero.
+# PREZZO:   quanto conta il costo. 0 = lo ignora, 1 = ragiona a valore/grux.
+# STRATEGIA: il terzo criterio non ha una costante perché è relativo:
+#           le candidate vengono ordinate per quanto avvicinano l'esercito
+#           alla strategia in uso, e la migliore prende +25%, la peggiore -25%.
+RECRUIT_PESO_VARIETA = 0.55
+RECRUIT_ESPONENTE_PREZZO = 0.6
+RECRUIT_BANDA_STRATEGIA = 0.25
+
+# Quanto l'IA è decisa a prendere la truppa col punteggio migliore.
+# 0 = sceglie a caso fra quelle che può permettersi, numeri alti = prende
+# quasi sempre la prima. È la leva che tiene la differenza fra difficoltà:
+# ogni profilo dichiara la sua in `recruit_sharpness()`.
+RECRUIT_SHARPNESS_DEFAULT = 4.0
+
 # Unità minime perché una legione IA in più sia un reparto e non un drappello.
 # Misurato: spezzare l'esercito in quattro gruppetti da tre rende l'IA più
 # debole, non più minacciosa — contro le mura ognuno fa il danno minimo.
@@ -2337,12 +2359,9 @@ class GameSession:
         can_recruit_now = self._can_recruit_now(AI)
         if can_recruit_now and self.ai_policy.should_recruit(grux_balance=recruit_budget, turn=self.game_map.turn):
             affordable_units = [unit for unit in self.data["units"] if self._recruit_cost(AI, unit["id"]) <= recruit_budget]
-            if affordable_units:
-                best_unit = max(
-                    affordable_units,
-                    key=lambda unit: self._effective_unit_value_for_ai(unit),
-                )
-                self._recruit_unit(AI, best_unit["id"], auto=True)
+            scelta = self._scegli_recluta_ia(affordable_units)
+            if scelta is not None:
+                self._recruit_unit(AI, scelta, auto=True)
 
         return logs
 
@@ -2368,16 +2387,156 @@ class GameSession:
             return True
         return (self.game_map.turn - last_turn) >= self._recruit_cooldown_for(entity)
 
-    def _effective_unit_value_for_ai(self, unit: Dict[str, Any]) -> float:
-        """Heuristica semplice per decidere la recluta dell'IA."""
-        attrs = unit["attributes"]
-        return (
-            attrs["U1_attack"]
-            + attrs["U2_defense"]
-            + attrs["U3_mobility"]
-            + attrs["U6_terrain_adapt"]
-            + attrs["U7_range_power"]
+    def _ai_front_terrain(self) -> str:
+        """Il terreno dove l'IA combatte davvero, non quello di partenza.
+
+        È la cella della sua legione più grossa: se il fronte è in palude non
+        ha senso comprare cavalleria, e prima invece succedeva.
+        """
+        fronte = self._fronte_ia()
+        if fronte is not None:
+            cella = self.game_map.get_cell(*fronte[0])
+            if cella is not None:
+                return cella.terrain
+        return self.ai_home_terrain
+
+    def _unit_terrain_affinity(self, unit_id: str, terrain: str) -> float:
+        """Quanto quella truppa rende su quel terreno (0 = pessimo, 1 = ideale).
+
+        Legge la stessa tabella che il gioco usa per il giocatore, così l'IA
+        ragiona sui numeri veri e non su una copia divergente.
+        """
+        tabella = self.data.get("unit_affinities") or {}
+        default = float(tabella.get("default_affinity", 0.5))
+        voce = (tabella.get("environment_affinity") or {}).get(unit_id) or {}
+        terreni = voce.get("terrain") or {}
+        try:
+            return float(terreni.get(terrain, default))
+        except (TypeError, ValueError):
+            return default
+
+    def _ai_marginal_strategy_gain(
+        self, attrs: Dict[str, float], terrain: str, compat_base: Optional[float]
+    ) -> Optional[float]:
+        """Di quanto questa truppa avvicina l'esercito IA alla sua strategia.
+
+        Il vettore d'esercito è una media, quindi aggiungere un uomo lo sposta
+        di 1/(n+1): il conto si fa senza riaggregare tutto. Torna None quando
+        non c'è ancora un esercito su cui ragionare.
+        """
+        if compat_base is None:
+            return None
+        n = len(self.ai_units)
+        base = self.ai_army
+        nuovo = {
+            chiave: ((base.get(chiave, 0.0) * n) + float(attrs.get(chiave, 0.0))) / (n + 1)
+            for chiave in base
+        }
+        modificato, _ = apply_modifiers(
+            army_vector=nuovo,
+            terrain_name=terrain,
+            weather_name=self.weather,
+            troop_status_name=self.ai_troop_status,
+            modifiers_data=self.data,
         )
+        return self._strategy_compatibility(AI, modificato) - compat_base
+
+    def _scegli_recluta_ia(self, candidate: List[Dict[str, Any]]) -> Optional[str]:
+        """Quale truppa arruola l'IA fra quelle che può permettersi.
+
+        Tre criteri, tutti sullo stato reale della partita:
+          · quanto la truppa rende sul terreno del fronte, col meteo di adesso;
+          · quanto avvicina l'esercito alla strategia che l'IA sta usando;
+          · quanta ne ha già — il freno che le impedisce di comprare
+            ottanta arcieri di fila.
+        Poi il profilo di difficoltà decide quanto darle retta: `easy` tira a
+        sorte fra le candidate, `nightmare` prende quasi sempre la migliore.
+        """
+        if not candidate:
+            return None
+
+        terreno = self._ai_front_terrain()
+        conteggi = Counter(self.ai_units)
+        totale = max(1, len(self.ai_units))
+        costi = {unit["id"]: max(1, self._recruit_cost(AI, unit["id"])) for unit in candidate}
+        costo_medio = sum(costi.values()) / len(costi)
+
+        # La compatibilità di partenza si calcola una volta sola: le candidate
+        # si confrontano su quanto la spostano.
+        compat_base: Optional[float] = None
+        if self.ai_units:
+            base_mod, _ = apply_modifiers(
+                army_vector=self.ai_army,
+                terrain_name=terreno,
+                weather_name=self.weather,
+                troop_status_name=self.ai_troop_status,
+                modifiers_data=self.data,
+            )
+            compat_base = self._strategy_compatibility(AI, base_mod)
+
+        guadagni = [
+            self._ai_marginal_strategy_gain(unit["attributes"], terreno, compat_base)
+            for unit in candidate
+        ]
+        validi = [g for g in guadagni if g is not None]
+        minimo = min(validi) if validi else 0.0
+        massimo = max(validi) if validi else 0.0
+        larghezza = massimo - minimo
+
+        punteggi: List[float] = []
+        for unit, guadagno in zip(candidate, guadagni):
+            uid = unit["id"]
+
+            # Resa in campo: il meteo è già dentro `_unit_battle_value`, il
+            # terreno lo aggiunge l'affinità (0.6× al peggio, 1.4× al meglio).
+            valore = self._unit_battle_value(uid) * (
+                0.6 + (0.8 * self._unit_terrain_affinity(uid, terreno))
+            )
+
+            # Strategia: punteggio relativo, così non serve tarare una scala.
+            if guadagno is None or larghezza <= 1e-9:
+                fattore_strategia = 1.0
+            else:
+                quota = (guadagno - minimo) / larghezza
+                fattore_strategia = 1.0 + (RECRUIT_BANDA_STRATEGIA * ((quota * 2.0) - 1.0))
+
+            # Varietà: più ne ha, meno ne vuole.
+            fattore_varieta = max(
+                0.15, 1.0 - (RECRUIT_PESO_VARIETA * (conteggi.get(uid, 0) / totale))
+            )
+
+            relativo = costi[uid] / costo_medio
+            punteggi.append(
+                (valore * fattore_strategia * fattore_varieta)
+                / (relativo ** RECRUIT_ESPONENTE_PREZZO)
+            )
+
+        return candidate[self._indice_recluta_ia(punteggi)]["id"]
+
+    def _indice_recluta_ia(self, punteggi: List[float]) -> int:
+        """Quale candidata esce, data la decisione del profilo di difficoltà.
+
+        `recruit_sharpness()` è l'unica leva: 0 sorteggia alla pari (l'IA
+        facile mette insieme un'armata varia ma senza criterio), i numeri alti
+        concentrano la scelta sulla migliore.
+        """
+        getter = getattr(self.ai_policy, "recruit_sharpness", None)
+        try:
+            durezza = float(getter()) if callable(getter) else RECRUIT_SHARPNESS_DEFAULT
+        except (TypeError, ValueError):
+            durezza = RECRUIT_SHARPNESS_DEFAULT
+
+        rng = getattr(self.ai_policy, "rng", None) or random
+        if durezza <= 0.0:
+            return rng.randrange(len(punteggi))
+
+        migliore = max(punteggi)
+        if migliore <= 0.0:
+            return rng.randrange(len(punteggi))
+        pesi = [max(0.0, p / migliore) ** durezza for p in punteggi]
+        if sum(pesi) <= 0.0:
+            return rng.randrange(len(punteggi))
+        return rng.choices(range(len(punteggi)), weights=pesi, k=1)[0]
 
     def _entity_units(self, entity: Occupation) -> List[str]:
         return self.player_units if entity == PLAYER else self.ai_units

@@ -159,6 +159,15 @@ class NormalAIDifficultyPolicy:
             return 0
         return min(1, available_slots)
 
+    def recruit_sharpness(self) -> float:
+        """Sceglie a peso: le truppe buone escono più spesso, non sempre.
+
+        Tenuta bassa apposta: l'IA normale non deve arrivare con l'armata
+        giusta per il terreno, deve solo smettere di comprare ottanta volte
+        la stessa truppa.
+        """
+        return 1.5
+
     def should_recruit(self, *, grux_balance: int, turn: int) -> bool:
         base_chance = 0.88 if turn <= 10 else 0.82
         if grux_balance >= 130:

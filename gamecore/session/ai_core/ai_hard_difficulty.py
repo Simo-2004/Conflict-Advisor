@@ -180,6 +180,10 @@ class HardAIDifficultyPolicy:
             return 0
         return min(1, available_slots)
 
+    def recruit_sharpness(self) -> float:
+        """Prende quasi sempre una fra le migliori: sbaglia di rado."""
+        return 5.0
+
     def should_recruit(self, *, grux_balance: int, turn: int) -> bool:
         base_chance = 0.93 if turn <= 10 else 0.90
         if grux_balance >= 120:
