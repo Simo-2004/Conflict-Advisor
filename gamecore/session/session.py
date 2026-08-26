@@ -154,6 +154,12 @@ CELL_MAX_GARRISON_UNITS = 4               # tetto assoluto, fortificazioni compr
 # stessa cella. L'IA ha già il proprio limite nei file di difficoltà.
 MAX_LEGIONS_PER_SIDE = 4
 
+# Quanti turni di fila un piano di autoreclutamento può restare fermo ad
+# aspettare i grux prima di arrendersi. I turni in attesa non consumano il
+# piano, quindi senza questa valvola un piano avviato a casse vuote resterebbe
+# acceso all'infinito.
+AUTO_RECRUIT_MAX_WAIT = 8
+
 # Unità minime perché una legione IA in più sia un reparto e non un drappello.
 # Misurato: spezzare l'esercito in quattro gruppetti da tre rende l'IA più
 # debole, non più minacciosa — contro le mura ognuno fa il danno minimo.
@@ -359,15 +365,6 @@ class GameSession:
         # di difficoltà: corsie, aggiramenti, giri larghi e attese.
         self.ai_doctrine = ai_doctrine.for_difficulty(self.ai_difficulty, seed=map_seed)
         self.movement_system = MovementPointsSystem()
-        self.player_control_mode: str = "manual"
-        self.player_orders: Dict[str, str] = {
-            "movement_order": "advance_castle",
-            "build_order": "balanced",
-        }
-        self.player_order_memory: Dict[str, Any] = {
-            "last_direction": None,
-            "straight_streak": 0,
-        }
         self.player_auto_recruit: Dict[str, Any] = {
             "enabled": False,
             "unit_id": None,
@@ -376,6 +373,7 @@ class GameSession:
             "turns_remaining": 0,
             "attempted_turns": 0,
             "successful_recruits": 0,
+            "funds_wait": 0,
             "last_result": "inactive",
         }
         # Rimosso il vecchio sistema a ordini. Il turno avanza con execute_turn() e muove le legioni.
@@ -545,7 +543,13 @@ class GameSession:
             for _ in range(qty):
                 self.player_units.remove(uid)
                 legion_units.append(uid)
-                
+
+        # Le truppe che partono non sono più in riserva, e il vettore di forza
+        # descrive la riserva: senza questa riga `player_army` continuava a
+        # contare anche chi era in campo, e l'advisor consigliava la strategia
+        # per un esercito che nel castello non c'era più.
+        self._recompute_entity_army_vector(PLAYER)
+
         # Spawn position
         castle_pos = self.game_map.castle_positions[PLAYER]
         spawn_pos = self._get_free_spawn_cell(PLAYER, castle_pos) or castle_pos
@@ -627,6 +631,7 @@ class GameSession:
         self._merge_legion_into_reserve(PLAYER, legion)
         self.player_units.extend(legion_units)
         del self.player_legions[legion_id]
+        self._recompute_entity_army_vector(PLAYER)
 
         log_entry = (
             f"[Turno {self.game_map.turn}] 🏳 PLAYER: Legione '{name}' richiamata "
@@ -952,29 +957,20 @@ class GameSession:
         return None
 
     def _active_legion_positions(self, entity: Occupation) -> List[Tuple[int, int]]:
-        """Posizioni correnti delle legioni attive di una entità (fallback: posizione armata legacy)."""
+        """Posizioni correnti delle legioni attive di una entità, senza duplicati."""
         source = self.player_legions if entity == PLAYER else self.ai_legions
+        seen: set[Tuple[int, int]] = set()
         positions: List[Tuple[int, int]] = []
         for legion in source.values():
             pos = tuple(legion.get("pos", ()))
-            if len(pos) == 2:
-                positions.append((int(pos[0]), int(pos[1])))
-
-        if positions:
-            # Evita duplicati conservando ordine.
-            seen: set[Tuple[int, int]] = set()
-            unique_positions: List[Tuple[int, int]] = []
-            for pos in positions:
-                if pos in seen:
-                    continue
-                seen.add(pos)
-                unique_positions.append(pos)
-            return unique_positions
-
-        fallback = self.game_map.positions.get(entity)
-        if fallback is not None:
-            return [fallback]
-        return []
+            if len(pos) != 2:
+                continue
+            cella = (int(pos[0]), int(pos[1]))
+            if cella in seen:
+                continue
+            seen.add(cella)
+            positions.append(cella)
+        return positions
 
     def _ai_expansion_allows(self, pos: Tuple[int, int]) -> bool:
         """True se l'IA può espandersi su questa cella nella fase corrente.
@@ -1034,20 +1030,6 @@ class GameSession:
 
         scored.sort(key=lambda item: item[0], reverse=True)
         return [pos for _, pos in scored[:8]]
-
-    def _step_toward(self, current_pos: Tuple[int, int], target_pos: Tuple[int, int]) -> Tuple[int, int]:
-        """Calcola un passo ortogonale verso il target."""
-        row, col = current_pos
-        target_row, target_col = target_pos
-        if row < target_row:
-            row += 1
-        elif row > target_row:
-            row -= 1
-        elif col < target_col:
-            col += 1
-        elif col > target_col:
-            col -= 1
-        return row, col
 
     def _own_legion_positions_map(
         self,
@@ -2067,455 +2049,8 @@ class GameSession:
         registra_esito(winner_legion, loser_legion)
 
     # ──────────────────────────────────────────────────────────
-    # MOSSA GIOCATORE (entry-point principale)
+    # ECONOMIA DI FINE ROUND
     # ──────────────────────────────────────────────────────────
-
-    def player_move(
-        self,
-        to_row: int,
-        to_col: int,
-        leave_garrison: bool = False,
-        garrison_unit_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """
-        Esegue la mossa del giocatore verso (to_row, to_col).
-
-        Dopo la mossa del giocatore:
-          - Se scatta battaglia, la risolve immediatamente.
-          - Passa il turno all'IA e la fa muovere (con possibile secondo scontro).
-
-        Returns:
-            dict con:
-                ok              — True se la mossa è valida
-                message         — descrizione testuale
-                battle_result   — risultato battaglia (se avvenuta), oppure None
-                ai_move_result  — esito mossa IA (oppure None se partita finita)
-                game_over       — True se la partita è terminata
-                winner          — "player" | "ai" | None
-                state           — stato sessione corrente
-                map             — stato mappa serializzato
-        """
-        if self.state != SessionState.ACTIVE:
-            return {
-                "ok": False,
-                "message": "La partita è già terminata.",
-                "state": self.state.value,
-                "map": self.game_map.to_dict(),
-            }
-
-        if leave_garrison and self._available_garrisons(PLAYER) <= 0:
-            return {
-                "ok": False,
-                "message": "Non hai unità sufficienti: devi mantenere almeno una legione attiva con l'armata.",
-                "state": self.state.value,
-                "map": self.game_map.to_dict(),
-            }
-        if leave_garrison and garrison_unit_id and garrison_unit_id not in self.player_units:
-            return {
-                "ok": False,
-                "message": "La truppa selezionata non è disponibile nell'armata attiva.",
-                "state": self.state.value,
-                "map": self.game_map.to_dict(),
-            }
-
-        block = self.movement_system.consume_block_if_any(PLAYER)
-        if block.get("blocked"):
-            blocked_message = self._build_movement_block_message(PLAYER, block)
-            self.battle_log.append(blocked_message)
-
-            self.game_map.end_turn()
-            ai_result = self._ai_turn()
-
-            if self.state == SessionState.ACTIVE:
-                economy_logs = self._advance_round_economy()
-                if economy_logs:
-                    self.battle_log.extend(economy_logs)
-
-            return {
-                "ok": True,
-                "skipped": True,
-                "message": blocked_message,
-                "battle_result": None,
-                "ai_move_result": ai_result,
-                "game_over": self.state == SessionState.GAME_OVER,
-                "winner": self.winner,
-                "state": self.state.value,
-                "map": self.game_map.to_dict(),
-            }
-
-        # Con armata vuota il player può comunque riposizionarsi sul campo,
-        # ma non può attaccare né conquistare territori.
-        if len(self.player_units) == 0:
-            relocation_result = self._move_player_without_troops(to_row, to_col)
-            if not relocation_result["ok"]:
-                return {
-                    "ok": False,
-                    "message": relocation_result["message"],
-                    "state": self.state.value,
-                    "map": self.game_map.to_dict(),
-                }
-
-            move_cost_info = self.movement_system.register_move(
-                PLAYER,
-                relocation_result["terrain"],
-                from_pos=tuple(relocation_result["from_pos"]),
-                to_pos=tuple(relocation_result["to_pos"]),
-            )
-            relocation_result["message"] += self._format_movement_cost_suffix(move_cost_info)
-            self.battle_log.append(relocation_result["message"])
-
-            # Passa il turno all'IA anche in modalità riposizionamento.
-            self.game_map.end_turn()
-            ai_result = self._ai_turn()
-
-            if self.state == SessionState.ACTIVE:
-                economy_logs = self._advance_round_economy()
-                if economy_logs:
-                    self.battle_log.extend(economy_logs)
-
-            return {
-                "ok": True,
-                "message": relocation_result["message"],
-                "battle_result": None,
-                "ai_move_result": ai_result,
-                "game_over": self.state == SessionState.GAME_OVER,
-                "winner": self.winner,
-                "state": self.state.value,
-                "map": self.game_map.to_dict(),
-            }
-
-        move_result = self.game_map.move(PLAYER, (to_row, to_col), leave_garrison=leave_garrison)
-        if not move_result["ok"]:
-            return {
-                "ok": False,
-                "message": move_result["message"],
-                "state": self.state.value,
-                "map": self.game_map.to_dict(),
-            }
-
-        # Log persistente della mossa player per debug cronologico completo.
-        move_cost_info = self.movement_system.register_move(
-            PLAYER,
-            move_result["terrain"],
-            from_pos=tuple(move_result["from_pos"]),
-            to_pos=tuple(move_result["to_pos"]),
-        )
-        move_result["message"] += self._format_movement_cost_suffix(move_cost_info)
-        self.battle_log.append(move_result["message"])
-
-        if leave_garrison and move_result.get("leave_garrison"):
-            detach_result = self._detach_unit_to_garrison(
-                entity=PLAYER,
-                cell_pos=tuple(move_result["from_pos"]),
-                unit_id=garrison_unit_id,
-                auto=False,
-            )
-            move_result["message"] += f" — Distaccata: {detach_result['unit_name']}"
-            self.battle_log[-1] = move_result["message"]
-
-        battle_result: Optional[Dict] = None
-        if move_result["battle"]:
-            battle_result = self._resolve_encounter(
-                move_result=move_result,
-                attacker=PLAYER,
-            )
-            if self.state == SessionState.GAME_OVER:
-                return {
-                    "ok": True,
-                    "message": move_result["message"],
-                    "battle_result": battle_result,
-                    "ai_move_result": None,
-                    "game_over": True,
-                    "winner": self.winner,
-                    "state": self.state.value,
-                    "map": self.game_map.to_dict(),
-                }
-
-        # Passa il turno all'IA
-        self.game_map.end_turn()
-        ai_result = self._ai_turn()
-
-        if self.state == SessionState.ACTIVE:
-            economy_logs = self._advance_round_economy()
-            if economy_logs:
-                self.battle_log.extend(economy_logs)
-
-        return {
-            "ok": True,
-            "message": move_result["message"],
-            "battle_result": battle_result,
-            "ai_move_result": ai_result,
-            "game_over": self.state == SessionState.GAME_OVER,
-            "winner": self.winner,
-            "state": self.state.value,
-            "map": self.game_map.to_dict(),
-        }
-
-    def _move_player_without_troops(self, to_row: int, to_col: int) -> Dict[str, Any]:
-        """Permette il riposizionamento del player senza truppe, senza combattimento né conquista."""
-        from_pos = self.game_map.positions.get(PLAYER)
-        if from_pos is None:
-            return {"ok": False, "message": "Posizione PLAYER non disponibile."}
-
-        to_pos = (to_row, to_col)
-        if not self.game_map.is_adjacent(from_pos, to_pos):
-            return {"ok": False, "message": "La destinazione non è adiacente alla posizione corrente."}
-
-        if not (0 <= to_row < self.game_map.rows and 0 <= to_col < self.game_map.cols):
-            return {"ok": False, "message": "Destinazione fuori dalla mappa."}
-
-        own_castle = self.game_map.get_castle_position(PLAYER)
-        if to_pos == own_castle:
-            return {
-                "ok": False,
-                "message": "La casella del castello è proibita al movimento.",
-            }
-
-        enemy_pos = self.game_map.positions.get(AI)
-        if enemy_pos == to_pos:
-            return {
-                "ok": False,
-                "message": "Armata senza truppe: non puoi ingaggiare direttamente l'armata nemica.",
-            }
-
-        self.game_map.positions[PLAYER] = to_pos
-        dest_cell = self.game_map.get_cell(to_row, to_col)
-        terrain = dest_cell.terrain if dest_cell is not None else "Sconosciuto"
-        return {
-            "ok": True,
-            "terrain": terrain,
-            "from_pos": from_pos,
-            "to_pos": to_pos,
-            "message": (
-                f"[Turno {self.game_map.turn}] PLAYER si riposiziona -> ({to_row},{to_col}) "
-                f"[{terrain}] senza truppe: nessuna conquista o attacco"
-            ),
-        }
-
-    def _format_movement_cost_suffix(self, move_cost_info: Dict[str, Any]) -> str:
-        """Ritorna un suffisso leggibile con costo movimento e ritardo eventuale."""
-        cost = int(move_cost_info.get("cost", 0))
-        points_per_turn = int(move_cost_info.get("points_per_turn", 100))
-        extra_wait_turns = int(move_cost_info.get("extra_wait_turns", 0))
-        if extra_wait_turns > 0:
-            return (
-                f" — Movimento: costo {cost}/{points_per_turn}"
-                f" (rallentamento: +{extra_wait_turns} turno/i)"
-            )
-        return f" — Movimento: costo {cost}/{points_per_turn}"
-
-    def _build_movement_block_message(self, entity: Occupation, block: Dict[str, Any]) -> str:
-        """Messaggio di skip turno quando l'armata è rallentata dal terreno."""
-        side = entity.value.upper()
-        remaining = int(block.get("remaining_blocked_turns", 0))
-        terrain = str(block.get("last_terrain") or "terreno difficile")
-        cost = int(block.get("last_cost", self.movement_system.points_per_turn))
-        if remaining > 0:
-            return (
-                f"[Turno {self.game_map.turn}] {side} rallentato su {terrain} "
-                f"(costo {cost}): turno di movimento bloccato "
-                f"({remaining} turno/i di ritardo residui)"
-            )
-        return (
-            f"[Turno {self.game_map.turn}] {side} rallentato su {terrain} "
-            f"(costo {cost}): ultimo turno di ritardo consumato"
-        )
-
-    # ──────────────────────────────────────────────────────────
-    # TURNO IA (privato)
-    # ──────────────────────────────────────────────────────────
-
-    def _ai_turn(self) -> Dict[str, Any]:
-        """
-        Logica del turno IA:
-          1. Se esistono celle strategiche non controllate dall'IA, prende quella
-             con il punteggio di terreno più alto per il suo esercito.
-          2. Se il giocatore è molto vicino (≤ 2 passi) e più vicino del target
-             strategico, attacca direttamente.
-          3. Esegue la mossa; se scatta battaglia la risolve.
-          4. Passa il turno al giocatore (anche in caso di errori, via finally).
-        """
-        result: Dict[str, Any] = {"skipped": False, "ok": False, "message": ""}
-
-        try:
-            if self.state != SessionState.ACTIVE:
-                result.update({"skipped": True, "reason": "partita terminata"})
-                return result
-
-            if self.debug_ai_kill_switch:
-                result.update({
-                    "skipped": True,
-                    "ok": True,
-                    "reason": "kill_switch_attivo",
-                    "message": f"[Turno {self.game_map.turn}] 🧪 DEBUG: IA in pausa (kill switch attivo)",
-                })
-                return result
-
-            if self.ai_policy.should_skip_turn(self.game_map.turn):
-                result.update({
-                    "skipped": True,
-                    "ok": True,
-                    "reason": "easy_ai_skip_turn",
-                    "message": f"[Turno {self.game_map.turn}] IA esita e perde l'iniziativa.",
-                })
-                return result
-
-            ai_pos = self.game_map.positions.get(AI)
-            if ai_pos is None:
-                result.update({"skipped": True, "reason": "IA eliminata"})
-                return result
-
-            ai_block = self.movement_system.consume_block_if_any(AI)
-            if ai_block.get("blocked"):
-                blocked_message = self._build_movement_block_message(AI, ai_block)
-                self.battle_log.append(blocked_message)
-                result.update(
-                    {
-                        "skipped": True,
-                        "ok": True,
-                        "reason": "movement_delay",
-                        "message": blocked_message,
-                    }
-                )
-                return result
-
-            target_pos = self._compute_ai_target(ai_pos)
-            if target_pos is None:
-                result.update({"skipped": True, "reason": "nessun target disponibile"})
-                return result
-
-            next_move = self.game_map.best_move_toward(AI, target_pos)
-            if next_move is None:
-                result.update({"skipped": True, "reason": "nessuna mossa valida"})
-                return result
-
-            leave_garrison = self._should_ai_leave_garrison(ai_pos)
-            if leave_garrison and self._available_garrisons(AI) <= 0:
-                leave_garrison = False
-
-            ai_move = self.game_map.move(AI, next_move, leave_garrison=leave_garrison)
-            if leave_garrison and ai_move.get("leave_garrison"):
-                detach_result = self._detach_unit_to_garrison(
-                    entity=AI,
-                    cell_pos=tuple(ai_move["from_pos"]),
-                    unit_id=None,
-                    auto=True,
-                )
-                if detach_result and ai_move.get("message"):
-                    ai_move["message"] += f" — Distaccata: {detach_result['unit_name']}"
-
-            if ai_move.get("ok"):
-                ai_move_cost_info = self.movement_system.register_move(
-                    AI,
-                    ai_move.get("terrain", "Pianura"),
-                    from_pos=tuple(ai_move["from_pos"]),
-                    to_pos=tuple(ai_move["to_pos"]),
-                )
-                if ai_move.get("message"):
-                    ai_move["message"] += self._format_movement_cost_suffix(ai_move_cost_info)
-
-            if ai_move.get("ok") and ai_move.get("message"):
-                self.battle_log.append(ai_move["message"])
-
-            result["ok"]      = ai_move.get("ok", False)
-            result["message"] = ai_move.get("message", "")
-
-            if ai_move.get("battle"):
-                result["battle_result"] = self._resolve_encounter(
-                    move_result=ai_move,
-                    attacker=AI,
-                )
-
-            return result
-
-        finally:
-            # Il turno torna sempre al giocatore, anche in caso di skip
-            self.game_map.end_turn()
-
-    def _compute_ai_target(
-        self,
-        ai_pos: Tuple[int, int],
-    ) -> Optional[Tuple[int, int]]:
-        """
-        Determina la cella obiettivo dell'IA:
-          - Se può minacciare il castello del giocatore, avanza verso il castello.
-          - Altrimenti prende celle strategiche utili al suo esercito.
-          - Se il giocatore è molto vicino, prova a intercettarlo.
-        """
-        player_pos = self.game_map.positions.get(PLAYER)
-        enemy_castle = self.game_map.get_castle_position(PLAYER)
-        own_castle = self.game_map.get_castle_position(AI)
-        ai_cell = self.game_map.get_cell(*ai_pos)
-        estimate_terrain = ai_cell.terrain if ai_cell is not None else "Pianura"
-
-        strategic_targets = self.game_map.get_strategic_targets(
-            entity=AI,
-            army_vector=self.ai_army,
-            terrain_modifiers=self.data["terrain"],
-        )
-
-        ai_strength_est = self._strength_breakdown(AI, estimate_terrain)["effective_strength"]
-        player_strength_est = self._strength_breakdown(PLAYER, estimate_terrain)["effective_strength"]
-        ai_has_advantage = ai_strength_est >= (player_strength_est * 1.08)
-
-        easy_target = self.ai_policy.choose_target(
-            ai_pos=ai_pos,
-            player_pos=player_pos,
-            own_castle=own_castle,
-            enemy_castle=enemy_castle,
-            strategic_targets=strategic_targets,
-            economic_targets=self._collect_ai_economic_targets(ai_pos),
-        )
-        if easy_target is not None:
-            return easy_target
-
-        # Priorita difensiva: se il player e vicino al castello IA, intercetta.
-        if player_pos and own_castle:
-            player_to_own_castle = abs(player_pos[0] - own_castle[0]) + abs(player_pos[1] - own_castle[1])
-            if player_to_own_castle <= 3:
-                return player_pos
-
-        if enemy_castle:
-            dist_castle = abs(ai_pos[0] - enemy_castle[0]) + abs(ai_pos[1] - enemy_castle[1])
-            if dist_castle <= 2:
-                return enemy_castle
-            if dist_castle <= 4 and ai_has_advantage and not strategic_targets:
-                return enemy_castle
-
-        targets = strategic_targets
-
-        if targets:
-            _, best_cell     = targets[0]
-            strat_pos        = (best_cell.row, best_cell.col)
-            dist_strat       = abs(ai_pos[0] - strat_pos[0]) + abs(ai_pos[1] - strat_pos[1])
-
-            if player_pos:
-                dist_player = abs(ai_pos[0] - player_pos[0]) + abs(ai_pos[1] - player_pos[1])
-                if dist_player <= 2 and dist_player <= dist_strat and ai_has_advantage:
-                    return player_pos
-
-            return strat_pos
-
-        # Nessun target strategico: carica il castello o il giocatore
-        if ai_has_advantage:
-            return enemy_castle or player_pos
-        return player_pos or enemy_castle
-
-    def _should_ai_leave_garrison(self, from_pos: Tuple[int, int]) -> bool:
-        """L'IA lascia guarnigioni su castelli e punti strategici quando possibile."""
-        cell = self.game_map.get_cell(*from_pos)
-        if cell is None:
-            return False
-        available = self._available_garrisons(AI)
-        if available <= 0:
-            return False
-
-        return self.ai_policy.should_leave_garrison(
-            is_castle=cell.is_castle,
-            is_strategic=cell.is_strategic,
-            current_strength=cell.garrison_strength,
-            available=available,
-        )
 
     def _advance_round_economy(self) -> List[str]:
         """Accredita i grux delle miniere e fa gestire all'IA la propria economia."""
@@ -2852,359 +2387,9 @@ class GameSession:
         units = self._entity_units(entity)
         return max(0, len(units) - 1)
 
-    def is_manual_control_enabled(self) -> bool:
-        return self.player_control_mode == "manual"
-
-    def set_player_orders(
-        self,
-        *,
-        movement_order: Optional[str] = None,
-        build_order: Optional[str] = None,
-        control_mode: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """Aggiorna la configurazione ordini del player (modalità graduale manual/orders)."""
-        if self.state != SessionState.ACTIVE:
-            raise ValueError("La partita è terminata.")
-
-        changed: List[str] = []
-
-        if control_mode is not None:
-            if control_mode not in PLAYER_CONTROL_MODES:
-                raise ValueError(f"Modalità controllo non valida: {control_mode}")
-            if control_mode != self.player_control_mode:
-                self.player_control_mode = control_mode
-                changed.append(f"modalità={control_mode}")
-
-        if movement_order is not None:
-            if movement_order not in PLAYER_MOVEMENT_ORDERS:
-                raise ValueError(f"Ordine movimento non valido: {movement_order}")
-            if movement_order != self.player_orders.get("movement_order"):
-                self.player_orders["movement_order"] = movement_order
-                changed.append(f"movimento={movement_order}")
-
-        if build_order is not None:
-            if build_order not in PLAYER_BUILD_ORDERS:
-                raise ValueError(f"Ordine supporto non valido: {build_order}")
-            if build_order != self.player_orders.get("build_order"):
-                self.player_orders["build_order"] = build_order
-                changed.append(f"supporto={build_order}")
-
-        if changed:
-            log_entry = f"[Turno {self.game_map.turn}] 🧭 PLAYER aggiorna ordini: " + ", ".join(changed)
-            self.battle_log.append(log_entry)
-        else:
-            log_entry = f"[Turno {self.game_map.turn}] 🧭 Ordini PLAYER invariati"
-
-        return {
-            "ok": True,
-            "message": log_entry,
-            "state": self.state.value,
-            "map": self.game_map.to_dict(),
-            "session": self.to_dict(),
-        }
-
     @staticmethod
     def _order_distance(a: Tuple[int, int], b: Tuple[int, int]) -> int:
         return abs(a[0] - b[0]) + abs(a[1] - b[1])
-
-    @staticmethod
-    def _order_direction(from_pos: Tuple[int, int], to_pos: Tuple[int, int]) -> Tuple[int, int]:
-        return (to_pos[0] - from_pos[0], to_pos[1] - from_pos[1])
-
-    def _adjacent_positions(self, origin: Tuple[int, int]) -> List[Tuple[int, int]]:
-        positions: List[Tuple[int, int]] = []
-        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            nr, nc = origin[0] + dr, origin[1] + dc
-            if 0 <= nr < self.game_map.rows and 0 <= nc < self.game_map.cols:
-                positions.append((nr, nc))
-        return positions
-
-    def _expand_direction_penalty(self, direction: Tuple[int, int]) -> float:
-        last_direction = self.player_order_memory.get("last_direction")
-        straight_streak = int(self.player_order_memory.get("straight_streak") or 0)
-        if not isinstance(last_direction, tuple):
-            return 0.0
-        if direction != last_direction:
-            return 0.0
-        return min(1.8, 0.35 * max(0, straight_streak - 1))
-
-    def _update_player_order_movement_memory(self, from_pos: Tuple[int, int], to_pos: Tuple[int, int]) -> None:
-        direction = self._order_direction(from_pos, to_pos)
-        last_direction = self.player_order_memory.get("last_direction")
-        if isinstance(last_direction, tuple) and direction == last_direction:
-            streak = int(self.player_order_memory.get("straight_streak") or 0) + 1
-        else:
-            streak = 1
-        self.player_order_memory["last_direction"] = direction
-        self.player_order_memory["straight_streak"] = streak
-
-    def _frontier_pressure_score(self, pos: Tuple[int, int]) -> float:
-        pressure = 0.0
-        for ar, ac in self._adjacent_positions(pos):
-            adjacent_cell = self.game_map.get_cell(ar, ac)
-            if adjacent_cell is None:
-                continue
-            if adjacent_cell.occupation != PLAYER:
-                pressure += 0.68
-                if adjacent_cell.is_strategic:
-                    pressure += 0.42
-        return pressure
-
-    def _select_player_expand_move(self) -> Optional[Tuple[int, int]]:
-        player_pos = self.game_map.positions.get(PLAYER)
-        if player_pos is None:
-            return None
-
-        own_castle = self.game_map.get_castle_position(PLAYER)
-        enemy_castle = self.game_map.get_castle_position(AI)
-        ai_pos = self.game_map.positions.get(AI)
-
-        current_enemy_castle_dist = self._order_distance(player_pos, enemy_castle) if enemy_castle else None
-        current_own_castle_dist = self._order_distance(player_pos, own_castle) if own_castle else None
-
-        candidates: List[Tuple[float, Tuple[int, int, int], Tuple[int, int]]] = []
-        for candidate in self._adjacent_positions(player_pos):
-            cell = self.game_map.get_cell(*candidate)
-            if cell is None:
-                continue
-
-            score = 0.0
-
-            if cell.occupation != PLAYER:
-                score += 2.6
-            else:
-                score -= 0.8
-
-            if cell.occupation == AI:
-                score += 1.35
-
-            if cell.is_strategic and cell.occupation != PLAYER:
-                score += 2.25
-
-            if cell.is_mine and cell.occupation != PLAYER:
-                score += 1.1
-
-            if cell.is_castle and cell.occupation == AI:
-                score += 3.0
-
-            score += self._frontier_pressure_score(candidate)
-
-            move_cost = self.movement_system.terrain_cost(cell.terrain)
-            if move_cost > self.movement_system.points_per_turn:
-                score -= (move_cost - self.movement_system.points_per_turn) / 60.0
-
-            if enemy_castle and current_enemy_castle_dist is not None:
-                next_enemy_castle_dist = self._order_distance(candidate, enemy_castle)
-                castle_delta = current_enemy_castle_dist - next_enemy_castle_dist
-                score += max(-0.8, min(0.8, castle_delta * 0.25))
-
-            if own_castle and current_own_castle_dist is not None:
-                next_own_castle_dist = self._order_distance(candidate, own_castle)
-                outward_delta = next_own_castle_dist - current_own_castle_dist
-                score += max(-0.4, min(0.6, outward_delta * 0.15))
-
-            if ai_pos is not None:
-                next_ai_dist = self._order_distance(candidate, ai_pos)
-                if next_ai_dist <= 1 and len(self.player_units) < len(self.ai_units):
-                    score -= 0.75
-                elif next_ai_dist <= 2:
-                    score += 0.15
-
-            direction = self._order_direction(player_pos, candidate)
-            score -= self._expand_direction_penalty(direction)
-
-            tie_rank = (
-                0 if cell.occupation != PLAYER else 1,
-                0 if (cell.is_strategic and cell.occupation != PLAYER) else 1,
-                move_cost,
-            )
-            candidates.append((score, tie_rank, candidate))
-
-        if not candidates:
-            return None
-
-        candidates.sort(key=lambda item: (-item[0], item[1]))
-        return candidates[0][2]
-
-    def _select_player_order_target(self) -> Optional[Tuple[int, int]]:
-        movement_order = self.player_orders.get("movement_order", "advance_castle")
-        player_pos = self.game_map.positions.get(PLAYER)
-        ai_pos = self.game_map.positions.get(AI)
-        own_castle = self.game_map.get_castle_position(PLAYER)
-        enemy_castle = self.game_map.get_castle_position(AI)
-
-        if movement_order == "hold":
-            return None
-
-        if movement_order == "engage_ai":
-            return ai_pos or enemy_castle
-
-        if movement_order == "defend_castle":
-            if ai_pos and own_castle and self._order_distance(ai_pos, own_castle) <= 4:
-                return ai_pos
-            return own_castle or ai_pos or enemy_castle
-
-        if movement_order == "expand_front":
-            targets = self.game_map.get_strategic_targets(
-                entity=PLAYER,
-                army_vector=self.player_army,
-                terrain_modifiers=self.data["terrain"],
-            )
-            if targets:
-                _, cell = targets[0]
-                return (cell.row, cell.col)
-            return enemy_castle or ai_pos
-
-        # default: advance_castle
-        if enemy_castle is not None:
-            return enemy_castle
-        return ai_pos
-
-    def _select_player_order_move(self) -> Optional[Tuple[int, int]]:
-        movement_order = self.player_orders.get("movement_order", "advance_castle")
-        if movement_order == "expand_front":
-            expand_move = self._select_player_expand_move()
-            if expand_move is not None:
-                return expand_move
-
-        target = self._select_player_order_target()
-        if target is None:
-            return None
-        return self.game_map.best_move_toward(PLAYER, target)
-
-    def _choose_player_order_mine_cell(self) -> Optional[Tuple[int, int]]:
-        if self._available_mine_slots(PLAYER) <= 0:
-            return None
-
-        player_pos = self.game_map.positions.get(PLAYER)
-        if player_pos is None:
-            return None
-
-        if not self._is_ability_unlocked(PLAYER, DOMAIN_ENGINEERING_ID):
-            cell = self.game_map.get_cell(*player_pos)
-            if cell and cell.occupation == PLAYER and not cell.is_castle and not cell.is_mine and cell.terrain != "Fiume":
-                return player_pos
-            return None
-
-        ai_pos = self.game_map.positions.get(AI)
-        best: Optional[Tuple[float, Tuple[int, int]]] = None
-        for row in self.game_map.grid:
-            for cell in row:
-                if cell.occupation != PLAYER or cell.is_castle or cell.is_mine or cell.terrain == "Fiume":
-                    continue
-                score = 0.0
-                if cell.is_strategic:
-                    score += 2.8
-                if cell.terrain in {"Pianura", "Montagna"}:
-                    score += 1.1
-                if ai_pos is not None:
-                    score -= self._order_distance((cell.row, cell.col), ai_pos) * 0.05
-                score -= self._order_distance((cell.row, cell.col), player_pos) * 0.02
-                if best is None or score > best[0]:
-                    best = (score, (cell.row, cell.col))
-
-        return best[1] if best else None
-
-    def _choose_player_order_fortification_cell(self) -> Optional[Tuple[int, int]]:
-        player_pos = self.game_map.positions.get(PLAYER)
-        if player_pos is None:
-            return None
-
-        if not self._is_ability_unlocked(PLAYER, DOMAIN_ENGINEERING_ID):
-            cell = self.game_map.get_cell(*player_pos)
-            if cell and cell.occupation == PLAYER and not cell.is_castle:
-                return player_pos
-            return None
-
-        best: Optional[Tuple[Tuple[int, int, int], Tuple[int, int]]] = None
-        for row in self.game_map.grid:
-            for cell in row:
-                if cell.occupation != PLAYER or cell.is_castle:
-                    continue
-                # Priorità: celle strategiche, poi livelli fortificazione più bassi.
-                rank = (
-                    0 if cell.is_strategic else 1,
-                    cell.fortification_level,
-                    self._order_distance((cell.row, cell.col), player_pos),
-                )
-                if best is None or rank < best[0]:
-                    best = (rank, (cell.row, cell.col))
-
-        return best[1] if best else None
-
-    def _run_player_order_build_phase(self) -> List[str]:
-        logs: List[str] = []
-        build_order = self.player_orders.get("build_order", "balanced")
-
-        if build_order == "none":
-            return logs
-
-        if build_order == "economy":
-            plan = ["mine"]
-        elif build_order == "fortify":
-            plan = ["fortify"]
-        elif build_order == "garrison":
-            plan = ["garrison"]
-        else:
-            plan = ["mine", "fortify", "garrison"]
-
-        for step in plan:
-            try:
-                if step == "mine":
-                    legion_id = self._find_first_legion_of_type(PLAYER, LEGION_TYPE_MINING)
-                    if legion_id is None:
-                        continue
-                    result = self.place_mine(legion_id)
-                    logs.append(result["message"])
-                    break
-
-                if step == "fortify":
-                    legion_id = self._find_first_legion_of_type(PLAYER, LEGION_TYPE_CONSTRUCTION)
-                    if legion_id is None:
-                        continue
-                    result = self.place_fortification(legion_id)
-                    logs.append(result["message"])
-                    break
-
-                if step == "garrison":
-                    legion_id = self._find_first_legion_with_spare_units(PLAYER)
-                    if legion_id is None:
-                        continue
-                    result = self.place_garrison(legion_id)
-                    logs.append(result["message"])
-                    break
-            except ValueError:
-                continue
-
-        return logs
-
-    def _pass_turn_without_player_move(self, message: str, build_logs: Optional[List[str]] = None) -> Dict[str, Any]:
-        self.battle_log.append(message)
-
-        self.game_map.end_turn()
-        ai_result = self._ai_turn()
-
-        if self.state == SessionState.ACTIVE:
-            economy_logs = self._advance_round_economy()
-            if economy_logs:
-                self.battle_log.extend(economy_logs)
-
-        result: Dict[str, Any] = {
-            "ok": True,
-            "skipped": True,
-            "message": message,
-            "battle_result": None,
-            "ai_move_result": ai_result,
-            "game_over": self.state == SessionState.GAME_OVER,
-            "winner": self.winner,
-            "state": self.state.value,
-            "map": self.game_map.to_dict(),
-            "order_mode": True,
-            "session": self.to_dict(),
-        }
-        if build_logs:
-            result["build_logs"] = build_logs
-        return result
 
     def execute_turn(self) -> dict:
         """Avanza il turno di tutte le legioni e risolve i conflitti."""
@@ -3400,94 +2585,6 @@ class GameSession:
             "logs": logs
         }
 
-    def resolve_player_order_turn(self) -> Dict[str, Any]:
-        """Esegue un turno completo secondo gli ordini impostati (player -> IA -> economia)."""
-        if self.state != SessionState.ACTIVE:
-            raise ValueError("La partita è terminata.")
-        if self.player_control_mode != "orders":
-            raise ValueError("Controllo manuale attivo: passa prima alla modalità ordini.")
-
-        build_logs = self._run_player_order_build_phase()
-        movement_order = self.player_orders.get("movement_order", "advance_castle")
-        next_move = self._select_player_order_move()
-
-        if next_move is None:
-            wait_message = (
-                f"[Turno {self.game_map.turn}] 🧭 PLAYER mantiene posizione "
-                f"(ordine movimento: {movement_order})"
-            )
-            return self._pass_turn_without_player_move(wait_message, build_logs=build_logs)
-
-        player_from_pos = self.game_map.positions.get(PLAYER)
-        move_result = self.player_move(
-            next_move[0],
-            next_move[1],
-            leave_garrison=False,
-            garrison_unit_id=None,
-        )
-
-        if not move_result.get("ok", False):
-            fallback_message = (
-                f"[Turno {self.game_map.turn}] 🧭 Ordine PLAYER non eseguibile: "
-                f"{move_result.get('message', 'mossa non valida')}"
-            )
-            return self._pass_turn_without_player_move(fallback_message, build_logs=build_logs)
-
-        if player_from_pos is not None and not move_result.get("skipped", False):
-            self._update_player_order_movement_memory(player_from_pos, next_move)
-
-        move_result["order_mode"] = True
-        move_result["session"] = self.to_dict()
-        if build_logs:
-            move_result["build_logs"] = build_logs
-        return move_result
-
-    def _detach_unit_to_garrison(
-        self,
-        entity: Occupation,
-        cell_pos: Tuple[int, int],
-        unit_id: Optional[str],
-        auto: bool,
-    ) -> Dict[str, Any]:
-        """Distacca una specifica unità dall'armata e la assegna alla guarnigione della cella."""
-        units = self._entity_units(entity)
-        if self._available_garrisons(entity) <= 0:
-            if auto:
-                return {"unit_id": None, "unit_name": ""}
-            raise ValueError("Non hai unità sufficienti per lasciare un presidio.")
-
-        selected_unit_id: Optional[str] = unit_id
-        if selected_unit_id is None:
-            sorted_units = sorted(units, key=lambda uid: self._unit_battle_value(uid))
-            selected_unit_id = sorted_units[0] if sorted_units else None
-
-        if selected_unit_id is None or selected_unit_id not in units:
-            if auto:
-                return {"unit_id": None, "unit_name": ""}
-            raise ValueError("La truppa selezionata non è disponibile per il presidio.")
-
-        cell = self.game_map.get_cell(*cell_pos)
-        if cell is None:
-            if auto:
-                return {"unit_id": None, "unit_name": ""}
-            raise ValueError("Cella presidio non valida.")
-        full = self._garrison_full_error(cell)
-        if full:
-            if auto:
-                return {"unit_id": None, "unit_name": ""}
-            raise ValueError(full)
-
-        units.remove(selected_unit_id)
-        cell.garrison_unit_ids.append(selected_unit_id)
-        cell.garrison_strength = max(cell.garrison_strength, len(cell.garrison_unit_ids))
-        self._recompute_entity_army_state(entity)
-
-        unit_name = self.units_map.get(selected_unit_id, {}).get("name", selected_unit_id)
-        return {
-            "unit_id": selected_unit_id,
-            "unit_name": unit_name,
-        }
-
     def _empty_army_vector(self) -> Dict[str, float]:
         return {
             "U1_attack": 0.0,
@@ -3500,15 +2597,19 @@ class GameSession:
             "U8_support": 0.0,
         }
 
-    def _recompute_entity_army_state(self, entity: Occupation) -> None:
+    def _recompute_entity_army_vector(self, entity: Occupation) -> None:
+        """Riallinea il vettore di forza di `entity` alle truppe che ha in riserva.
+
+        `player_army` / `ai_army` descrivono la RISERVA, non tutto ciò che
+        l'entità possiede: chi esce — in legione, in carovana, in presidio —
+        non deve più pesarci. Il costo dell'esercito qui non si tocca: quello
+        è la spesa storica in truppe, e il pannello lo mostra come tale.
+        """
         units = self._entity_units(entity)
         if units:
             army_vector = aggregate_army(units, self.data["units"])
-        else:
-            army_vector = self._empty_army_vector()
-        home_terrain = self.player_home_terrain if entity == PLAYER else self.ai_home_terrain
-        troop_status = self.player_troop_status if entity == PLAYER else self.ai_troop_status
-        if units:
+            home_terrain = self.player_home_terrain if entity == PLAYER else self.ai_home_terrain
+            troop_status = self.player_troop_status if entity == PLAYER else self.ai_troop_status
             modified, _ = apply_modifiers(
                 army_vector=army_vector,
                 terrain_name=home_terrain,
@@ -3517,45 +2618,26 @@ class GameSession:
                 modifiers_data=self.data,
             )
         else:
+            # `aggregate_army` rifiuta la lista vuota: riserva a zero,
+            # vettore a zero, e niente modificatori da applicare.
+            army_vector = self._empty_army_vector()
             modified = army_vector.copy()
 
-        army_cost = sum(self.unit_costs.get(unit_id, 0) for unit_id in units)
         if entity == PLAYER:
             self.player_army = army_vector
             self.player_modified = modified
-            self.player_army_cost = army_cost
         else:
             self.ai_army = army_vector
             self.ai_modified = modified
+
+    def _recompute_entity_army_state(self, entity: Occupation) -> None:
+        """Vettore di forza e costo insieme: la strada delle perdite e dei presidi."""
+        self._recompute_entity_army_vector(entity)
+        army_cost = sum(self.unit_costs.get(unit_id, 0) for unit_id in self._entity_units(entity))
+        if entity == PLAYER:
+            self.player_army_cost = army_cost
+        else:
             self.ai_army_cost = army_cost
-
-    def _apply_attacker_losses(self, attacker: Occupation, losses: int) -> Dict[str, Any]:
-        units = self._entity_units(attacker)
-        if losses <= 0 or not units:
-            return {"losses": 0, "removed_units": [], "removed_text": ""}
-
-        losses = min(losses, len(units))
-        sorted_for_losses = sorted(units, key=lambda unit_id: self._unit_battle_value(unit_id))
-        removed = sorted_for_losses[:losses]
-        for unit_id in removed:
-            units.remove(unit_id)
-        self.troops_lost[attacker] += losses      # [ENDGAME-STATS]
-
-        self._recompute_entity_army_state(attacker)
-        if attacker == AI:
-            self._sync_ai_legion_units()
-
-        removed_counts: Dict[str, int] = dict(Counter(removed))
-        removed_parts: List[str] = []
-        for unit_id, count in sorted(removed_counts.items(), key=lambda item: (-item[1], item[0])):
-            unit_name = self.units_map.get(unit_id, {}).get("name", unit_id)
-            removed_parts.append(f"{count} {unit_name}")
-
-        return {
-            "losses": losses,
-            "removed_units": removed,
-            "removed_text": ", ".join(removed_parts),
-        }
 
     def _calculate_losses_for_battle(
         self,
@@ -3747,12 +2829,12 @@ class GameSession:
         return max(0.0, min(1.0, 1.0 - (distance / (8 ** 0.5))))
 
     def _current_army_terrain(self, entity: Occupation) -> str:
-        """Terreno attuale dell'armata, fallback al terreno base se la posizione non è valida."""
-        pos = self.game_map.positions.get(entity)
-        if pos is not None:
-            cell = self.game_map.get_cell(*pos)
-            if cell is not None:
-                return cell.terrain
+        """Terreno di riferimento della riserva: quello scelto allo schieramento.
+
+        La riserva non sta su una casella — aspetta al castello. Chi va in
+        campo è la legione, e il suo terreno lo calcola `_legion_advisor_payload`
+        dalla cella su cui si trova.
+        """
         return self.player_home_terrain if entity == PLAYER else self.ai_home_terrain
 
     # ──────────────────────────────────────────────────────────
@@ -4040,18 +3122,32 @@ class GameSession:
 
         terrain_name = self._current_army_terrain(PLAYER)
         reserve_status = tc.resolve_status(self.reserve_condition[PLAYER])
-        payload = build_in_game_advisor_payload(
-            data=self.data,
-            turn=self.game_map.turn,
-            player_units=list(self.player_units),
-            player_army=dict(self.player_army),
-            player_strategy_id=self.player_strategy_id,
-            troop_status_name=reserve_status,
-            terrain_name=terrain_name,
-            weather_name=self.weather,
-            # [ABILITY-EFFECTS] Industria dello Spionaggio: via il rumore.
-            perfect=self._ability_flag(PLAYER, ab.FLAG_SPY_NETWORK),
-        )
+        if self.player_units:
+            payload = build_in_game_advisor_payload(
+                data=self.data,
+                turn=self.game_map.turn,
+                player_units=list(self.player_units),
+                player_army=dict(self.player_army),
+                player_strategy_id=self.player_strategy_id,
+                troop_status_name=reserve_status,
+                terrain_name=terrain_name,
+                weather_name=self.weather,
+                # [ABILITY-EFFECTS] Industria dello Spionaggio: via il rumore.
+                perfect=self._ability_flag(PLAYER, ab.FLAG_SPY_NETWORK),
+            )
+        else:
+            # Riserva vuota: tutte le truppe sono in campo. Su un vettore a
+            # zero la classifica delle strategie non vuol dire niente, quindi
+            # il report lo dice e si ferma — come già fa per le legioni
+            # rimaste senza truppe.
+            payload = {
+                "turn": self.game_map.turn,
+                "terrain_name": terrain_name,
+                "weather_name": self.weather,
+                "troop_status_name": reserve_status,
+                "empty": True,
+                "ranking": [],
+            }
         payload["troop_condition"] = tc.describe(self.reserve_condition[PLAYER])
         payload["scope"] = "reserve"
         payload["legion_id"] = None
@@ -4274,14 +3370,7 @@ class GameSession:
         Serve quando le truppe escono dall'esercito per mettersi in viaggio:
         finché marciano non devono pesare nel calcolo della forza.
         """
-        self.ai_army = aggregate_army(self.ai_units, self.data["units"])
-        self.ai_modified, _ = apply_modifiers(
-            army_vector=self.ai_army,
-            terrain_name=self.ai_home_terrain,
-            weather_name=self.weather,
-            troop_status_name=self.ai_troop_status,
-            modifiers_data=self.data,
-        )
+        self._recompute_entity_army_vector(AI)
 
     def _fronte_ia(self) -> Optional[Tuple[Tuple[int, int], str]]:
         """[CARAVAN] Dove sta il grosso dell'esercito IA: (posizione, nome).
@@ -4590,9 +3679,6 @@ class GameSession:
     def _ability_flag(self, entity: Occupation, flag: str) -> bool:
         return ab.has_flag(self._unlocked_abilities(entity), flag)
 
-    def _ability_unit_factor(self, entity: Occupation, unit_id: str, context: str) -> float:
-        return ab.unit_factor(self._unlocked_abilities(entity), unit_id, context)
-
     def _ability_economy_factor(self, entity: Occupation, key: str) -> float:
         return ab.economy_factor(self._unlocked_abilities(entity), key)
 
@@ -4802,22 +3888,6 @@ class GameSession:
             f"'{LEGION_TYPE_LABELS.get(legion_type, legion_type)}'. Serve una legione "
             f"'{LEGION_TYPE_LABELS[required_type]}'."
         )
-
-    def _find_first_legion_of_type(self, entity: Occupation, legion_type: str) -> Optional[str]:
-        """Prima legione dell'entità con il tipo richiesto, se presente."""
-        source = self.player_legions if entity == PLAYER else self.ai_legions
-        for legion_id, legion in source.items():
-            if legion.get("legion_type", LEGION_TYPE_ARMY) == legion_type:
-                return legion_id
-        return None
-
-    def _find_first_legion_with_spare_units(self, entity: Occupation) -> Optional[str]:
-        """Prima legione dell'entità con almeno 2 truppe (può lasciarne una a presidio)."""
-        source = self.player_legions if entity == PLAYER else self.ai_legions
-        for legion_id, legion in source.items():
-            if len(legion.get("units", [])) >= 2:
-                return legion_id
-        return None
 
     def _resolve_build_cell(
         self,
@@ -5357,7 +4427,9 @@ class GameSession:
                 "turns_remaining": turns_value,
                 "attempted_turns": 0,
                 "successful_recruits": 0,
+                "funds_wait": 0,
                 "last_result": "scheduled",
+                "last_reason": None,
             }
         )
 
@@ -5381,6 +4453,7 @@ class GameSession:
 
         self.player_auto_recruit["enabled"] = False
         self.player_auto_recruit["turns_remaining"] = 0
+        self.player_auto_recruit["funds_wait"] = 0
         self.player_auto_recruit["last_result"] = "stopped"
 
         if was_enabled:
@@ -5432,13 +4505,42 @@ class GameSession:
             return logs
 
         self.player_auto_recruit["attempted_turns"] = int(self.player_auto_recruit.get("attempted_turns") or 0) + 1
-        self.player_auto_recruit["turns_remaining"] = turns_remaining - 1
 
         # Il motivo va calcolato PRIMA del tentativo: `_recruit_unit` in modalità
         # automatica restituisce None sia per cooldown sia per grux, e il log
         # finiva per dire "cooldown o grux insufficienti" anche con le casse piene.
-        block_reason = self._recruit_block_reason(PLAYER, unit_id)
-        recruit_log = None if block_reason else self._recruit_unit(PLAYER, unit_id, auto=True)
+        block_kind, block_reason = self._recruit_block(PLAYER, unit_id)
+
+        # Le casse vuote non consumano il piano. Prima sì: un piano da dieci
+        # turni avviato senza grux se li bruciava tutti senza arruolare niente,
+        # e alla fine si dichiarava pure "completato". Il cooldown invece resta
+        # a carico del piano — è il suo ritmo, ed è quello che il grafico
+        # previsionale promette al giocatore quando lo imposta.
+        if block_kind == "funds":
+            attesa = int(self.player_auto_recruit.get("funds_wait") or 0) + 1
+            self.player_auto_recruit["funds_wait"] = attesa
+            self.player_auto_recruit["last_result"] = "skipped"
+            self.player_auto_recruit["last_reason"] = block_reason
+            if attesa >= AUTO_RECRUIT_MAX_WAIT:
+                self.player_auto_recruit["enabled"] = False
+                self.player_auto_recruit["last_result"] = "out_of_funds"
+                logs.append(
+                    f"[Turno {self.game_map.turn}] 🤖 Autoreclutamento annullato "
+                    f"({unit_name}): casse vuote da {attesa} turni. "
+                    f"Restavano {turns_remaining} turni di piano, non consumati."
+                )
+            else:
+                logs.append(
+                    f"[Turno {self.game_map.turn}] 🤖 Autoreclutamento in attesa di "
+                    f"fondi ({attesa}/{AUTO_RECRUIT_MAX_WAIT}) — {block_reason}. "
+                    f"Il piano non consuma turni: ne restano {turns_remaining}."
+                )
+            return logs
+
+        self.player_auto_recruit["turns_remaining"] = turns_remaining - 1
+        self.player_auto_recruit["funds_wait"] = 0
+
+        recruit_log = None if block_kind else self._recruit_unit(PLAYER, unit_id, auto=True)
 
         if recruit_log:
             self.player_auto_recruit["successful_recruits"] = int(self.player_auto_recruit.get("successful_recruits") or 0) + 1
@@ -5457,34 +4559,51 @@ class GameSession:
 
         if int(self.player_auto_recruit.get("turns_remaining") or 0) <= 0:
             self.player_auto_recruit["enabled"] = False
-            self.player_auto_recruit["last_result"] = "completed"
-            logs.append(
-                f"[Turno {self.game_map.turn}] 🤖 Piano autoreclutamento terminato ({unit_name})"
-            )
+            # Un piano che non ha arruolato nessuno non è "completato": dirlo
+            # lasciava il giocatore a chiedersi dove fossero finite le reclute.
+            fatte = int(self.player_auto_recruit.get("successful_recruits") or 0)
+            if fatte > 0:
+                self.player_auto_recruit["last_result"] = "completed"
+                quante = "1 arruolata" if fatte == 1 else f"{fatte} arruolate"
+                logs.append(
+                    f"[Turno {self.game_map.turn}] 🤖 Piano autoreclutamento "
+                    f"completato ({unit_name}): {quante}."
+                )
+            else:
+                self.player_auto_recruit["last_result"] = "blocked"
+                motivo = self.player_auto_recruit.get("last_reason") or "motivo sconosciuto"
+                logs.append(
+                    f"[Turno {self.game_map.turn}] 🤖 Piano autoreclutamento terminato "
+                    f"({unit_name}) senza arruolare nulla: {motivo}"
+                )
 
         return logs
 
-    def _recruit_block_reason(self, entity: Occupation, unit_id: str) -> Optional[str]:
-        """Perché il reclutamento non è possibile adesso, o None se lo è.
+    def _recruit_block(
+        self, entity: Occupation, unit_id: str
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Cosa impedisce il reclutamento adesso: (codice, spiegazione).
 
         Serve all'autoreclutamento per dire nel log cosa lo sta fermando davvero:
         il tentativo automatico fallisce in silenzio e non distingue i due casi.
+        Il codice serve a distinguerli anche nel comportamento: il cooldown è
+        il ritmo del piano, le casse vuote sono un ostacolo esterno.
         """
         if unit_id not in self.unit_costs:
-            return f"unità sconosciuta ({unit_id})"
+            return "unknown_unit", f"unità sconosciuta ({unit_id})"
 
         if not self._can_recruit_now(entity):
             last_turn = self.last_recruit_turn.get(entity)
             turns_passed = 0 if last_turn is None else (self.game_map.turn - last_turn)
             remaining = max(0, self._recruit_cooldown_for(entity) - turns_passed)
-            return f"reclutamento in cooldown, ancora {remaining} turno/i"
+            return "cooldown", f"reclutamento in cooldown, ancora {remaining} turno/i"
 
         cost = self._recruit_cost(entity, unit_id)
         balance = self.grux_balance.get(entity, 0)
         if balance < cost:
-            return f"grux insufficienti: servono {cost}, disponibili {balance}"
+            return "funds", f"grux insufficienti: servono {cost}, disponibili {balance}"
 
-        return None
+        return None, None
 
     def _recruit_unit(self, entity: Occupation, unit_id: str, auto: bool) -> Optional[str]:
         """Recluta una unità, scala il costo e ricalcola il vettore esercito."""
@@ -5578,15 +4697,8 @@ class GameSession:
         return log_entry
 
     # ──────────────────────────────────────────────────────────
-    # RISOLUZIONE BATTAGLIA (privato)
+    # FORZA IN COMBATTIMENTO (privato)
     # ──────────────────────────────────────────────────────────
-
-    def _resolve_encounter(self, move_result: Dict[str, Any], attacker: Occupation) -> Dict[str, Any]:
-        """Risolve armata, guarnigione o assalto al castello."""
-        encounter_type = move_result["encounter_type"]
-        if encounter_type == "field_army":
-            return self._resolve_field_battle(move_result, attacker)
-        return self._resolve_static_defense(move_result, attacker)
 
     def _effective_army_strength(self, entity: Occupation, terrain: str) -> float:
         """Forza effettiva dell'armata sul terreno corrente, penalizzata se ha staccato troppi presidi."""
@@ -5657,445 +4769,6 @@ class GameSession:
             "effective_strength": int(round(effective_strength)),
             "modified_vector": {k: round(v, 4) for k, v in modified.items()},
             "modifier_warnings": warnings,
-        }
-
-    def _retreat_to_castle(self, entity: Occupation) -> None:
-        """Ritira un'armata sulla linea davanti al castello, se ancora controllato."""
-        castle_pos = self.game_map.get_castle_position(entity)
-        if castle_pos is None:
-            self.state = SessionState.GAME_OVER
-            self.winner = entity.opposite().value
-            return
-
-        castle_cell = self.game_map.get_cell(*castle_pos)
-        if castle_cell is None or castle_cell.occupation != entity:
-            self.state = SessionState.GAME_OVER
-            self.winner = entity.opposite().value
-            return
-
-        rally_cells: List[Tuple[int, int]] = []
-        for neighbor in self.game_map.get_neighbors(*castle_pos):
-            if neighbor.is_castle:
-                continue
-            if neighbor.occupation == entity:
-                rally_cells.append((neighbor.row, neighbor.col))
-
-        if not rally_cells:
-            for neighbor in self.game_map.get_neighbors(*castle_pos):
-                if neighbor.is_castle:
-                    continue
-                if neighbor.occupation == Occupation.NEUTRAL:
-                    rally_cells.append((neighbor.row, neighbor.col))
-
-        if not rally_cells:
-            for neighbor in self.game_map.get_neighbors(*castle_pos):
-                if not neighbor.is_castle:
-                    rally_cells.append((neighbor.row, neighbor.col))
-
-        if not rally_cells:
-            self.state = SessionState.GAME_OVER
-            self.winner = entity.opposite().value
-            return
-
-        if entity == PLAYER:
-            rally_cells.sort(key=lambda pos: (-pos[0], abs(pos[1] - castle_pos[1])))
-        else:
-            rally_cells.sort(key=lambda pos: (pos[0], abs(pos[1] - castle_pos[1])))
-
-        rally_pos = rally_cells[0]
-        rally_cell = self.game_map.get_cell(*rally_pos)
-        if rally_cell is None:
-            self.state = SessionState.GAME_OVER
-            self.winner = entity.opposite().value
-            return
-
-        rally_cell.occupation = entity
-        self.game_map.positions[entity] = rally_pos
-
-    def _resolve_field_battle(self, move_result: Dict[str, Any], attacker: Occupation) -> Dict[str, Any]:
-        """Scontro tra le due armate principali. Il perdente si ritira al castello."""
-        defender = attacker.opposite()
-        terrain = move_result["terrain"]
-        to_pos = tuple(move_result["to_pos"])
-        attacker_units_before = len(self._entity_units(attacker))
-        defender_units_before = len(self._entity_units(defender))
-
-        enemy_castle = self.game_map.get_castle_position(defender)
-        battle_label = self._format_battle_location(terrain)
-        if enemy_castle == to_pos:
-            battle_label = "🏰 Assalto al castello centrale"
-
-        # Caso bordo: una delle due armate e vuota. Evita "battaglie" fittizie con forza 0.
-        if attacker_units_before <= 0 or defender_units_before <= 0:
-            if attacker_units_before > defender_units_before:
-                winner = attacker
-                loser = defender
-            elif defender_units_before > attacker_units_before:
-                winner = defender
-                loser = attacker
-            else:
-                winner = defender
-                loser = attacker
-
-            contested_cell = self.game_map.get_cell(*to_pos)
-            if contested_cell is not None:
-                contested_cell.garrison_strength = 0
-                contested_cell.garrison_unit_ids = []
-                contested_cell.fortification_level = 0
-                contested_cell.occupation = winner
-
-            self.game_map.positions[winner] = to_pos
-            self._retreat_to_castle(loser)
-
-            if enemy_castle == to_pos and winner == attacker:
-                self.state = SessionState.GAME_OVER
-                self.winner = attacker.value
-
-            attacker_comp = self._format_composition(attacker)
-            defender_comp = self._format_composition(defender)
-            attacker_strength = (
-                self._strength_breakdown(attacker, terrain)["effective_strength"]
-                if attacker_units_before > 0
-                else 0
-            )
-            defender_strength = (
-                self._strength_breakdown(defender, terrain)["effective_strength"]
-                if defender_units_before > 0
-                else 0
-            )
-
-            if attacker_units_before <= 0 and defender_units_before <= 0:
-                outcome_text = f"Nessuno scontro: armate assenti, prevale {winner.value.upper()}"
-            elif attacker_units_before <= 0:
-                outcome_text = f"Nessuno scontro: armata {attacker.value.upper()} assente, prevale {winner.value.upper()}"
-            else:
-                outcome_text = f"Nessuno scontro: armata {defender.value.upper()} assente, prevale {winner.value.upper()}"
-
-            log_entry = (
-                f"[Turno {self.game_map.turn}] {battle_label}: "
-                f"{attacker.value.upper()} [{attacker_comp}] forza {attacker_strength} "
-                f"vs {defender.value.upper()} [{defender_comp}] forza {defender_strength} "
-                f"→ {outcome_text}"
-            )
-            self.battle_log.append(log_entry)
-
-            return {
-                "type": "field_army",
-                "terrain": terrain,
-                "winner": winner.value,
-                "loser": loser.value,
-                "attacker_strength": round(attacker_strength, 3),
-                "defender_strength": round(defender_strength, 3),
-                "log": log_entry,
-            }
-
-        attacker_breakdown = self._strength_breakdown(attacker, terrain)
-        defender_breakdown = self._strength_breakdown(defender, terrain)
-        attacker_strength = attacker_breakdown["effective_strength"]
-        defender_strength = defender_breakdown["effective_strength"]
-        defender_movement_modifier = self.movement_system.get_defense_modifier(defender)
-
-        if defender_movement_modifier.get("active"):
-            defender_strength_before_penalty = defender_strength
-            defender_strength = int(round(defender_strength * float(defender_movement_modifier["factor"])))
-            defender_breakdown["effective_strength_before_movement_penalty"] = defender_strength_before_penalty
-            defender_breakdown["movement_defense_penalty"] = {
-                "active": True,
-                "reduction_ratio": round(float(defender_movement_modifier["reduction_ratio"]), 4),
-                "factor": round(float(defender_movement_modifier["factor"]), 4),
-                "blocked_turns": int(defender_movement_modifier["blocked_turns"]),
-                "last_terrain": defender_movement_modifier.get("last_terrain"),
-                "last_cost": defender_movement_modifier.get("last_cost"),
-            }
-            defender_breakdown["effective_strength"] = defender_strength
-
-        if attacker_strength > defender_strength:
-            winner = attacker
-            loser = defender
-        elif defender_strength > attacker_strength:
-            winner = defender
-            loser = attacker
-        else:
-            winner = defender
-            loser = attacker
-
-        contested_cell = self.game_map.get_cell(*to_pos)
-        if contested_cell is not None:
-            contested_cell.garrison_strength = 0
-            contested_cell.garrison_unit_ids = []
-            contested_cell.fortification_level = 0
-            contested_cell.occupation = winner
-
-        self.game_map.positions[winner] = to_pos
-        self._retreat_to_castle(loser)
-
-        if enemy_castle == to_pos and winner == attacker:
-            self.state = SessionState.GAME_OVER
-            self.winner = attacker.value
-
-        attacker_comp = attacker_breakdown["composition_text"]
-        defender_comp = defender_breakdown["composition_text"]
-
-        attacker_losses = self._calculate_losses_for_battle(
-            attacker_units_before,
-            attacker_strength,
-            defender_strength,
-        )
-        defender_losses = self._calculate_losses_for_battle(
-            defender_units_before,
-            defender_strength,
-            attacker_strength,
-        )
-        attacker_loss_result = self._apply_attacker_losses(attacker, attacker_losses)
-        defender_loss_result = self._apply_attacker_losses(defender, defender_losses)
-
-        log_entry = (
-            f"[Turno {self.game_map.turn}] {battle_label}: "
-            f"{attacker.value.upper()} [{attacker_comp}] forza {attacker_strength} "
-            f"vs {defender.value.upper()} [{defender_comp}] forza {defender_strength} "
-            f"→ Ritirata di {loser.value.upper()}"
-        )
-        if defender_movement_modifier.get("active"):
-            penalty_pct = int(round(float(defender_movement_modifier["reduction_ratio"]) * 100))
-            log_entry += (
-                f" | Difesa {defender.value.upper()} ridotta del {penalty_pct}% "
-                f"(movimento incompleto)"
-            )
-        if attacker_loss_result["losses"] > 0 or defender_loss_result["losses"] > 0:
-            log_entry += (
-                f" | Perdite {attacker.value.upper()}: {attacker_loss_result['losses']}"
-                f" | Perdite {defender.value.upper()}: {defender_loss_result['losses']}"
-            )
-        self.battle_log.append(log_entry)
-        if attacker_loss_result["losses"] > 0 and attacker_loss_result["removed_text"]:
-            self.battle_log.append(
-                f"[Turno {self.game_map.turn}] ☠ {attacker.value.upper()} perde {attacker_loss_result['removed_text']}"
-            )
-        if defender_loss_result["losses"] > 0 and defender_loss_result["removed_text"]:
-            self.battle_log.append(
-                f"[Turno {self.game_map.turn}] ☠ {defender.value.upper()} perde {defender_loss_result['removed_text']}"
-            )
-        log_strength_debug(
-            "field_battle_strength",
-            {
-                "debug_notice": "DEBUG TEMPORANEO - rimuovere cartella debug in produzione",
-                "turn": self.game_map.turn,
-                "terrain": terrain,
-                "attacker": attacker.value,
-                "defender": defender.value,
-                "attacker_breakdown": attacker_breakdown,
-                "defender_breakdown": defender_breakdown,
-                "attacker_units_before": attacker_units_before,
-                "defender_units_before": defender_units_before,
-                "attacker_losses": attacker_loss_result["losses"],
-                "defender_losses": defender_loss_result["losses"],
-                "winner": winner.value,
-                "loser": loser.value,
-                "encounter_pos": list(to_pos),
-            },
-        )
-
-        return {
-            "type": "field_army",
-            "terrain": terrain,
-            "winner": winner.value,
-            "loser": loser.value,
-            "attacker_strength": round(attacker_strength, 3),
-            "defender_strength": round(defender_strength, 3),
-            "log": log_entry,
-        }
-
-    def _resolve_static_defense(self, move_result: Dict[str, Any], attacker: Occupation) -> Dict[str, Any]:
-        """Risoluzione di guarnigioni e castelli."""
-        defender = attacker.opposite()
-        terrain = move_result["terrain"]
-        from_pos = tuple(move_result.get("from_pos", self.game_map.positions.get(attacker, (0, 0))))
-        to_pos = tuple(move_result["to_pos"])
-        dest_cell = self.game_map.get_cell(*to_pos)
-        encounter_type = move_result["encounter_type"]
-        attacker_units_before = len(self._entity_units(attacker))
-
-        attacker_breakdown = self._strength_breakdown(attacker, terrain)
-        attacker_strength = attacker_breakdown["effective_strength"]
-        garrison_strength = dest_cell.garrison_strength if dest_cell else 0
-        garrison_units = list(dest_cell.garrison_unit_ids) if dest_cell else []
-        fortification_level = dest_cell.fortification_level if dest_cell else 0
-        fortification_bonus = 0.0
-        garrison_component = 0.0
-        garrison_unit_quality_bonus = 0.0
-        synergy_bonus = 0.0
-
-        if garrison_strength > 0:
-            # Presidio più incisivo, con componente che scala sull'intensità dell'assalto.
-            garrison_component = (
-                (garrison_strength * 18.0)
-                + (attacker_strength * min(0.22, garrison_strength * 0.025))
-            )
-
-        if garrison_units:
-            # Le unità realmente distaccate modificano la resa difensiva del presidio.
-            garrison_unit_quality_bonus = (
-                sum(self._garrison_unit_defense_value(unit_id, terrain) for unit_id in garrison_units) * 11.5
-            )
-
-        if fortification_level > 0:
-            # Fortificazioni con impatto crescente anche in late game:
-            # base fissa + componente scalata sulla forza dell'assalto.
-            scaling_component = attacker_strength * min(0.32, 0.12 + (fortification_level * 0.05))
-            stack_component = max(0, fortification_level - 1) * 16.0
-            fortification_bonus = (fortification_level * 18.0) + scaling_component + stack_component
-
-        if garrison_strength > 0 and fortification_level > 0:
-            # Sinergia: presidio dentro fortificazione rende la difesa molto più efficiente.
-            synergy_bonus = (
-                (fortification_level * garrison_strength * 7.0)
-                + (attacker_strength * min(0.12, 0.015 * fortification_level * garrison_strength))
-            )
-
-        if dest_cell and dest_cell.is_castle:
-            # Difesa castello rinforzata per evitare cadute immediate
-            defender_units = len(self.player_units if defender == PLAYER else self.ai_units)
-            terrain_bonus = 8.0 if terrain in {"Foresta", "Montagna", "Palude"} else 5.0
-            castle_bonus = 38.0 + (defender_units * 3.2)
-        else:
-            terrain_bonus = 5.0 if terrain in {"Foresta", "Montagna", "Palude"} else 2.0
-            castle_bonus = 0.0
-
-        defender_score = (
-            garrison_component
-            + garrison_unit_quality_bonus
-            + terrain_bonus
-            + castle_bonus
-            + fortification_bonus
-            + synergy_bonus
-        )
-        attacker_losses = self._calculate_losses_for_battle(
-            attacker_units_before,
-            attacker_strength,
-            defender_score,
-            fortification_level=fortification_level,
-            garrison_strength=garrison_strength,
-        )
-        castle_damage = 0
-        castle_hp_before = None
-        castle_hp_after = None
-
-        if attacker_strength > defender_score:
-            winner = attacker
-            loser = defender
-            if dest_cell is not None and dest_cell.is_castle:
-                castle_hp_before = self.castle_hp.get(defender, self.castle_hp_max.get(defender, CASTLE_BASE_HP))
-                castle_damage = self._compute_castle_damage(attacker_strength, defender_score)
-                castle_hp_after = max(0, castle_hp_before - castle_damage)
-                self.castle_hp[defender] = castle_hp_after
-
-                if castle_hp_after <= 0:
-                    dest_cell.garrison_strength = 0
-                    dest_cell.garrison_unit_ids = []
-                    dest_cell.fortification_level = 0
-                    dest_cell.occupation = attacker
-                    self.state = SessionState.GAME_OVER
-                    self.winner = attacker.value
-                else:
-                    # Il castello regge l'assalto: l'attaccante viene respinto alla linea di partenza.
-                    self._retreat_to_castle(attacker)
-                    dest_cell.occupation = defender
-                    winner = defender
-                    loser = attacker
-            else:
-                if dest_cell is not None:
-                    dest_cell.garrison_strength = 0
-                    dest_cell.garrison_unit_ids = []
-                    dest_cell.fortification_level = 0
-                    dest_cell.occupation = attacker
-                self.game_map.positions[attacker] = to_pos
-        else:
-            winner = defender
-            loser = attacker
-            if encounter_type == "castle":
-                # Assalto respinto: niente spam in adiacenza, rientro alla linea di partenza.
-                self._retreat_to_castle(attacker)
-            else:
-                self._retreat_to_castle(attacker)
-            if dest_cell is not None:
-                dest_cell.occupation = defender
-
-        loss_result = self._apply_attacker_losses(attacker, attacker_losses)
-
-        if encounter_type == "castle":
-            label = "🏰 Assalto al castello centrale"
-        elif dest_cell is not None and dest_cell.is_mine:
-            label = "⛏ Battaglia per la conquista della miniera"
-        elif encounter_type == "garrison" and fortification_level > 0:
-            label = "🧱🛡 Assalto a presidio fortificato"
-        elif encounter_type == "fortified":
-            label = "🧱 Assalto a territorio fortificato"
-        elif encounter_type == "garrison":
-            label = "🛡 Scontro contro presidio territoriale"
-        else:
-            label = "⚔ Scontro territoriale"
-
-        attacker_comp = attacker_breakdown["composition_text"]
-
-        log_entry = (
-            f"[Turno {self.game_map.turn}] {label} su {terrain}: "
-            f"{attacker.value.upper()} [{attacker_comp}] forza {attacker_strength} "
-            f"vs difesa statica {int(round(defender_score))} "
-            f"→ Vince {winner.value.upper()}"
-        )
-        if loss_result["losses"] > 0:
-            log_entry += f" | Perdite {attacker.value.upper()}: {loss_result['losses']}"
-        if castle_hp_before is not None and castle_hp_after is not None:
-            log_entry += (
-                f" | Danno castello: {castle_damage} "
-                f"(HP {castle_hp_before}->{castle_hp_after})"
-            )
-        self.battle_log.append(log_entry)
-        if loss_result["losses"] > 0 and loss_result["removed_text"]:
-            self.battle_log.append(
-                f"[Turno {self.game_map.turn}] ☠ {attacker.value.upper()} perde {loss_result['removed_text']}"
-            )
-        log_strength_debug(
-            "static_defense_battle_strength",
-            {
-                "debug_notice": "DEBUG TEMPORANEO - rimuovere cartella debug in produzione",
-                "turn": self.game_map.turn,
-                "terrain": terrain,
-                "encounter_type": encounter_type,
-                "attacker": attacker.value,
-                "defender": defender.value,
-                "attacker_breakdown": attacker_breakdown,
-                "defense_breakdown": {
-                    "garrison_strength": garrison_strength,
-                    "fortification_level": fortification_level,
-                    "fortification_bonus": round(fortification_bonus, 4),
-                    "synergy_bonus": round(synergy_bonus, 4),
-                    "garrison_component": round(garrison_component, 4),
-                    "garrison_unit_quality_bonus": round(garrison_unit_quality_bonus, 4),
-                    "garrison_unit_ids": garrison_units,
-                    "terrain_bonus": terrain_bonus,
-                    "castle_bonus": castle_bonus,
-                    "castle_hp_before": castle_hp_before,
-                    "castle_hp_after": castle_hp_after,
-                    "castle_damage": castle_damage,
-                    "defender_score": round(defender_score, 4),
-                    "attacker_units_before": attacker_units_before,
-                    "attacker_losses": loss_result["losses"],
-                },
-                "winner": winner.value,
-                "loser": loser.value,
-                "encounter_pos": list(to_pos),
-            },
-        )
-
-        return {
-            "type": encounter_type,
-            "terrain": terrain,
-            "winner": winner.value,
-            "loser": loser.value,
-            "attacker_strength": round(attacker_strength, 3),
-            "defender_strength": round(defender_score, 3),
-            "log": log_entry,
         }
 
     # ──────────────────────────────────────────────────────────

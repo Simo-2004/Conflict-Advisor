@@ -79,10 +79,13 @@ class GameMap:
     Mappa di gioco a turni su griglia 2D.
 
     Struttura:
-        self.grid[row][col]  → Cell
-        self.positions       → {Occupation: (row, col)} posizioni correnti degli eserciti
-        self.turn            → numero del turno corrente (inizia da 1)
-        self.current_turn    → Occupation di chi deve muoversi (PLAYER o AI)
+        self.grid[row][col]      → Cell
+        self.castle_positions    → {Occupation: (row, col)} dove sta ogni castello
+        self.turn                → numero del turno corrente (inizia da 1)
+
+    Le armate non stanno qui: sul campo ci sono le legioni, e ognuna si porta
+    dietro la propria posizione. La mappa tiene il terreno, i castelli e quello
+    che ci viene costruito sopra.
     """
 
     def __init__(
@@ -106,12 +109,10 @@ class GameMap:
         self.seed: Optional[int] = seed
 
         self.grid: List[List[Cell]] = []
-        self.positions: Dict[Occupation, Tuple[int, int]] = {}
         self.castle_positions: Dict[Occupation, Tuple[int, int]] = {}
         self.turn: int = 1
-        self.current_turn: Occupation = PLAYER   # il giocatore muove per primo
 
-        # Genera la griglia e posiziona gli eserciti
+        # Genera la griglia e posiziona i castelli
         self._generate_map(seed)
         self._place_armies()
 
@@ -450,178 +451,6 @@ class GameMap:
             return self.grid[row][col]
         return None
 
-    def get_neighbors(self, row: int, col: int) -> List[Cell]:
-        """
-        Restituisce le celle adiacenti ortogonali (su, giù, sinistra, destra).
-        Non include celle fuori dalla mappa.
-        """
-        neighbors: List[Cell] = []
-        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            cell = self.get_cell(row + dr, col + dc)
-            if cell is not None:
-                neighbors.append(cell)
-        return neighbors
-
-    def is_adjacent(
-        self,
-        pos_a: Tuple[int, int],
-        pos_b: Tuple[int, int],
-    ) -> bool:
-        """True se le due posizioni differiscono di esattamente 1 in una sola direzione."""
-        dr = abs(pos_a[0] - pos_b[0])
-        dc = abs(pos_a[1] - pos_b[1])
-        return (dr == 1 and dc == 0) or (dr == 0 and dc == 1)
-
-    def get_castle_position(self, entity: Occupation) -> Optional[Tuple[int, int]]:
-        """Restituisce la posizione del castello dell'entità."""
-        return self.castle_positions.get(entity)
-
-    def is_castle_controlled_by(self, entity: Occupation) -> bool:
-        """True se il castello dell'entità è ancora sotto il suo controllo."""
-        castle_pos = self.castle_positions.get(entity)
-        if castle_pos is None:
-            return False
-        cell = self.grid[castle_pos[0]][castle_pos[1]]
-        return cell.occupation == entity and cell.is_castle
-
-    # ──────────────────────────────────────────────────────────
-    # TURNI E MOVIMENTO
-    # ──────────────────────────────────────────────────────────
-
-    def move(
-        self,
-        entity: Occupation,
-        to_pos: Tuple[int, int],
-        leave_garrison: bool = False,
-    ) -> dict:
-        """
-        Esegue il movimento di un'entità verso una cella adiacente.
-
-        Regole:
-          - Il movimento è consentito solo al possessore del turno corrente.
-          - La destinazione deve essere ortogonalmente adiacente.
-                    - Entrare nella cella dell'armata avversaria, in una guarnigione o nel
-                        castello nemico innesca una battaglia.
-                    - Se `leave_garrison=True`, il giocatore lascia un distaccamento sulla
-                        casella di partenza invece di abbandonarla del tutto.
-                    - Il controllo territoriale della cella di partenza resta comunque
-                        all'entità che si muove.
-
-        Args:
-            entity: chi si muove (PLAYER o AI)
-            to_pos: (row, col) della cella di destinazione
-
-        Returns:
-            dict con i campi:
-              ok               (bool)   — True se la mossa è valida
-              message          (str)    — descrizione dell'esito
-              captured         (bool)   — True se una cella nemica/neutrale è stata presa
-              strategic_captured (bool) — True se la cella catturata è strategica
-              battle           (bool)   — True se la mossa raggiunge l'esercito avversario
-              terrain          (str)    — terreno della cella di destinazione
-        """
-        side_label = "PLAYER" if entity == PLAYER else "IA"
-        turn_label = "PLAYER" if self.current_turn == PLAYER else "IA"
-
-        if entity not in self.positions:
-            return {"ok": False, "message": f"Entita '{side_label}' non trovata."}
-
-        if entity != self.current_turn:
-            return {
-                "ok": False,
-                "message": f"Non e il turno di '{side_label}' (turno di '{turn_label}').",
-            }
-
-        from_pos = self.positions[entity]
-        to_row, to_col = to_pos
-
-        if not self.is_adjacent(from_pos, to_pos):
-            return {"ok": False, "message": "La destinazione non è adiacente alla posizione corrente."}
-
-        if not (0 <= to_row < self.rows and 0 <= to_col < self.cols):
-            return {"ok": False, "message": "Destinazione fuori dalla mappa."}
-
-        dest_cell = self.grid[to_row][to_col]
-        from_cell = self.grid[from_pos[0]][from_pos[1]]
-        enemy_pos = self.positions.get(entity.opposite())
-        own_castle_pos = self.castle_positions.get(entity)
-        enemy_castle_pos = self.castle_positions.get(entity.opposite())
-
-        if own_castle_pos == to_pos:
-            return {"ok": False, "message": "La casella del castello è proibita al movimento."}
-
-        encounter_type = "none"
-        if enemy_pos == to_pos:
-            encounter_type = "field_army"
-        elif enemy_castle_pos == to_pos and dest_cell.is_castle and dest_cell.occupation == entity.opposite():
-            encounter_type = "castle"
-        elif dest_cell.garrison_strength > 0 and dest_cell.occupation == entity.opposite():
-            encounter_type = "garrison"
-        elif dest_cell.fortification_level > 0 and dest_cell.occupation == entity.opposite():
-            encounter_type = "fortified"
-
-        battle = encounter_type != "none"
-        garrison_left = leave_garrison
-
-        if garrison_left and encounter_type != "castle":
-            from_cell.garrison_strength += 1
-
-        # La cella di partenza resta sotto controllo dell'entità.
-        from_cell.occupation = entity
-
-        captured = dest_cell.occupation != entity
-        strategic_captured = captured and dest_cell.is_strategic
-        # Il castello avversario e occupabile per permettere l'assalto.
-        dest_cell.occupation = entity
-        self.positions[entity] = to_pos
-
-        msg = (
-            f"[Turno {self.turn}] {side_label} -> ({to_row},{to_col}) "
-            f"[{dest_cell.terrain}]"
-        )
-        if garrison_left and encounter_type != "castle":
-            msg += " — Guarnigione lasciata alle spalle"
-        if encounter_type == "field_army":
-            msg += " — ⚔ Scontro tra armate!"
-        elif encounter_type == "garrison":
-            msg += " — 🛡 Presidio nemico intercettato!"
-        elif encounter_type == "fortified":
-            msg += " — 🧱 Assalto a territorio fortificato!"
-        elif encounter_type == "castle":
-            msg += " — 🏰 Assalto al castello (da adiacenza)!"
-        elif strategic_captured:
-            msg += " — ★ Punto strategico conquistato!"
-
-        return {
-            "ok":                True,
-            "message":           msg,
-            "captured":          captured,
-            "strategic_captured": strategic_captured,
-            "battle":            battle,
-            "encounter_type":    encounter_type,
-            "terrain":           dest_cell.terrain,
-            "from_pos":          from_pos,
-            "to_pos":            to_pos,
-            "leave_garrison":    garrison_left,
-            "destination": {
-                "is_castle": dest_cell.is_castle,
-                "garrison_strength": dest_cell.garrison_strength,
-                "previous_controller": entity.opposite().value if captured else entity.value,
-            },
-        }
-
-    def end_turn(self) -> None:
-        """
-        Passa il controllo all'avversario.
-        Il contatore 'turn' si incrementa ogni volta che ricomincia
-        il turno del PLAYER (cioè dopo che anche l'IA ha mosso).
-        """
-        if self.current_turn == PLAYER:
-            self.current_turn = AI
-        else:
-            self.current_turn = PLAYER
-            self.turn += 1
-
     # ──────────────────────────────────────────────────────────
     # LOGICA STRATEGICA
     # ──────────────────────────────────────────────────────────
@@ -658,61 +487,6 @@ class GameMap:
                     targets.append((score, cell))
         targets.sort(key=lambda x: x[0], reverse=True)
         return targets
-
-    def best_move_toward(
-        self,
-        entity: Occupation,
-        target: Tuple[int, int],
-    ) -> Optional[Tuple[int, int]]:
-        """
-        Suggerisce la cella adiacente che avvicina maggiormente l'entita
-        al target (distanza di Manhattan), preferendo celle non gia
-        controllate ma senza bloccarsi nel proprio territorio.
-
-        Usato principalmente dall'IA per scegliere il prossimo passo.
-
-        Args:
-            entity: chi deve muoversi
-            target: (row, col) della destinazione desiderata
-
-        Returns:
-            (row, col) della mossa consigliata, o None se bloccato.
-        """
-        from_pos = self.positions.get(entity)
-        if from_pos is None:
-            return None
-
-        current_dist = abs(from_pos[0] - target[0]) + abs(from_pos[1] - target[1])
-        candidates: List[Tuple[float, Tuple[int, int]]] = []
-
-        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            nr, nc = from_pos[0] + dr, from_pos[1] + dc
-            if not (0 <= nr < self.rows and 0 <= nc < self.cols):
-                continue
-            cell = self.grid[nr][nc]
-            dist = abs(nr - target[0]) + abs(nc - target[1])
-            own_penalty = 0.35 if cell.occupation == entity else 0.0
-            score = float(dist) + own_penalty
-            candidates.append((score, (nr, nc)))
-
-        if not candidates:
-            return None
-
-        candidates.sort(key=lambda x: x[0])
-        best_score = candidates[0][0]
-        best_move = candidates[0][1]
-
-        # Se possibile, evita mosse che aumentano la distanza dal target.
-        best_dist = abs(best_move[0] - target[0]) + abs(best_move[1] - target[1])
-        if best_dist <= current_dist:
-            return best_move
-
-        for _, move in candidates:
-            dist = abs(move[0] - target[0]) + abs(move[1] - target[1])
-            if dist <= current_dist:
-                return move
-
-        return best_move
 
     # ──────────────────────────────────────────────────────────
     # STATO PARTITA
@@ -824,45 +598,6 @@ class GameMap:
         cell.fortification_level += 1
         return cell
 
-    def check_battle_trigger(self) -> Optional[Occupation]:
-        """
-        Controlla se le due armate si trovano in celle adiacenti (condizione
-        di battaglia imminente sul prossimo turno).
-
-        Returns:
-            L'Occupation dell'entità che potrebbe attaccare (quella di turno),
-            oppure None se non ci sono eserciti vicini.
-        """
-        p_pos  = self.positions.get(PLAYER)
-        ai_pos = self.positions.get(AI)
-        if p_pos and ai_pos and self.is_adjacent(p_pos, ai_pos):
-            return self.current_turn
-        return None
-
-    def is_game_over(self) -> Optional[Occupation]:
-        """
-        Controlla se la partita è terminata (un castello è stato conquistato).
-
-        Returns:
-            Il vincitore (PLAYER o AI) se la partita è finita, altrimenti None.
-        """
-        if not self.is_castle_controlled_by(PLAYER):
-            return AI
-        if not self.is_castle_controlled_by(AI):
-            return PLAYER
-        return None
-
-    def eliminate(self, entity: Occupation) -> None:
-        """
-        Rimuove un esercito dalla mappa (chiamato dopo una sconfitta in battaglia).
-
-        Args:
-            entity: l'entità da eliminare
-        """
-        pos = self.positions.pop(entity, None)
-        if pos:
-            self.grid[pos[0]][pos[1]].occupation = NEUTRAL
-
     # ──────────────────────────────────────────────────────────
     # SERIALIZZAZIONE
     # ──────────────────────────────────────────────────────────
@@ -877,10 +612,6 @@ class GameMap:
             "cols":         self.cols,
             "seed":         self.seed,
             "turn":         self.turn,
-            "current_turn": self.current_turn.value,
-            "positions": {
-                k.value: list(v) for k, v in self.positions.items()
-            },
             "castles": {
                 k.value: list(v) for k, v in self.castle_positions.items()
             },
@@ -916,7 +647,6 @@ class GameMap:
         Legenda:
           .  Pianura      F  Foresta     M  Montagna
           ~  Fiume        P  Palude
-          [P] posizione giocatore        [A] posizione IA
                     *  cella strategica (cell.is_strategic)
                     C  castello
           p  cella occupata dal giocatore
@@ -929,11 +659,8 @@ class GameMap:
             "Fiume":    "~",
             "Palude":   "P",
         }
-        p_pos  = self.positions.get(PLAYER)
-        ai_pos = self.positions.get(AI)
-
         lines = [
-            f"  ═══ Mappa {self.rows}×{self.cols}  |  Turno {self.turn}  |  Muove: {self.current_turn.value} ═══",
+            f"  ═══ Mappa {self.rows}×{self.cols}  |  Turno {self.turn} ═══",
             "     " + "".join(f"{c:^3}" for c in range(self.cols)),
         ]
 
@@ -941,12 +668,7 @@ class GameMap:
             row_str = f"{r:2d} │ "
             for c in range(self.cols):
                 cell = self.grid[r][c]
-                pos  = (r, c)
-                if pos == p_pos:
-                    row_str += "[P]"
-                elif pos == ai_pos:
-                    row_str += "[A]"
-                elif cell.is_castle:
+                if cell.is_castle:
                     row_str += " C "
                 elif cell.is_strategic:
                     row_str += f"*{t_icons[cell.terrain]}*"

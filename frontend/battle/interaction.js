@@ -197,31 +197,6 @@
                 return;
             }
 
-            const moveByKey = {
-                ArrowUp: [-1, 0],
-                ArrowDown: [1, 0],
-                ArrowLeft: [0, -1],
-                ArrowRight: [0, 1],
-            };
-
-            if (moveByKey[event.key]) {
-                event.preventDefault();
-                const [dr, dc] = moveByKey[event.key];
-                moveByDelta(dr, dc, event.shiftKey);
-            }
-        }
-
-        function moveByDelta(dr, dc, leaveGarrison) {
-            if (!currentBattleState || !currentBattleState.map || !currentBattleState.map.positions.player) {
-                return;
-            }
-            const [row, col] = currentBattleState.map.positions.player;
-            const toRow = row + dr;
-            const toCol = col + dc;
-            if (toRow < 0 || toRow >= currentBattleState.map.rows || toCol < 0 || toCol >= currentBattleState.map.cols) {
-                return;
-            }
-            movePlayer(toRow, toCol, leaveGarrison);
         }
 
         function terrainClass(terrain) {
@@ -271,37 +246,6 @@
                 document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
             } finally {
                 turnRequestInFlight = false;
-            }
-        }
-
-        async function movePlayer(row, col, leaveGarrison = false) {
-            try {
-                const response = await fetch('http://127.0.0.1:8000/game/move', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        to_row: row,
-                        to_col: col,
-                        leave_garrison: leaveGarrison,
-                        garrison_unit_id: null
-                    })
-                });
-
-                if (!response.ok) {
-                    const err = await response.json();
-                    throw new Error(err.detail || 'Errore durante la mossa');
-                }
-
-                await response.json();
-                transientLogLines = [];
-
-                const stateResponse = await fetch('http://127.0.0.1:8000/game/state');
-                const stateData = await stateResponse.json();
-                renderBattleState(stateData);
-            } catch (error) {
-                document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
-                transientLogLines = [`Errore PLAYER mossa: ${error.message}`];
-                renderBattleState(currentBattleState);
             }
         }
 

@@ -117,11 +117,19 @@
             return Math.max(1, Math.min(40, turns));
         }
 
+        // La riserva sta al castello, quindi il terreno è quello della sua
+        // cella. Prima si leggeva la posizione dell'armata unica, che non
+        // esiste più: la funzione cadeva sempre sul default 'Pianura', ed è
+        // esattamente quello che risponde anche adesso, visto che la cella del
+        // castello viene forzata a Pianura alla generazione della mappa.
+        // NOTA: il backend usa invece il terreno scelto allo schieramento
+        // (`player_home_terrain`) per l'advisor della riserva. I due numeri
+        // possono quindi divergere: non è una regressione, era già così.
         function getPlayerCurrentTerrainName() {
             const mapData = currentBattleState?.map;
-            const playerPos = mapData?.positions?.player;
-            if (!mapData || !Array.isArray(playerPos)) return 'Pianura';
-            const [row, col] = playerPos;
+            const castello = mapData?.castles?.player;
+            if (!mapData || !Array.isArray(castello)) return 'Pianura';
+            const [row, col] = castello;
             return mapData.grid?.[row]?.[col]?.terrain || 'Pianura';
         }
 
@@ -263,7 +271,11 @@
                     `Costo: ${costo.toLocaleString('it-IT')} grux su ${casse.toLocaleString('it-IT')}`,
                 ];
                 if (recluteFinali < grezze) {
-                    pezzi.push(`⚠ le casse si fermano a ${recluteFinali} sulle ${grezze} possibili`);
+                    // Il piano non brucia più i turni quando le casse sono vuote:
+                    // si mette in attesa degli incassi, quindi le reclute oltre
+                    // il budget attuale arrivano più tardi, non è che spariscano.
+                    pezzi.push(`⚠ con le casse di adesso ne finanzi ${recluteFinali} sulle ${grezze}: ` +
+                               `per le altre il piano aspetta gli incassi`);
                 }
                 pezzi.push(`Potenziale proiettato: ${Math.round(finalExpected)}`);
                 summary.textContent = pezzi.join(' · ');
@@ -449,7 +461,9 @@
                             <p>${dettagli.join(' · ')}</p>
                         </header>
                         <div class="strategy-advisor-note">
-                            Legione senza truppe: nessuna valutazione tattica possibile.
+                            ${isLegion
+                                ? 'Legione senza truppe: nessuna valutazione tattica possibile.'
+                                : 'Riserva vuota: tutte le truppe sono in campo, qui non c\'è niente da valutare.'}
                         </div>
                     </section>`;
             }
