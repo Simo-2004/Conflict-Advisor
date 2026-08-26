@@ -182,11 +182,11 @@ CATALOG: Tuple[AbilityDef, ...] = (
             "Carovane scortate e depositi intermedi: dalle miniere al castello "
             "si perde molto meno per strada."
         ),
-        effect_text="Miniere +22% di resa per turno",
+        effect_text="Miniere +10% di resa per turno",
         turns_required=18,
         grux_cost=170,
         min_turn=4,
-        economy={ECO_MINE_INCOME: 1.22},
+        economy={ECO_MINE_INCOME: 1.10},
     ),
     AbilityDef(
         ability_id="war_industry",

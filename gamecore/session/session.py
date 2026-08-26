@@ -19,6 +19,7 @@ from gamecore.economy import (
     STARTING_GRUX,
     available_mine_slots,
     get_unit_costs,
+    mine_yield,
 )
 from gamecore.maps import GameMap, Occupation
 from gamecore.session import abilities as ab
@@ -106,6 +107,12 @@ PLAYER_BUILD_ORDER_OPTIONS = [
     "none",
 ]
 PLAYER_BUILD_ORDERS = set(PLAYER_BUILD_ORDER_OPTIONS)
+
+#: Rendimenti decrescenti delle miniere: le prime quattro pagano pieno, le
+#: quattro dopo l'80%, e così via. Serve a impedire che la partita si decida
+#: occupando mezza mappa di miniere e aspettando.
+MINE_INCOME_BANDS = (1.0, 0.8, 0.6, 0.4)
+MINE_INCOME_BAND_SIZE = 4
 
 CASTLE_BASE_HP = 220
 CASTLE_HP_PER_UNIT = 8
@@ -425,31 +432,37 @@ class GameSession:
             return max(1.0, float(getter()))
         return 1.0
 
-    def _mine_income_for_count(self, mine_count: int, entity: Occupation = PLAYER) -> int:
-        """Rendimento miniere a bande: pieno early, decrescente in late game."""
-        if mine_count <= 0:
+    def _mine_income_for_terrains(
+        self, terrains: Sequence[str], entity: Occupation = PLAYER
+    ) -> int:
+        """Rendimento delle miniere: prima il terreno, poi i rendimenti decrescenti.
+
+        Ogni miniera rende in base a dove è scavata — montagna, pianura,
+        foresta, palude in quest'ordine. Le rese si mettono in fila dalla più
+        alta alla più bassa e sopra ci passano le bande di sempre: le prime
+        quattro miniere pagano pieno, poi si scende. L'ordinamento serve a
+        rendere il conto indipendente da quale miniera è stata scavata prima.
+        """
+        if not terrains:
             return 0
 
-        tier_1 = min(mine_count, 4)
-        tier_2 = min(max(0, mine_count - 4), 4)
-        tier_3 = min(max(0, mine_count - 8), 4)
-        tier_4 = max(0, mine_count - 12)
-
-        income = (
-            (tier_1 * MINE_YIELD_PER_ROUND)
-            + (tier_2 * int(round(MINE_YIELD_PER_ROUND * 0.8)))
-            + (tier_3 * int(round(MINE_YIELD_PER_ROUND * 0.6)))
-            + (tier_4 * int(round(MINE_YIELD_PER_ROUND * 0.4)))
+        rese = sorted((mine_yield(terreno) for terreno in terrains), reverse=True)
+        ultima_banda = len(MINE_INCOME_BANDS) - 1
+        income = sum(
+            resa * MINE_INCOME_BANDS[min(posto // MINE_INCOME_BAND_SIZE, ultima_banda)]
+            for posto, resa in enumerate(rese)
         )
 
         if entity == AI:
-            income = int(round(income * self._ai_mine_income_multiplier()))
+            income *= self._ai_mine_income_multiplier()
 
         # [ABILITY-EFFECTS] Linee di Rifornimento: meno perdite per strada.
-        supply = self._ability_economy_factor(entity, ab.ECO_MINE_INCOME)
-        if supply != 1.0:
-            income = int(round(income * supply))
-        return income
+        income *= self._ability_economy_factor(entity, ab.ECO_MINE_INCOME)
+        return int(round(income))
+
+    def _mine_income_for(self, entity: Occupation = PLAYER) -> int:
+        """Quanto incassa l'entità a fine round dalle miniere che possiede."""
+        return self._mine_income_for_terrains(self.game_map.mine_terrains(entity), entity)
 
     def _compute_castle_damage(self, attacker_strength: float, defender_score: float) -> int:
         """Danno inflitto al castello, in funzione del rapporto forza/difesa.
@@ -2107,14 +2120,18 @@ class GameSession:
         for entity in (PLAYER, AI):
             if entity == AI and self.debug_ai_kill_switch:
                 continue
-            mine_count = self.game_map.count_mines(entity)
+            mine_terrains = self.game_map.mine_terrains(entity)
+            mine_count = len(mine_terrains)
             if mine_count > 0:
-                linear_income = mine_count * MINE_YIELD_PER_ROUND
-                income = self._mine_income_for_count(mine_count, entity)
+                # Riferimento: quanto renderebbero queste stesse miniere senza
+                # le bande. Il confronto è col terreno già contato, se no una
+                # sola miniera in palude sembrerebbe già in calo.
+                full_income = int(round(sum(mine_yield(t) for t in mine_terrains)))
+                income = self._mine_income_for_terrains(mine_terrains, entity)
                 self.grux_balance[entity] += income
                 diminishing_note = ""
-                if income < linear_income:
-                    diminishing_note = f" (rendimenti decrescenti: -{linear_income - income})"
+                if income < full_income:
+                    diminishing_note = f" (rendimenti decrescenti: -{full_income - income})"
                 logs.append(
                     f"[Turno {self.game_map.turn}] ⛏ {entity.value.upper()} incassa {income} grux da {mine_count} miniere{diminishing_note}"
                 )
@@ -4396,9 +4413,10 @@ class GameSession:
                     continue
                 if not ai_can_build_anywhere and (cell.row, cell.col) not in ai_build_positions:
                     continue
+                # Stessa tabella che poi paga: se no l'IA scaverebbe in
+                # palude senza sapere che rende la metà della montagna.
                 score = 2.0 if cell.is_strategic else 0.0
-                if cell.terrain in {"Pianura", "Montagna"}:
-                    score += 1.0
+                score += mine_yield(cell.terrain) / MINE_YIELD_PER_ROUND
                 if score > best_score:
                     best_score = score
                     best_cell = cell
@@ -5054,6 +5072,7 @@ class GameSession:
                 "grux_balance":  self.grux_balance[PLAYER],
                 "army_cost":     self.player_army_cost,
                 "available_mine_slots": self._available_mine_slots(PLAYER),
+                "mine_income": self._mine_income_for(PLAYER),
                 "fortification_base_cost": self.base_fortification_cost,
                 "movement": self.movement_system.export_entity_state(PLAYER),
                 "abilities": ab.states_payload(
@@ -5105,6 +5124,7 @@ class GameSession:
                 "grux_balance":  self.grux_balance[AI],
                 "army_cost":     self.ai_army_cost,
                 "available_mine_slots": self._available_mine_slots(AI),
+                "mine_income": self._mine_income_for(AI),
                 "movement": self.movement_system.export_entity_state(AI),
                 "abilities": ab.states_payload(
                     self.ability_states[AI], self.game_map.turn, self.grux_balance[AI]

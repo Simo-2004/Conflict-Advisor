@@ -702,14 +702,23 @@ class GameMap:
             if self.grid[r][c].occupation == entity
         )
 
-    def count_mines(self, entity: Occupation) -> int:
-        """Numero di miniere controllate dall'entità."""
-        return sum(
-            1
+    def mine_terrains(self, entity: Occupation) -> List[str]:
+        """Terreno di ogni miniera controllata dall'entità.
+
+        Serve all'economia: una miniera non vale l'altra, dipende da dove è
+        scavata. L'ordine è quello di scansione della griglia, non quello di
+        costruzione: chi legge questa lista non deve farci conto.
+        """
+        return [
+            self.grid[r][c].terrain
             for r in range(self.rows)
             for c in range(self.cols)
             if self.grid[r][c].occupation == entity and self.grid[r][c].is_mine
-        )
+        ]
+
+    def count_mines(self, entity: Occupation) -> int:
+        """Numero di miniere controllate dall'entità."""
+        return len(self.mine_terrains(entity))
 
     def count_fortification_levels(self, entity: Occupation) -> int:
         """Somma dei livelli di fortificazione sulle celle controllate dall'entità."""

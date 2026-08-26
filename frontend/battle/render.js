@@ -260,8 +260,14 @@
             set('StrategyTag', strategia, strategia);
 
             const slot = side.available_mine_slots;
+            // Quanto rendono, non solo quante sono: da quando la resa dipende
+            // dal terreno, due giocatori con quattro miniere a testa incassano
+            // cifre diverse e il numero da solo non lo spiegava.
+            const resa = Number.isFinite(side.mine_income) ? side.mine_income : null;
             set('MinesInfo', `⛏ ${mines}${slot ? ` · +${slot}` : ''}`,
-                `Miniere attive: ${mines} · Slot ancora liberi: ${slot}`);
+                `Miniere attive: ${mines}`
+                + (resa === null ? '' : ` · Rendono ${resa} grux a turno`)
+                + ` · Slot ancora liberi: ${slot}`);
             set('ReserveInfo', `🛡 ${side.available_garrisons}`,
                 `Guarnigioni disponibili: ${side.available_garrisons}`);
 

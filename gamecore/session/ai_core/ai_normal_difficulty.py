@@ -36,6 +36,14 @@ FORTIFY_TURN_GATE = 2        # fortifica un turno su due
 # ── Difesa del castello ────────────────────────────────────────────
 CASTLE_GARRISON_TARGET = 2   # presidi sul proprio castello (tetto di gioco: 4)
 
+# ── Rendimento delle miniere ───────────────────────────────────────
+# Quanto rende all'IA una miniera rispetto alla stessa miniera in mano al
+# giocatore. È un vantaggio strutturale, non una scorciatoia: l'IA deve
+# comunque conquistare il territorio e scavare. Scala con la difficoltà
+# (facile non ne ha nessuno) e resta piccolo: sulla lunga distanza anche
+# pochi punti percentuali diventano truppe.
+MINE_INCOME_MULTIPLIER = 1.05   # difficile: 1.12 · incubo: 1.20
+
 
 class NormalAIDifficultyPolicy:
     """Policy runtime IA: più consistente dell'easy ma non ottimale."""
@@ -158,6 +166,9 @@ class NormalAIDifficultyPolicy:
         if self.rng.random() < 0.52:
             return 0
         return min(1, available_slots)
+
+    def mine_income_multiplier(self) -> float:
+        return MINE_INCOME_MULTIPLIER
 
     def recruit_sharpness(self) -> float:
         """Sceglie a peso: le truppe buone escono più spesso, non sempre.

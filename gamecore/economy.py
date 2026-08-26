@@ -16,9 +16,39 @@ except ImportError:                                           # layer rimosso
     _balance_costs = None
 
 
-STARTING_GRUX = 220
+STARTING_GRUX = 400
 MINE_YIELD_PER_ROUND = 18
 MINE_TILES_PER_SLOT = 4
+
+#: Taglio secco su ogni miniera, di chiunque sia. Le miniere pagavano troppo:
+#: chi ne apriva quattro non aveva più un problema di soldi per il resto
+#: della partita, e la scelta fra reclutare e costruire spariva.
+MINE_YIELD_MALUS = 0.80
+
+#: Quanto rende una miniera a seconda di dove la si scava. La montagna è la
+#: roccia buona, la palude è fango: i grux stanno sul terreno scomodo, non
+#: dietro casa. Vale per tutti e due i giocatori, IA compresa.
+#:
+#: La pianura è il riferimento a 1.00, cioè il taglio del 20% e basta; le
+#: altre si scostano da lì. Una miniera in palude rende poco più della metà
+#: di una in montagna.
+MINE_TERRAIN_YIELD = {
+    "Montagna": 1.15,
+    "Pianura":  1.00,
+    "Foresta":  0.85,
+    "Palude":   0.70,
+}
+
+#: Sul fiume non si scava, quindi non compare in tabella. Un terreno che non
+#: conoscessimo vale come la pianura invece di far saltare il conto.
+MINE_TERRAIN_YIELD_DEFAULT = 1.00
+
+
+def mine_yield(terrain: str) -> float:
+    """Resa per turno di una singola miniera su quel terreno."""
+    return MINE_YIELD_PER_ROUND * MINE_YIELD_MALUS * MINE_TERRAIN_YIELD.get(
+        terrain, MINE_TERRAIN_YIELD_DEFAULT
+    )
 
 
 def round_to_five(value: float) -> int:

@@ -35,7 +35,7 @@ AI_NIGHTMARE_ID = "nightmare"
 
 # ── Vantaggi strutturali ───────────────────────────────────────────
 BUDGET_MULTIPLIER = 1.20        # +20% di budget iniziale
-MINE_INCOME_MULTIPLIER = 1.02   # +2% sulle miniere rispetto al player
+MINE_INCOME_MULTIPLIER = 1.20   # +20% sulle miniere (normale: 1.05 · difficile: 1.12)
 
 # ── Anello difensivo attorno al castello ───────────────────────────
 CASTLE_RING_MAX_FORT_LEVEL = 4   # quanto alza le fortificazioni sull'anello

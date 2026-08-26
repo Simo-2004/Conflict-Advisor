@@ -104,6 +104,7 @@ class ConfigResponse(BaseModel):
     terrains: List[Dict[str, Any]] = Field(..., description="Lista di terreni disponibili")
     weather: List[Dict[str, Any]] = Field(..., description="Lista di condizioni meteo disponibili")
     troop_status: List[Dict[str, Any]] = Field(..., description="Lista di stati truppe disponibili")
+    budget_grux: int = Field(..., description="Tesoreria iniziale con cui si compone l'esercito")
 
 
 class CalculateRequest(BaseModel):
@@ -174,7 +175,10 @@ async def get_config():
             strategies=strategies,
             terrains=terrains,
             weather=weather,
-            troop_status=troop_status
+            troop_status=troop_status,
+            # La schermata iniziale non deve tenersi una copia del numero:
+            # il budget lo decide l'economia e basta.
+            budget_grux=STARTING_GRUX,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
