@@ -243,6 +243,7 @@
                 transientLogLines = [];
                 renderBattleState(result.session);
             } catch (error) {
+                segnalaErrore(error.message);
                 document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
             } finally {
                 turnRequestInFlight = false;

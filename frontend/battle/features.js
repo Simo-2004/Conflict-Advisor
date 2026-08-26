@@ -20,6 +20,7 @@
                 renderBattleState(result.session);
                 renderSkillTree(result.session);
             } catch (error) {
+                segnalaErrore(error.message);
                 document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
                 transientLogLines = [`Errore ricerca abilità: ${error.message}`];
                 renderBattleState(currentBattleState);
@@ -49,6 +50,7 @@
 
         function handleAutoRecruitButton() {
             if (!currentBattleState || currentBattleState.state === 'game_over') {
+                segnalaErrore('Partita terminata: autoreclutamento non disponibile.');
                 document.getElementById('battleStatusHint').textContent = 'Partita terminata: autoreclutamento non disponibile.';
                 return;
             }
@@ -291,6 +293,7 @@
 
         async function startAutoRecruitFromMenu() {
             if (!currentBattleState || currentBattleState.state === 'game_over') {
+                segnalaErrore('Partita terminata: autoreclutamento non disponibile.');
                 document.getElementById('battleStatusHint').textContent = 'Partita terminata: autoreclutamento non disponibile.';
                 return;
             }
@@ -323,6 +326,7 @@
                 renderBattleState(result.session);
                 document.getElementById('battleStatusHint').textContent = 'Autoreclutamento avviato con successo.';
             } catch (error) {
+                segnalaErrore(error.message);
                 document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
                 transientLogLines = [`Errore autoreclutamento: ${error.message}`];
                 renderBattleState(currentBattleState);
@@ -346,6 +350,7 @@
                 renderBattleState(result.session);
                 document.getElementById('battleStatusHint').textContent = 'Autoreclutamento fermato.';
             } catch (error) {
+                segnalaErrore(error.message);
                 document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
                 transientLogLines = [`Errore stop autoreclutamento: ${error.message}`];
                 renderBattleState(currentBattleState);
@@ -354,6 +359,7 @@
 
         async function openInGameAdvisorMenu() {
             if (!currentBattleState || currentBattleState.state === 'game_over') {
+                segnalaErrore('Partita terminata: advisor non disponibile.');
                 document.getElementById('battleStatusHint').textContent = 'Partita terminata: advisor non disponibile.';
                 return;
             }
@@ -381,6 +387,7 @@
                 if (body) {
                     body.innerHTML = `<div class="strategy-advisor-note">Errore advisor: ${error.message}</div>`;
                 }
+                segnalaErrore(error.message);
                 document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
             }
         }
@@ -1024,6 +1031,7 @@
                 renderBattleState(result.session);
                 renderBlackMarket(result.session);
             } catch (error) {
+                segnalaErrore(error.message);
                 document.getElementById('battleStatusHint').textContent = `Mercato Nero: ${error.message}`;
                 transientLogLines = [`Mercato Nero: ${error.message}`];
                 renderBattleState(currentBattleState);
@@ -1033,6 +1041,7 @@
 
         async function recruitSelectedUnit() {
             if (!currentBattleState || currentBattleState.state === 'game_over') {
+                segnalaErrore('Partita terminata: non puoi reclutare nuove unità.');
                 document.getElementById('battleStatusHint').textContent = 'Partita terminata: non puoi reclutare nuove unità.';
                 return;
             }
@@ -1054,6 +1063,7 @@
                 transientLogLines = [];
                 renderBattleState(result.session);
             } catch (error) {
+                segnalaErrore(error.message);
                 document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
             }
         }
@@ -1088,6 +1098,7 @@
                 transientLogLines = [];
                 renderBattleState(result.session);
             } catch (error) {
+                segnalaErrore(error.message);
                 document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
                 transientLogLines = [`Errore cambio strategia: ${error.message}`];
                 renderBattleState(currentBattleState);
@@ -1098,6 +1109,7 @@
 
         async function applyAiDifficulty() {
             if (!currentBattleState || currentBattleState.state === 'game_over') {
+                segnalaErrore('Partita terminata: non puoi cambiare difficoltà IA.');
                 document.getElementById('battleStatusHint').textContent = 'Partita terminata: non puoi cambiare difficoltà IA.';
                 return;
             }
@@ -1120,6 +1132,7 @@
                 renderBattleState(result.session);
                 document.getElementById('battleStatusHint').textContent = `Difficoltà IA impostata su ${difficulty.toUpperCase()}.`;
             } catch (error) {
+                segnalaErrore(error.message);
                 document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
                 transientLogLines = [`Errore cambio difficoltà IA: ${error.message}`];
                 renderBattleState(currentBattleState);
