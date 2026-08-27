@@ -30,7 +30,7 @@
                 <div class="panel-head">
                     <span class="step-badge">1</span>
                     <h2>Il tuo esercito</h2>
-                    <span class="panel-hint">220 grux di budget</span>
+                    <span class="panel-hint" id="budgetHint">— grux di budget</span>
                 </div>
 
                 <div class="units-selector" id="unitsContainer"></div>
@@ -38,13 +38,14 @@
                 <div class="budget" id="budgetBox">
                     <div class="budget-row">
                         <span class="budget-label">Tesoreria</span>
-                        <span class="budget-figures" id="budgetFigures"><strong>220</strong> / 220 grux · spesi 0</span>
+                        <span class="budget-figures" id="budgetFigures"><strong>—</strong> grux</span>
                     </div>
                     <div class="budget-track"><div class="budget-fill" id="budgetFill"></div></div>
                 </div>
 
                 <div class="selected-units" id="selectedUnitsBox">
                     <p id="selectedCount">Unità selezionate: 0</p>
+                    <div class="selected-chips" id="selectedChips"></div>
                 </div>
 
                 <div class="panel-head">

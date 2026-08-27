@@ -299,8 +299,9 @@ body {
     border: 3px solid var(--surface);
 }
 
-/* Ogni unità è una carta cliccabile per intero (è un <label>), non più
-   una riga con una casella minuscola da centrare. */
+/* Ogni unità è una carta cliccabile per intero: il corpo vale "+1", i due
+   bottoni a destra servono a correggere. La casella di spunta non c'è più,
+   perché adesso di ogni tipo si sceglie quante prenderne. */
 .unit-card {
     display: flex;
     align-items: center;
@@ -320,12 +321,67 @@ body {
     box-shadow: var(--shadow-sm);
 }
 
-.unit-card input[type="checkbox"] {
-    width: 17px;
-    height: 17px;
+/* ── Il selettore di quantità ─────────────────────────────────── */
+
+.unit-stepper {
+    display: flex;
+    align-items: center;
+    gap: 2px;
     flex-shrink: 0;
+    padding: 2px;
+    border-radius: 999px;
+    background: #eef1f6;
+    border: 1px solid var(--border);
+}
+
+.step {
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    background: #fff;
+    color: var(--navy-800);
+    font-size: 1.05em;
+    font-weight: 800;
+    line-height: 1;
     cursor: pointer;
-    accent-color: var(--crimson);
+    box-shadow: var(--shadow-sm);
+    transition: background 0.15s var(--ease), color 0.15s var(--ease),
+                transform 0.12s var(--ease);
+}
+
+.step:hover:not(:disabled) {
+    background: var(--crimson);
+    color: #fff;
+    transform: scale(1.08);
+}
+
+.step:active:not(:disabled) {
+    transform: scale(0.94);
+}
+
+/* Spento, non invisibile: si deve capire che il bottone c'è ma non si può
+   usare, se no sembra che la pagina abbia smesso di rispondere. */
+.step:disabled {
+    background: transparent;
+    color: var(--border-strong);
+    box-shadow: none;
+    cursor: not-allowed;
+}
+
+.step-count {
+    min-width: 22px;
+    text-align: center;
+    font-size: 0.9em;
+    font-weight: 800;
+    color: var(--ink-soft);
+    font-variant-numeric: tabular-nums;
+}
+
+.unit-card.is-picked .step-count {
+    color: var(--crimson-dark);
 }
 
 .unit-info {
@@ -359,14 +415,14 @@ body {
 }
 
 /* Selezionata: la carta si accende e resta distinguibile a colpo d'occhio. */
-.unit-card:has(input:checked) {
+.unit-card.is-picked {
     border-color: var(--crimson);
     background: linear-gradient(100deg, #fff2f4, #fff);
     box-shadow: inset 3px 0 0 var(--crimson);
     animation: card-pick 0.32s var(--ease);
 }
 
-.unit-card:has(input:checked) .unit-cost {
+.unit-card.is-picked .unit-cost {
     background: #ffe4e9;
     border-color: #f5b9c5;
     color: var(--crimson-dark);
@@ -459,6 +515,51 @@ body {
     color: #166534;
     font-weight: 700;
     font-size: 0.86em;
+}
+
+/* "3× Arcieri · 2× Picchieri": il conteggio da solo non dice chi hai preso. */
+.selected-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 7px;
+}
+
+.selected-chips:empty {
+    display: none;
+}
+
+.troop-chip {
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: #fff;
+    border: 1px solid #b7e2c6;
+    color: #166534;
+    font-size: 0.78em;
+    font-weight: 600;
+    white-space: nowrap;
+    animation: chip-in 0.22s var(--ease);
+}
+
+.troop-chip b {
+    font-weight: 800;
+}
+
+@keyframes chip-in {
+    from { opacity: 0; transform: scale(0.86); }
+    to   { opacity: 1; transform: scale(1); }
+}
+
+/* Il budget dice di no: un guizzo, e si capisce perché il "+" non ha fatto
+   niente. Senza questo il clic negato sembrava una pagina bloccata. */
+.budget.is-negato {
+    animation: budget-negato 0.4s var(--ease);
+}
+
+@keyframes budget-negato {
+    0%, 100% { transform: translateX(0); }
+    25%      { transform: translateX(-5px); }
+    75%      { transform: translateX(5px); }
 }
 
 /* Terreno, meteo e stato: tre campi affiancati invece di tre blocchi
@@ -962,6 +1063,22 @@ select:focus {
 @media (max-width: 760px) {
     body {
         padding: 14px 14px 30px;
+    }
+
+    /* Su schermo stretto i tre pezzi della carta in fila lasciavano al testo
+       una colonna di centoventi pixel: la descrizione andava a capo cinque
+       volte. Il prezzo e il selettore scendono su una riga loro. */
+    .unit-card {
+        flex-wrap: wrap;
+        row-gap: 8px;
+    }
+
+    .unit-info {
+        flex: 1 0 100%;
+    }
+
+    .unit-stepper {
+        margin-left: auto;
     }
 
     .hero {

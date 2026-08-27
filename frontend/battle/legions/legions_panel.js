@@ -734,7 +734,7 @@
                         const result = await response.json();
                         if (window.renderBattleState) window.renderBattleState(result.session);
                     } catch (error) {
-                        alert(`Errore: ${error.message}`);
+                        segnalaErrore(error.message);
                     } finally {
                         btn.disabled = false;
                     }
@@ -768,7 +768,7 @@
                         window.renderBattleState(result.session);
                     }
                 } catch (error) {
-                    alert(`Errore: ${error.message}`);
+                    segnalaErrore(error.message);
                     btn.disabled = false;
                 }
             });
@@ -809,7 +809,7 @@
                             window.renderBattleState(result.session);
                         }
                     } catch (error) {
-                        alert(`Errore: ${error.message}`);
+                        segnalaErrore(error.message);
                     } finally {
                         btn.disabled = false;
                     }
@@ -985,7 +985,7 @@
                     // Trigger render manually
                     refreshLegionsPane(result.session);
                 } catch (error) {
-                    alert(`Errore: ${error.message}`);
+                    segnalaErrore(error.message);
                 }
 
                 // Flash sul tab legioni

@@ -260,8 +260,14 @@
             set('StrategyTag', strategia, strategia);
 
             const slot = side.available_mine_slots;
+            // Quanto rendono, non solo quante sono: da quando la resa dipende
+            // dal terreno, due giocatori con quattro miniere a testa incassano
+            // cifre diverse e il numero da solo non lo spiegava.
+            const resa = Number.isFinite(side.mine_income) ? side.mine_income : null;
             set('MinesInfo', `⛏ ${mines}${slot ? ` · +${slot}` : ''}`,
-                `Miniere attive: ${mines} · Slot ancora liberi: ${slot}`);
+                `Miniere attive: ${mines}`
+                + (resa === null ? '' : ` · Rendono ${resa} grux a turno`)
+                + ` · Slot ancora liberi: ${slot}`);
             set('ReserveInfo', `🛡 ${side.available_garrisons}`,
                 `Guarnigioni disponibili: ${side.available_garrisons}`);
 
@@ -767,10 +773,6 @@
             board.innerHTML = '';
             board.style.gridTemplateColumns = `repeat(${mapData.cols}, minmax(42px, 1fr))`;
 
-            const playerTransit = getEntityTransitState('player', mapData);
-            const aiTransit = getEntityTransitState('ai', mapData);
-            const cellRefs = new Map();
-
             // In modalità puntamento la mappa torna cliccabile: le celle con una
             // legione idonea all'azione vengono evidenziate.
             const buildConfig = typeof getBuildModeConfig === 'function' ? getBuildModeConfig() : null;
@@ -801,139 +803,14 @@
                     if (cell.occupation === 'player') button.classList.add('cell-player');
                     if (cell.occupation === 'ai') button.classList.add('cell-ai');
 
-                    if (mapData.positions.player && mapData.positions.player[0] === rowIndex && mapData.positions.player[1] === colIndex) {
-                        button.classList.add('cell-player-army');
-                        if (playerTransit) {
-                            button.classList.add('cell-army-in-transit');
-                            button.title += buildTransitTitleSuffix(playerTransit);
-                        }
-                    }
-                    if (mapData.positions.ai && mapData.positions.ai[0] === rowIndex && mapData.positions.ai[1] === colIndex) {
-                        button.classList.add('cell-ai-army');
-                        if (aiTransit) {
-                            button.classList.add('cell-army-in-transit');
-                            button.title += buildTransitTitleSuffix(aiTransit);
-                        }
-                    }
-
-                    button.innerHTML = buildCellLabel(cell, rowIndex, colIndex, mapData, playerTransit, aiTransit);
+                    button.innerHTML = buildCellLabel(cell);
 
                     board.appendChild(button);
-                    cellRefs.set(`${rowIndex},${colIndex}`, button);
                 });
             });
-
-            renderTransitMarker(board, mapData, 'player', playerTransit, cellRefs);
-            renderTransitMarker(board, mapData, 'ai', aiTransit, cellRefs);
         }
 
-        function getEntityTransitState(entityKey, mapData) {
-            const movement = currentBattleState?.[entityKey]?.movement;
-            if (!movement) return null;
-
-            const blockedTurns = Number(movement.blocked_turns || 0);
-            const missingRatio = Math.max(0, Math.min(1, Number(movement.missing_ratio || 0)));
-            const progressRatio = Math.max(0, Math.min(1, Number(movement.progress_ratio || 1)));
-
-            if (missingRatio <= 0 || blockedTurns <= 0) {
-                return null;
-            }
-
-            const fromPos = Array.isArray(movement.last_from_pos) ? movement.last_from_pos : null;
-            const toPos = Array.isArray(movement.last_to_pos) ? movement.last_to_pos : null;
-            if (!fromPos || !toPos || fromPos.length !== 2 || toPos.length !== 2) {
-                return null;
-            }
-
-            const currentPos = mapData?.positions?.[entityKey];
-            if (!Array.isArray(currentPos) || currentPos[0] !== toPos[0] || currentPos[1] !== toPos[1]) {
-                return null;
-            }
-
-            const deltaRow = toPos[0] - fromPos[0];
-            const deltaCol = toPos[1] - fromPos[1];
-
-            if ((Math.abs(deltaRow) + Math.abs(deltaCol)) !== 1) {
-                return null;
-            }
-
-            return {
-                fromPos,
-                toPos,
-                progressRatio,
-                progressPercent: Math.round(progressRatio * 100),
-                missingPercent: Math.round(missingRatio * 100),
-                blockedTurns,
-                terrain: movement.last_terrain || 'Terreno',
-                cost: Number(movement.last_cost || 0),
-            };
-        }
-
-        function renderTransitMarker(board, mapData, entityKey, transitState, cellRefs) {
-            if (!transitState) return;
-
-            const fromPos = transitState.fromPos;
-            const toPos = transitState.toPos;
-            if (!Array.isArray(fromPos) || !Array.isArray(toPos)) return;
-
-            const fromButton = cellRefs.get(`${fromPos[0]},${fromPos[1]}`);
-            const toButton = cellRefs.get(`${toPos[0]},${toPos[1]}`);
-            if (!fromButton || !toButton) return;
-
-            const boardRect = board.getBoundingClientRect();
-            const fromRect = fromButton.getBoundingClientRect();
-            const toRect = toButton.getBoundingClientRect();
-
-            const fromX = (fromRect.left - boardRect.left) + board.scrollLeft + (fromRect.width / 2);
-            const fromY = (fromRect.top - boardRect.top) + board.scrollTop + (fromRect.height / 2);
-            const toX = (toRect.left - boardRect.left) + board.scrollLeft + (toRect.width / 2);
-            const toY = (toRect.top - boardRect.top) + board.scrollTop + (toRect.height / 2);
-
-            const progress = Math.max(0, Math.min(1, Number(transitState.progressRatio || 0)));
-            const x = fromX + ((toX - fromX) * progress);
-            const y = fromY + ((toY - fromY) * progress);
-
-            const marker = document.createElement('div');
-            marker.className = `transit-marker ${entityKey}`;
-            marker.textContent = entityKey === 'player' ? 'YOU' : 'IA';
-            marker.title =
-                `${entityKey === 'player' ? 'PLAYER' : 'IA'} in movimento: ` +
-                `${transitState.progressPercent}% completato, ` +
-                `${transitState.missingPercent}% mancante`; 
-            marker.style.left = `${x}px`;
-            marker.style.top = `${y}px`;
-
-            board.appendChild(marker);
-        }
-
-        function buildTransitTitleSuffix(transitState) {
-            return (
-                ` · Movimento in corso: ${transitState.progressPercent}% completato` +
-                ` (${transitState.missingPercent}% mancante, costo ${transitState.cost}, terreno ${transitState.terrain})`
-            );
-        }
-
-        function buildCellLabel(cell, rowIndex, colIndex, mapData, playerTransit = null, aiTransit = null) {
-            const isPlayerArmy = false;
-            const isAiArmy = false;
-
-            if (isPlayerArmy) {
-                if (playerTransit) return '';
-                let playerLabel = cell.is_mine ? 'YOU⛏' : 'YOU';
-                if (cell.fortification_level > 0) {
-                    playerLabel += `<span class="fort-badge">🧱${cell.fortification_level}</span>`;
-                }
-                return playerLabel;
-            }
-            if (isAiArmy) {
-                if (aiTransit) return '';
-                let aiLabel = cell.is_mine ? 'IA⛏' : 'IA';
-                if (cell.fortification_level > 0) {
-                    aiLabel += `<span class="fort-badge">🧱${cell.fortification_level}</span>`;
-                }
-                return aiLabel;
-            }
-
+        function buildCellLabel(cell) {
             let label = cell.is_castle ? '🏰' : terrainAbbrev(cell.terrain);
             if (cell.is_mine) {
                 label = '⛏' + label;

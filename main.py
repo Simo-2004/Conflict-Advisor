@@ -104,6 +104,7 @@ class ConfigResponse(BaseModel):
     terrains: List[Dict[str, Any]] = Field(..., description="Lista di terreni disponibili")
     weather: List[Dict[str, Any]] = Field(..., description="Lista di condizioni meteo disponibili")
     troop_status: List[Dict[str, Any]] = Field(..., description="Lista di stati truppe disponibili")
+    budget_grux: int = Field(..., description="Tesoreria iniziale con cui si compone l'esercito")
 
 
 class CalculateRequest(BaseModel):
@@ -174,7 +175,10 @@ async def get_config():
             strategies=strategies,
             terrains=terrains,
             weather=weather,
-            troop_status=troop_status
+            troop_status=troop_status,
+            # La schermata iniziale non deve tenersi una copia del numero:
+            # il budget lo decide l'economia e basta.
+            budget_grux=STARTING_GRUX,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -285,14 +289,6 @@ class ConfirmRequest(BaseModel):
         description="ID difficoltà IA all'avvio (easy, normal, hard, nightmare). "
                     "Determina anche come l'IA costruisce il proprio esercito iniziale.",
     )
-
-
-class MoveRequest(BaseModel):
-    """Richiesta POST /game/move — il giocatore si sposta di una casella."""
-    to_row: int = Field(..., description="Riga di destinazione")
-    to_col: int = Field(..., description="Colonna di destinazione")
-    leave_garrison: bool = Field(False, description="Se True lascia un distaccamento sulla casella di partenza")
-    garrison_unit_id: Optional[str] = Field(None, description="ID unità da distaccare nel presidio")
 
 
 class GarrisonRequest(BaseModel):
@@ -419,42 +415,6 @@ async def game_confirm(request: ConfirmRequest):
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/game/move")
-async def game_move(request: MoveRequest):
-    """
-    POST /game/move
-
-    Il giocatore si sposta nella cella adiacente (to_row, to_col).
-
-    Dopo la mossa del giocatore:
-      - Se c'è scontro, viene risolto immediatamente.
-      - L'IA esegue automaticamente la sua mossa.
-      - Ritorna il nuovo stato completo della partita.
-    """
-    if _active_session is None:
-        raise HTTPException(status_code=400, detail="Nessuna partita attiva. Prima chiama POST /game/confirm.")
-    if not _active_session.is_manual_control_enabled():
-        raise HTTPException(
-            status_code=400,
-            detail="Modalità ordini attiva: usa POST /game/orders/execute-turn o passa a modalità manuale.",
-        )
-
-    try:
-        result = _active_session.player_move(
-            request.to_row,
-            request.to_col,
-            leave_garrison=request.leave_garrison,
-            garrison_unit_id=request.garrison_unit_id,
-        )
-        if not result.get("ok", True):
-            raise HTTPException(status_code=400, detail=result.get("message", "Mossa non valida."))
-        return result
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

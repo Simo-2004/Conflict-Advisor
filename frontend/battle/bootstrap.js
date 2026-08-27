@@ -87,6 +87,7 @@
                 await loadRecruitableUnits();
                 await startBattleFromStoredSetup(JSON.parse(setupRaw));
             } catch (error) {
+                segnalaErrore(error.message);
                 document.getElementById('battleStatusHint').textContent = `Errore: ${error.message}`;
                 document.getElementById('battlePanel').style.display = 'block';
             }

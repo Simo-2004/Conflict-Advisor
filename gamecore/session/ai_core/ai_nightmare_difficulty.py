@@ -35,7 +35,7 @@ AI_NIGHTMARE_ID = "nightmare"
 
 # ── Vantaggi strutturali ───────────────────────────────────────────
 BUDGET_MULTIPLIER = 1.20        # +20% di budget iniziale
-MINE_INCOME_MULTIPLIER = 1.02   # +2% sulle miniere rispetto al player
+MINE_INCOME_MULTIPLIER = 1.20   # +20% sulle miniere (normale: 1.05 · difficile: 1.12)
 
 # ── Anello difensivo attorno al castello ───────────────────────────
 CASTLE_RING_MAX_FORT_LEVEL = 4   # quanto alza le fortificazioni sull'anello
@@ -284,6 +284,14 @@ class NightmareAIDifficultyPolicy:
     def mine_attempts(self, available_slots: int, turn: int) -> int:
         # Non salta mai una miniera disponibile.
         return min(2, max(0, available_slots))
+
+    def recruit_sharpness(self) -> float:
+        """Compra la truppa giusta per il terreno e per la sua strategia.
+
+        Le altre difficoltà lasciano margine all'errore, questa no: è il
+        profilo che deve far pesare ogni grux.
+        """
+        return 12.0
 
     def should_recruit(self, *, grux_balance: int, turn: int) -> bool:
         return True

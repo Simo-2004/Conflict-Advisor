@@ -157,6 +157,15 @@ class EasyAIDifficultyPolicy:
             return 0
         return min(1, available_slots)
 
+    def recruit_sharpness(self) -> float:
+        """A zero: sceglie a caso fra le truppe che può permettersi.
+
+        Il punteggio esiste, l'IA facile non lo guarda. Ne esce un'armata
+        varia ma senza criterio — più debole di quando comprava sempre la
+        truppa migliore, ed è esattamente il punto.
+        """
+        return 0.0
+
     def should_recruit(self, *, grux_balance: int, turn: int) -> bool:
         base_chance = 0.45 if turn <= 8 else 0.38
         if grux_balance >= 120:

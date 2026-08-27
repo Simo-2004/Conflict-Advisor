@@ -24,13 +24,22 @@ const ATTRIBUTE_NAMES = {
 const API = 'http://127.0.0.1:8000';
 
 let radarChart = null;
+
+/* Quante ne prendo di ciascun tipo: `{ archers: 2, pikemen: 1 }`.
+   Prima si poteva prendere una sola truppa per tipo, quindi bastava una
+   casella accesa o spenta. Adesso si sceglie la quantità, e `selectedUnits`
+   diventa la lista distesa — `['archers', 'archers', 'pikemen']` — che è
+   la forma che il backend si aspetta da sempre. */
+let quantita = {};
 let selectedUnits = [];
 let allUnits = [];
 let allTerrains = [];
 let allWeather = [];
 let allTroopStatus = [];
 let latestCalculation = null;
-let startingBudget = 220;
+/* Il budget arriva da /config: il numero vero sta nell'economia, non qui.
+   Questo è solo il valore da mostrare finché la risposta non torna. */
+let startingBudget = 0;
 
 window.addEventListener('DOMContentLoaded', init);
 
@@ -51,6 +60,7 @@ async function loadData() {
 
         const data = await response.json();
         allUnits = data.units;
+        if (Number.isFinite(data.budget_grux)) startingBudget = data.budget_grux;
         allTerrains = data.terrains;
         allWeather = data.weather;
         allTroopStatus = data.troop_status;
@@ -69,21 +79,69 @@ function populateUnitsSelector() {
     container.innerHTML = '';
 
     allUnits.forEach(unit => {
-        // Tutta la carta è un <label>: si clicca ovunque, non solo sulla
-        // casella. La casella resta, così `:checked` continua a governare
-        // lo stile e il conteggio.
-        const card = document.createElement('label');
+        // Non più un <label> con la casella: adesso di ogni tipo si sceglie
+        // quante prenderne. Il corpo della carta resta cliccabile e vale +1,
+        // che è il gesto che si fa nove volte su dieci; i due bottoni servono
+        // per correggere.
+        const card = document.createElement('div');
         card.className = 'unit-card';
+        card.dataset.unit = unit.id;
         card.innerHTML = `
-            <input type="checkbox" id="unit_${unit.id}" value="${unit.id}" onchange="updateSelectedUnits()">
             <div class="unit-info">
                 <div class="unit-name">${unit.name}</div>
                 <div class="unit-desc">${unit.description}</div>
             </div>
             <div class="unit-cost">${unit.cost_grux} grux</div>
+            <div class="unit-stepper">
+                <button type="button" class="step step-less"
+                        aria-label="Una ${unit.name} in meno">−</button>
+                <span class="step-count">0</span>
+                <button type="button" class="step step-more"
+                        aria-label="Una ${unit.name} in più">+</button>
+            </div>
         `;
+
+        card.querySelector('.step-less').addEventListener('click', event => {
+            event.stopPropagation();
+            cambiaQuantita(unit.id, -1);
+        });
+        card.querySelector('.step-more').addEventListener('click', event => {
+            event.stopPropagation();
+            cambiaQuantita(unit.id, +1);
+        });
+        card.addEventListener('click', () => cambiaQuantita(unit.id, +1));
+
         container.appendChild(card);
     });
+}
+
+/** Aggiunge o toglie una truppa di quel tipo, senza mai sforare il budget. */
+function cambiaQuantita(unitId, delta) {
+    const unit = allUnits.find(item => item.id === unitId);
+    if (!unit) return;
+
+    const adesso = quantita[unitId] || 0;
+    const dopo = adesso + delta;
+    if (dopo < 0) return;
+    // Il tetto è la tesoreria e nient'altro: nessun limite inventato per
+    // tipo. Chi vuole cinque arcieri e nient'altro deve poterlo fare.
+    if (delta > 0 && getSelectedUnitsCost() + unit.cost_grux > startingBudget) {
+        lampeggiaTesoreria();
+        return;
+    }
+
+    if (dopo === 0) delete quantita[unitId];
+    else quantita[unitId] = dopo;
+
+    updateSelectedUnits();
+}
+
+/** Il budget dice di no: la barra fa un guizzo invece di restare muta. */
+function lampeggiaTesoreria() {
+    const box = document.getElementById('budgetBox');
+    box.classList.remove('is-negato');
+    void box.offsetWidth;                       // riavvia l'animazione
+    box.classList.add('is-negato');
 }
 
 function fillSelect(id, items, placeholder) {
@@ -100,34 +158,76 @@ function fillSelect(id, items, placeholder) {
 // ── Selezione e tesoreria ───────────────────────────────────────────
 
 function updateSelectedUnits() {
+    // La lista distesa: una voce per ogni soldato, ripetuta quante volte
+    // serve. È la forma che il backend legge, e conta anche le ripetizioni
+    // nella media dell'esercito.
     selectedUnits = [];
-    document.querySelectorAll('#unitsContainer input[type="checkbox"]:checked')
-        .forEach(checkbox => selectedUnits.push(checkbox.value));
-
-    const box = document.getElementById('selectedUnitsBox');
-    document.getElementById('selectedCount').textContent =
-        `Unità selezionate: ${selectedUnits.length}`;
-    box.classList.toggle('active', selectedUnits.length > 0);
+    allUnits.forEach(unit => {
+        const quante = quantita[unit.id] || 0;
+        for (let i = 0; i < quante; i++) selectedUnits.push(unit.id);
+    });
 
     const spesa = getSelectedUnitsCost();
     const residuo = startingBudget - spesa;
-    const budget = document.getElementById('budgetBox');
 
+    document.querySelectorAll('#unitsContainer .unit-card').forEach(card => {
+        const id = card.dataset.unit;
+        const quante = quantita[id] || 0;
+        const unit = allUnits.find(item => item.id === id);
+        const costo = unit ? unit.cost_grux : 0;
+
+        card.classList.toggle('is-picked', quante > 0);
+        card.querySelector('.step-count').textContent = quante;
+        card.querySelector('.step-less').disabled = quante === 0;
+        // Il "+" si spegne quando quella truppa non ci sta più nel budget:
+        // meglio un bottone visibilmente morto che un clic che non fa nulla.
+        card.querySelector('.step-more').disabled = costo > residuo;
+    });
+
+    const box = document.getElementById('selectedUnitsBox');
+    const tipi = Object.keys(quantita).length;
+    document.getElementById('selectedCount').textContent = tipi === 0
+        ? 'Unità selezionate: 0'
+        : `Unità selezionate: ${selectedUnits.length} su ${tipi} ` +
+          `tip${tipi === 1 ? 'o' : 'i'}`;
+    renderSelectedChips();
+    box.classList.toggle('active', selectedUnits.length > 0);
+
+    const budget = document.getElementById('budgetBox');
     document.getElementById('budgetFigures').innerHTML =
         `<strong>${residuo}</strong> / ${startingBudget} grux · spesi ${spesa}`;
     // Oltre budget la barra resta piena: serve a far vedere che è finita,
     // non a misurare di quanto si è sforato.
     document.getElementById('budgetFill').style.width =
-        `${Math.min(100, (spesa / startingBudget) * 100)}%`;
+        `${Math.min(100, (spesa / Math.max(1, startingBudget)) * 100)}%`;
     budget.classList.toggle('over-budget', residuo < 0);
+
+    const hint = document.getElementById('budgetHint');
+    if (hint) hint.textContent = `${startingBudget} grux di budget`;
 
     updateButtonState();
 }
 
+/** Chi hai arruolato, in chiaro: "3× Arcieri · 2× Picchieri". */
+function renderSelectedChips() {
+    const zona = document.getElementById('selectedChips');
+    if (!zona) return;
+    zona.innerHTML = '';
+
+    allUnits.forEach(unit => {
+        const quante = quantita[unit.id] || 0;
+        if (quante === 0) return;
+        const chip = document.createElement('span');
+        chip.className = 'troop-chip';
+        chip.innerHTML = `<b>${quante}×</b> ${unit.name}`;
+        chip.title = `${quante * unit.cost_grux} grux`;
+        zona.appendChild(chip);
+    });
+}
+
 function getSelectedUnitsCost() {
-    return selectedUnits.reduce((total, unitId) => {
-        const unit = allUnits.find(item => item.id === unitId);
-        return total + (unit ? unit.cost_grux : 0);
+    return allUnits.reduce((total, unit) => {
+        return total + (quantita[unit.id] || 0) * unit.cost_grux;
     }, 0);
 }
 
