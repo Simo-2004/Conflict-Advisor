@@ -1,23 +1,13 @@
 """
 War Advisor - AI Hard Difficulty
 
-Profilo IA "difficile": un gradino sopra il normale, non un salto.
-
-Comportamento ad alveare. Tutto scala verso l'alto (esercito, reclute,
-miniere, fortificazioni, presidi) TRANNE l'aggressione in territorio nemico,
-che scala al contrario:
-
-- non si sbilancia quasi mai verso il castello nemico: consolida ed espande
-  il territorio attorno a sé, dove combatte in casa con le proprie difese;
-- appena una legione player supera la metà campo l'IA "si imbestialisce":
-  molla l'espansione e converge sull'intruso;
-- in quella fase può schierare una seconda legione per la difesa.
-
-È l'opposto del profilo facile, che si lancia subito lontano da casa con un
-esercito piccolo — ed è proprio quell'esposizione a renderlo facile da battere.
-
-Il margine verso l'alto resta volutamente ampio: la difficoltà "incubo"
-occuperà lo spazio sopra questo profilo.
+Comportamento ad alveare: tutto scala verso l'alto (esercito, reclute, miniere,
+fortificazioni, presidi) TRANNE l'aggressione in territorio nemico, che scala
+al contrario. Non si sbilancia verso il castello nemico, consolida attorno a sé
+e combatte in casa con le proprie difese; appena una legione player supera la
+metà campo molla tutto e converge sull'intruso, all'occorrenza con una seconda
+legione. È l'opposto del profilo facile, che si espone lontano da casa con un
+esercito piccolo — ed è quell'esposizione a renderlo facile da battere.
 """
 
 import random
@@ -55,11 +45,8 @@ FORTIFY_TURN_GATE = 2        # fortifica un turno su due
 CASTLE_GARRISON_TARGET = 3   # presidi sul proprio castello (tetto di gioco: 4)
 
 # ── Rendimento delle miniere ───────────────────────────────────────
-# Quanto rende all'IA una miniera rispetto alla stessa miniera in mano al
-# giocatore. È un vantaggio strutturale, non una scorciatoia: l'IA deve
-# comunque conquistare il territorio e scavare. Scala con la difficoltà
-# (facile non ne ha nessuno) e resta piccolo: sulla lunga distanza anche
-# pochi punti percentuali diventano truppe.
+# Quanto rende all'IA una miniera rispetto alla stessa in mano al giocatore:
+# un vantaggio strutturale piccolo, che il territorio va comunque conquistato.
 MINE_INCOME_MULTIPLIER = 1.12   # normale: 1.05 · incubo: 1.20
 
 
@@ -167,29 +154,27 @@ class HardAIDifficultyPolicy:
 
         return None
 
-    def should_leave_garrison(self, *, is_castle: bool, is_strategic: bool, current_strength: int, available: int) -> bool:
-        if available <= 0:
-            return False
-        if is_castle:
-            return current_strength < 2 and self.rng.random() < 0.50   # normale: 0.36
-        if is_strategic:
-            return current_strength < 1 and self.rng.random() < 0.30   # normale: 0.18
-        return False
-
     def should_start_research(self, turn: int) -> bool:
         if turn <= 3:
             return self.rng.random() < 0.95
         return self.rng.random() < 0.90
 
     def mine_attempts(self, available_slots: int, turn: int) -> int:
+        """Scava più spesso di tutti tranne l'incubo (normale: 0.52 di salto)."""
         if available_slots <= 0:
             return 0
-        if self.rng.random() < 0.40:   # normale: 0.52 di saltare
+        if self.rng.random() < 0.40:
             return 0
         return min(1, available_slots)
 
     def mine_income_multiplier(self) -> float:
         return MINE_INCOME_MULTIPLIER
+
+    # [DOCTRINE-LAYER] Stessa scala di `recruit_sharpness`: 0 sorteggia alla
+    # pari, i numeri alti concentrano la scelta sulla dottrina migliore.
+    def doctrine_sharpness(self) -> float:
+        """Abbina la dottrina alla situazione."""
+        return 4.0
 
     def recruit_sharpness(self) -> float:
         """Prende quasi sempre una fra le migliori: sbaglia di rado."""

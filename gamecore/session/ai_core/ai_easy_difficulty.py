@@ -17,10 +17,10 @@ from gamecore.economy import STARTING_GRUX, calculate_army_cost, get_unit_costs
 AI_EASY_ID = "easy"
 
 # ── Spinta verso il castello nemico ────────────────────────────────
-# L'aggressione è l'UNICO asse che scala al contrario della difficoltà.
-# Il profilo "facile" è il più avventato: si lancia presto verso il castello
-# con una legione ancora piccola, ed è proprio questo a renderlo facile —
-# un esercito debole che si espone lontano da casa è comodo da distruggere.
+# L'aggressione è l'UNICO asse che scala al contrario della difficoltà: il
+# profilo facile è il più avventato e si espone lontano da casa con un esercito
+# piccolo, che è comodo da distruggere. La manovra però lo trattiene fino al
+# turno 14 (`ai_doctrine.castle_from_turn`): prima di allora gironzola.
 CASTLE_PUSH_FROM_TURN = 4    # parte quasi subito
 CASTLE_PUSH_RANGE = 13       # tutta la mappa: attacca da qualunque distanza
 CASTLE_PUSH_MIN_UNITS = 2    # non aspetta di essere pronta
@@ -136,26 +136,29 @@ class EasyAIDifficultyPolicy:
 
         return None
 
-    def should_leave_garrison(self, *, is_castle: bool, is_strategic: bool, current_strength: int, available: int) -> bool:
-        if available <= 0:
-            return False
-        if is_castle:
-            return current_strength < 2 and self.rng.random() < 0.55
-        if is_strategic:
-            return current_strength < 1 and self.rng.random() < 0.35
-        return False
-
     def should_start_research(self, turn: int) -> bool:
         if turn <= 3:
             return self.rng.random() < 0.35
         return self.rng.random() < 0.22
 
     def mine_attempts(self, available_slots: int, turn: int) -> int:
+        """Scava meno di tutti, ma di poco.
+
+        Stava a 0.40 di salto, cioè scavava quanto il profilo difficile e più
+        del normale (0.52): la scala era rovesciata. Il valore è il minimo che
+        la raddrizza — a 0.62 l'IA facile smetteva di vincere del tutto.
+        """
         if available_slots <= 0:
             return 0
-        if self.rng.random() < 0.4:
+        if self.rng.random() < 0.56:
             return 0
         return min(1, available_slots)
+
+    # [DOCTRINE-LAYER] Stessa scala di `recruit_sharpness`: 0 sorteggia alla
+    # pari, i numeri alti concentrano la scelta sulla dottrina migliore.
+    def doctrine_sharpness(self) -> float:
+        """Sorteggia e basta: non sa cosa sta scegliendo."""
+        return 0.0
 
     def recruit_sharpness(self) -> float:
         """A zero: sceglie a caso fra le truppe che può permettersi.

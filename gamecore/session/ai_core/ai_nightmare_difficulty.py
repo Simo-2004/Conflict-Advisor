@@ -1,28 +1,19 @@
 """
 War Advisor - AI Nightmare Difficulty
 
-Profilo IA "incubo": l'ultimo gradino. Non è il difficile con numeri più alti,
-è un avversario che gioca in due fasi e non sbaglia.
+Non è il difficile con numeri più alti: è un avversario che gioca in due fasi.
 
-FASE ALVEARE (iniziale)
-- si trincera attorno al proprio castello: fortifica e presidia le caselle
-  IMMEDIATAMENTE adiacenti, non celle a caso;
-- espande e accumula, senza mai esporsi in territorio nemico;
-- converge sempre su chi supera la metà campo.
+ALVEARE          si trincera sulle caselle adiacenti al proprio castello,
+                 espande e accumula senza mai esporsi, converge su chi supera
+                 la metà campo.
+ANNIENTAMENTO    quando il vantaggio è misurabile (esercito, territorio,
+                 economia) commuta e marcia sul castello nemico con tutto,
+                 senza più tornare indietro. La commutazione è definitiva.
 
-FASE ANNIENTAMENTO (irreversibile)
-- quando il vantaggio è misurabile (esercito, territorio, economia) commuta
-  e marcia sul castello nemico con tutto ciò che ha, senza più tornare indietro.
-
-Vantaggi strutturali dichiarati:
-- +20% di budget iniziale;
-- +2% di rendimento sulle proprie miniere rispetto a quelle del player;
-- presidi comprati con il budget extra, che NON indeboliscono la legione in campo.
-
-Chirurgia:
-- scelta unità senza rumore casuale, sulle sinergie reali col terreno;
-- strategia rivalutata durante la partita e adattata a come gioca il player;
-- non esita mai.
+Vantaggi strutturali: +20% di budget iniziale, +20% sul rendimento delle
+proprie miniere, presidi comprati a parte che NON tolgono forza alla legione in
+campo. Sceglie le unità senza rumore casuale, rivaluta la strategia leggendo
+come gioca il player, e non esita mai.
 """
 
 import random
@@ -68,6 +59,8 @@ EXPANSION_DISTANCE_PENALTY = 0.62
 
 # ── Risposta alle incursioni ───────────────────────────────────────
 INTRUDER_FOCUS_CHANCE = 1.0      # sempre
+# Quante ne vuole per difendersi. La manovra ne può chiedere di più per la
+# tenaglia (`ai_doctrine.offensive_legions`): vince il numero più alto.
 MAX_LEGIONS = 2
 SECOND_LEGION_MIN_UNITS = 5
 
@@ -93,9 +86,6 @@ class NightmareAIDifficultyPolicy:
         self.player_profile: str = "sconosciuto"
 
     # ── Vantaggi strutturali ───────────────────────────────────────
-
-    def budget_multiplier(self) -> float:
-        return BUDGET_MULTIPLIER
 
     def mine_income_multiplier(self) -> float:
         return MINE_INCOME_MULTIPLIER
@@ -269,21 +259,18 @@ class NightmareAIDifficultyPolicy:
 
         return enemy_castle
 
-    def should_leave_garrison(self, *, is_castle: bool, is_strategic: bool, current_strength: int, available: int) -> bool:
-        if available <= 0:
-            return False
-        if is_castle:
-            return current_strength < 3
-        if is_strategic:
-            return current_strength < 2
-        return False
-
     def should_start_research(self, turn: int) -> bool:
         return True
 
     def mine_attempts(self, available_slots: int, turn: int) -> int:
         # Non salta mai una miniera disponibile.
         return min(2, max(0, available_slots))
+
+    # [DOCTRINE-LAYER] Stessa scala di `recruit_sharpness`: 0 sorteggia alla
+    # pari, i numeri alti concentrano la scelta sulla dottrina migliore.
+    def doctrine_sharpness(self) -> float:
+        """Prende quasi sempre quella giusta."""
+        return 10.0
 
     def recruit_sharpness(self) -> float:
         """Compra la truppa giusta per il terreno e per la sua strategia.

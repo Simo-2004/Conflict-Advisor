@@ -37,11 +37,8 @@ FORTIFY_TURN_GATE = 2        # fortifica un turno su due
 CASTLE_GARRISON_TARGET = 2   # presidi sul proprio castello (tetto di gioco: 4)
 
 # ── Rendimento delle miniere ───────────────────────────────────────
-# Quanto rende all'IA una miniera rispetto alla stessa miniera in mano al
-# giocatore. È un vantaggio strutturale, non una scorciatoia: l'IA deve
-# comunque conquistare il territorio e scavare. Scala con la difficoltà
-# (facile non ne ha nessuno) e resta piccolo: sulla lunga distanza anche
-# pochi punti percentuali diventano truppe.
+# Quanto rende all'IA una miniera rispetto alla stessa in mano al giocatore:
+# un vantaggio strutturale piccolo, che il territorio va comunque conquistato.
 MINE_INCOME_MULTIPLIER = 1.05   # difficile: 1.12 · incubo: 1.20
 
 
@@ -146,21 +143,13 @@ class NormalAIDifficultyPolicy:
 
         return None
 
-    def should_leave_garrison(self, *, is_castle: bool, is_strategic: bool, current_strength: int, available: int) -> bool:
-        if available <= 0:
-            return False
-        if is_castle:
-            return current_strength < 2 and self.rng.random() < 0.36
-        if is_strategic:
-            return current_strength < 1 and self.rng.random() < 0.18
-        return False
-
     def should_start_research(self, turn: int) -> bool:
         if turn <= 3:
             return self.rng.random() < 0.9
         return self.rng.random() < 0.82
 
     def mine_attempts(self, available_slots: int, turn: int) -> int:
+        """Scava un turno su due (facile: 0.62 di salto · difficile: 0.40)."""
         if available_slots <= 0:
             return 0
         if self.rng.random() < 0.52:
@@ -169,6 +158,12 @@ class NormalAIDifficultyPolicy:
 
     def mine_income_multiplier(self) -> float:
         return MINE_INCOME_MULTIPLIER
+
+    # [DOCTRINE-LAYER] Stessa scala di `recruit_sharpness`: 0 sorteggia alla
+    # pari, i numeri alti concentrano la scelta sulla dottrina migliore.
+    def doctrine_sharpness(self) -> float:
+        """Una spinta appena, resta quasi casuale."""
+        return 0.7
 
     def recruit_sharpness(self) -> float:
         """Sceglie a peso: le truppe buone escono più spesso, non sempre.

@@ -1,25 +1,19 @@
 """
 War Advisor - Dottrine operative dell'IA (un file per tutte le difficoltà)
 
-I quattro file di difficoltà rispondono a "cosa vuole l'IA": quanto è
-aggressiva, quando assalta, quante legioni schiera. Restano com'erano.
+I file di difficoltà dicono *cosa vuole* l'IA: quanto è aggressiva, quando
+assalta, quante legioni schiera. Questo dice **come ci arriva**, cioè la
+manovra:
 
-Questo file risponde a un'altra domanda, che prima non se la poneva nessuno:
-**come ci arriva**. Cioè la manovra.
+    corsie          ogni legione tiene la sua (sinistra, centro, destra),
+                    se no scendono tutte dalla colonna centrale
+    aggiramento     il castello si raggiunge da un punto d'attacco laterale,
+                    non in linea retta
+    vagabondaggio   ai livelli bassi l'IA gironzola invece di andare al sodo
+    attesa          e ogni tanto si ferma
 
-    corsie          ogni legione ha una corsia (sinistra, centro, destra) e
-                    ci si tiene: senza, tutte scendevano dalla colonna centrale
-    aggiramento     invece di puntare il castello in linea retta, si passa
-                    prima da un punto d'attacco sul fianco
-    vagabondaggio   ai livelli bassi l'IA non va dritta al sodo: gironzola
-    attesa          e ogni tanto si ferma, invece di macinare caselle
-
-Perché un file solo: i profili sono una tabella di numeri, e la logica che li
-usa è identica per tutti. Quattro file avrebbero significato quattro copie
-della stessa manovra con quattro tarature — e il giorno che la manovra cambia,
-quattro posti da correggere.
-
-Aggiungere una difficoltà = aggiungere una riga a `DOCTRINES`.
+Un file solo perché la logica è identica per tutti e cambia solo la tabella di
+numeri: aggiungere una difficoltà = aggiungere una riga a `DOCTRINES`.
 """
 
 from __future__ import annotations
@@ -353,8 +347,8 @@ class DoctrineRuntime:
     def offensive_legions(self, turn: int) -> int:
         """Quante legioni servono per manovrare come dice la dottrina.
 
-        Con una legione sola non esiste accerchiamento: incubo ne vuole
-        quattro, difficile due, gli altri restano com'erano.
+        Con una legione sola non esiste accerchiamento: incubo ne vuole tre,
+        difficile due, gli altri restano com'erano.
         """
         if turn < self.doctrine.offensive_from_turn:
             return 1

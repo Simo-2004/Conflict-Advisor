@@ -504,7 +504,27 @@
                 const nome = legion ? `'${legion.name}'` : 'Generale';
                 const attiva = legion ? legion.strategy_name : sessionData?.player?.strategy_name;
                 label.textContent = `${nome} — in uso: ${attiva || '---'}`;
+                // L'effetto della dottrina dipende dalla composizione, e non
+                // si vede: il pallino dice acceso o spento, il tooltip cosa manca.
+                label.title = descriviDottrina(legion);
+                label.classList.toggle('doctrine-off',
+                    Boolean(legion?.doctrine?.has_effect) && !legion?.doctrine?.active);
+                label.classList.toggle('doctrine-on',
+                    Boolean(legion?.doctrine?.active));
             }
+        }
+
+        /** Una riga sulla dottrina della legione, per il tooltip. */
+        function descriviDottrina(legion) {
+            const d = legion?.doctrine;
+            if (!d) return '';
+            if (!d.has_effect) return 'Questa strategia non ha ancora un effetto speciale.';
+            if (!d.gate_ok) return `Effetto spento: servono ${d.requirement_text}.`;
+            if (!d.active) return `${d.effect_text} — attivo dal prossimo turno.`;
+            const attesa = d.turns_before_change
+                ? ` · cambio dottrina fra ${d.turns_before_change} turni`
+                : '';
+            return `Attivo: ${d.effect_text}${attesa}`;
         }
 
         /** Toglie l'evidenziazione appena l'utente sceglie una voce diversa
