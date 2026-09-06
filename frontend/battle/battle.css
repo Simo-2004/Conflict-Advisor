@@ -1748,6 +1748,38 @@
             color: #0f766e;
         }
 
+        /* [DOCTRINE-LAYER] Pallino verde = effetto acceso, ambra = spento o in
+           attesa. Senza, adottare una dottrina senza la composizione giusta
+           sembra un gioco che non risponde. */
+        .strategy-scope-hint::after {
+            content: '';
+            display: none;
+            width: 7px;
+            height: 7px;
+            margin-left: 6px;
+            border-radius: 50%;
+            vertical-align: middle;
+        }
+
+        .strategy-scope-hint.doctrine-on::after,
+        .strategy-scope-hint.doctrine-off::after {
+            display: inline-block;
+        }
+
+        .strategy-scope-hint.doctrine-on::after {
+            background: #16a34a;
+            box-shadow: 0 0 0 2px #dcfce7;
+        }
+
+        .strategy-scope-hint.doctrine-off::after {
+            background: #d97706;
+            box-shadow: 0 0 0 2px #fef3c7;
+        }
+
+        .strategy-scope-hint.doctrine-off {
+            color: #b45309;
+        }
+
         .strategy-advisor-reliability {
             border: 1px solid #bfdbfe;
             border-left: 4px solid #1d4ed8;

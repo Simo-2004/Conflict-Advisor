@@ -39,6 +39,9 @@ class MovementState:
     display_blocked_turns: int = 0
     last_terrain: str = "Pianura"
     last_cost: int = MOVEMENT_POINTS_PER_TURN
+    # [DOCTRINE-LAYER] Punti con cui è stata fatta l'ultima mossa: una legione
+    # può marciarne più del ritmo base, e il pannello deve dire quelli veri.
+    last_points_per_turn: int = MOVEMENT_POINTS_PER_TURN
     progress_ratio: float = 1.0
     missing_ratio: float = 0.0
     last_from_pos: tuple[int, int] | None = None
@@ -56,8 +59,8 @@ class MovementPointsSystem:
         self.points_per_turn = max(1, int(points_per_turn))
         self.terrain_costs: Dict[str, int] = dict(terrain_costs or TERRAIN_MOVEMENT_COSTS)
         self._states: Dict[Occupation, MovementState] = {
-            Occupation.PLAYER: MovementState(),
-            Occupation.AI: MovementState(),
+            Occupation.PLAYER: self._new_state(),
+            Occupation.AI: self._new_state(),
         }
         # Nel sistema a legioni ogni legione marcia per conto suo: lo stato per
         # entità non basta più, serve un ritardo indipendente per ciascuna.
@@ -70,10 +73,16 @@ class MovementPointsSystem:
         """Chiave stabile per lo stato movimento di una singola legione."""
         return f"{entity.value}:{legion_id}"
 
+    def _new_state(self) -> MovementState:
+        """Stato a riposo: nessun blocco, ritmo di marcia base."""
+        return MovementState(
+            last_cost=self.points_per_turn, last_points_per_turn=self.points_per_turn
+        )
+
     def _legion_state(self, legion_key: str) -> MovementState:
         state = self._legion_states.get(legion_key)
         if state is None:
-            state = MovementState()
+            state = self._new_state()
             self._legion_states[legion_key] = state
         return state
 
@@ -96,14 +105,19 @@ class MovementPointsSystem:
         terrain: str,
         from_pos: tuple[int, int] | None,
         to_pos: tuple[int, int] | None,
+        points_per_turn: int | None = None,
     ) -> Dict[str, int | str | float]:
+        # [DOCTRINE-LAYER] La dottrina può dare più punti del ritmo base.
+        # Senza il layer nessuno passa questo parametro.
+        punti = max(1, int(points_per_turn or self.points_per_turn))
         cost = self.terrain_cost(terrain)
-        extra_wait_turns = max(0, ceil(cost / self.points_per_turn) - 1)
-        progress_ratio = min(1.0, self.points_per_turn / max(1, cost))
+        extra_wait_turns = max(0, ceil(cost / punti) - 1)
+        progress_ratio = min(1.0, punti / max(1, cost))
         missing_ratio = max(0.0, 1.0 - progress_ratio)
 
         state.last_terrain = terrain
         state.last_cost = cost
+        state.last_points_per_turn = punti
         state.blocked_turns = extra_wait_turns
         state.display_blocked_turns = extra_wait_turns
         state.progress_ratio = progress_ratio
@@ -113,7 +127,7 @@ class MovementPointsSystem:
 
         return {
             "cost": cost,
-            "points_per_turn": self.points_per_turn,
+            "points_per_turn": punti,
             "extra_wait_turns": extra_wait_turns,
             "terrain": terrain,
             "progress_ratio": progress_ratio,
@@ -136,9 +150,12 @@ class MovementPointsSystem:
         terrain: str,
         from_pos: tuple[int, int] | None = None,
         to_pos: tuple[int, int] | None = None,
+        points_per_turn: int | None = None,
     ) -> Dict[str, int | str | float]:
         """Registra la mossa di una singola legione e aggiorna il suo ritardo turni."""
-        return self._apply_move(self._legion_state(legion_key), terrain, from_pos, to_pos)
+        return self._apply_move(
+            self._legion_state(legion_key), terrain, from_pos, to_pos, points_per_turn
+        )
 
     def _apply_consume_block(self, state: MovementState) -> Dict[str, int | str | bool]:
         if state.blocked_turns <= 0:
@@ -173,7 +190,8 @@ class MovementPointsSystem:
         defense_penalty_active = state.blocked_turns > 0
         defense_factor = 1.0 - MOVEMENT_DEFENSE_PENALTY_RATIO if defense_penalty_active else 1.0
         return {
-            "points_per_turn": self.points_per_turn,
+            "points_per_turn": state.last_points_per_turn,
+            "base_points_per_turn": self.points_per_turn,
             "blocked_turns": state.blocked_turns,
             "display_blocked_turns": state.display_blocked_turns,
             "last_terrain": state.last_terrain,

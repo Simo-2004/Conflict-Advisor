@@ -47,6 +47,13 @@ from gamecore.session.movement_points import MovementPointsSystem
 from gamecore.session import troop_condition as tc
 from gamecore.session import weather_cycle as wc
 
+# [DOCTRINE-LAYER] Effetti unici delle strategie. Se il file sparisce le
+# strategie tornano a valere solo come moltiplicatore di forza.
+try:
+    from gamecore import doctrines as doc
+except ImportError:                                       # layer rimosso
+    doc = None
+
 # [BALANCE-LAYER] Correzioni di bilanciamento truppe (ruolo d'assedio
 # dell'artiglieria, guaritori che assorbono perdite). Se il file non c'è, il
 # gioco gira con i numeri grezzi del motore: ogni uso è protetto da un
@@ -118,20 +125,11 @@ CASTLE_BASE_HP = 220
 CASTLE_HP_PER_UNIT = 8
 
 # ── Difesa del castello ────────────────────────────────────────────
-# Blocco isolato apposta: è la manopola unica per bilanciare gli assedi,
-# pensata per essere rivista senza toccare il resto del motore.
-#
-# Il castello si difende in due modi indipendenti, entrambi con un tetto:
-#   1. PRESIDI sulla cella → al massimo 4, altrimenti bastava impilare truppe
-#      per rendere il castello imprendibile;
-#   2. FORTIFICAZIONI sul castello → al massimo 4 livelli, ognuno taglia i
-#      danni in percentuale.
-# Le legioni ferme sul castello NON contano come difesa: erano cumulabili
-# senza limite e rendevano l'assedio impossibile.
-#
-# La fortificazione del castello è una meccanica a sé: sulle celle normali
-# le fortificazioni continuano a funzionare come prima (nessun tetto, bonus
-# calcolato in `_legion_battle_strength`).
+# Manopola unica per bilanciare gli assedi. Il castello si difende in due modi,
+# entrambi con un tetto: presidi sulla cella e livelli di fortificazione. Le
+# legioni ferme sopra NON contano — erano cumulabili senza limite e rendevano
+# l'assedio impossibile. Sulle celle normali le fortificazioni restano senza
+# tetto (bonus calcolato in `_legion_battle_strength`).
 CASTLE_MAX_FORTIFICATION_LEVEL = 4        # tetto di costruzioni sul castello
 CASTLE_FORT_DAMAGE_REDUCTION_PER_LEVEL = 0.10   # -10% danni per livello (max -40%)
 CASTLE_MAX_GARRISON_UNITS = 4             # tetto di presidi sulla cella del castello
@@ -175,32 +173,31 @@ AUTO_RECRUIT_MAX_WAIT = 8
 # Con un fiume centrale e pochi guadi la differenza è tutta la mappa.
 TERRENI_INVALICABILI = ("Fiume",)
 
+# [DOCTRINE-LAYER] Terreni che costano più di un turno di marcia: sono
+# quelli su cui la Manovra sui Fianchi fa la differenza.
+TERRENI_FATICOSI = ("Foresta", "Palude", "Montagna")
+
 # ── Reclutamento IA ────────────────────────────────────────────────
-# Prima l'IA sceglieva la recluta con una somma fissa di cinque attributi:
-# una funzione costante, quindi il massimo era sempre la stessa truppa e
-# l'esercito diventava mono-tipo (misurato: 90% arcieri a fine partita).
-# Adesso il punteggio guarda tre cose, e queste sono le loro manopole.
-#
-# VARIETA:  quanto penalizza una truppa di cui l'IA è già piena.
-#           0 = nessun freno, 1 = una truppa al 100% vale zero.
-# PREZZO:   quanto conta il costo. 0 = lo ignora, 1 = ragiona a valore/grux.
-# STRATEGIA: il terzo criterio non ha una costante perché è relativo:
-#           le candidate vengono ordinate per quanto avvicinano l'esercito
-#           alla strategia in uso, e la migliore prende +25%, la peggiore -25%.
+# Il punteggio di una recluta guarda tre cose, e queste sono le manopole.
+# Con la vecchia somma fissa di attributi il massimo era sempre la stessa
+# truppa e l'esercito diventava mono-tipo (misurato: 90% arcieri a fine
+# partita).
+#   VARIETA   quanto penalizza una truppa di cui l'IA è già piena
+#   PREZZO    quanto conta il costo (0 = lo ignora, 1 = ragiona a valore/grux)
+#   STRATEGIA banda relativa: fra le candidate, chi avvicina di più l'esercito
+#             alla strategia in uso prende +25%, chi meno -25%
 RECRUIT_PESO_VARIETA = 0.55
 RECRUIT_ESPONENTE_PREZZO = 0.6
 RECRUIT_BANDA_STRATEGIA = 0.25
 
-# Quanto l'IA è decisa a prendere la truppa col punteggio migliore.
-# 0 = sceglie a caso fra quelle che può permettersi, numeri alti = prende
-# quasi sempre la prima. È la leva che tiene la differenza fra difficoltà:
-# ogni profilo dichiara la sua in `recruit_sharpness()`.
+# Quanto l'IA è decisa a prendere la truppa col punteggio migliore: 0 = a caso,
+# numeri alti = quasi sempre la prima. Ogni profilo dichiara la sua in
+# `recruit_sharpness()`.
 RECRUIT_SHARPNESS_DEFAULT = 4.0
 
-# Unità minime perché una legione IA in più sia un reparto e non un drappello.
-# Misurato: spezzare l'esercito in quattro gruppetti da tre rende l'IA più
-# debole, non più minacciosa — contro le mura ognuno fa il danno minimo.
-# L'accerchiamento vale solo con reparti veri dietro.
+# Unità minime perché una legione IA in più sia un reparto e non un drappello:
+# spezzare l'esercito in gruppetti da tre la rende più debole, non più
+# minacciosa — contro le mura ognuno fa il danno minimo.
 AI_MIN_UNITS_PER_LEGION = 6
 
 # Sotto questo esercito l'IA non mette da parte un grux per la ricerca: prima
@@ -386,6 +383,9 @@ class GameSession:
             AI: BlackMarketState(),
         }
         self.black_market_rng = random.Random((map_seed or 0) + 7717)
+        # [DOCTRINE-LAYER] Sorteggio suo, come meteo e mercato nero: pescando
+        # dallo stream della policy IA sposterebbe ogni decisione successiva.
+        self.doctrine_rng = random.Random((map_seed or 0) * 613 + 29)
         self.recruit_cooldown_turns: int = 2
         self.last_recruit_turn: Dict[Occupation, Optional[int]] = {
             PLAYER: None,
@@ -624,6 +624,9 @@ class GameSession:
             "legion_type": legion_type,
             # Nasce con la strategia generale, poi la si cambia per legione.
             "strategy_id": self.player_strategy_id,
+            # [DOCTRINE-LAYER] Anche appena nata l'effetto parte dal turno dopo:
+            # creare una legione non è la scorciatoia per averlo subito.
+            "doctrine_since_turn": self.game_map.turn,
             # Eredita la condizione della riserva da cui è stata formata.
             "condition": tc.new_condition(
                 fatigue=self.reserve_condition[PLAYER]["fatigue"],
@@ -823,6 +826,7 @@ class GameSession:
             "pos": spawn_pos,
             "target": None,
             "legion_type": LEGION_TYPE_ARMY,
+            "doctrine_since_turn": self.game_map.turn,   # [DOCTRINE-LAYER]
             "path": [],
             "path_step": 0,
             # Come per il player: eredita la condizione della riserva IA.
@@ -907,7 +911,22 @@ class GameSession:
         key = self._legion_movement_key(entity, legion_id)
         cell = self.game_map.get_cell(*to_pos)
         terrain = cell.terrain if cell is not None else "Pianura"
-        info = self.movement_system.register_legion_move(key, terrain, from_pos, to_pos)
+        # [DOCTRINE-LAYER] Manovra sui Fianchi: la colonna a cavallo marcia
+        # con più punti, quindi bosco e palude non la bloccano per un turno.
+        punti = None
+        if doc is not None:
+            stato = self._doctrine_state(entity, legion)
+            if stato is not None:
+                punti = doc.movement_points(
+                    stato["strategy_id"], stato["units"],
+                    turn=stato["turn"], since_turn=stato["since_turn"],
+                    base_points=self.movement_system.points_per_turn,
+                )
+                if punti == self.movement_system.points_per_turn:
+                    punti = None
+        info = self.movement_system.register_legion_move(
+            key, terrain, from_pos, to_pos, points_per_turn=punti
+        )
         legion["movement"] = self.movement_system.export_legion_state(key)
         return info
 
@@ -920,15 +939,11 @@ class GameSession:
     def _sync_ai_legion_units(self) -> bool:
         """Ripartisce l'esercito IA (`self.ai_units`) fra le legioni in campo.
 
-        A differenza del player — dove `player_units` è una riserva e creare una
-        legione ne sottrae le unità — per l'IA `ai_units` resta l'esercito
-        autoritativo e le legioni ne sono una vista. Senza questo riallineamento
-        le reclute non arriverebbero mai al fronte e le perdite non
-        ridurrebbero le legioni.
-
-        Con una sola legione è un mirror; con due (difesa ad alveare) le unità
-        vengono distribuite alternandole per valore, così nessuna delle due
-        eredita solo gli scarti.
+        Per il player `player_units` è una riserva da cui la legione sottrae; per
+        l'IA `ai_units` resta l'esercito autoritativo e le legioni ne sono una
+        vista, se no le reclute non arrivano al fronte e le perdite non riducono
+        le legioni. Con più legioni le unità si alternano per valore, così
+        nessuna eredita solo gli scarti.
 
         Returns:
             True se qualcosa è stato effettivamente modificato.
@@ -1106,6 +1121,40 @@ class GameSession:
                 occupied[pos] = legion.get("name", legion_id)
         return occupied
 
+    # [DOCTRINE-LAYER] Serve solo alla Difesa in Profondità.
+    def _one_step_retreat(
+        self,
+        entity: Occupation,
+        from_pos: Tuple[int, int],
+        own_castle: Tuple[int, int],
+        exclude_id: Optional[str] = None,
+    ) -> Optional[Tuple[int, int]]:
+        """La cella adiacente che accorcia la strada verso il proprio castello.
+
+        Arretrare è cedere terreno, non girare in tondo né allontanarsi da
+        casa: valgono solo i passi che riducono la distanza. Senza candidate
+        restituisce None e vale il ripiegamento normale al castello.
+        """
+        occupate = self._own_legion_positions_map(entity, exclude_id=exclude_id)
+        # Anche le nemiche: arretrare addosso a una legione avversaria la
+        # lascerebbe sulla stessa casella senza che nessuno dei due attacchi.
+        occupate.update(
+            self._own_legion_positions_map(AI if entity == PLAYER else PLAYER)
+        )
+        r, c = from_pos
+        distanza_attuale = abs(r - own_castle[0]) + abs(c - own_castle[1])
+        candidate = []
+        for vicino in ((r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)):
+            if vicino in occupate or not self._cella_attraversabile(vicino):
+                continue
+            distanza = abs(vicino[0] - own_castle[0]) + abs(vicino[1] - own_castle[1])
+            if distanza >= distanza_attuale:
+                continue
+            candidate.append((distanza, vicino))
+        if not candidate:
+            return None
+        return min(candidate)[1]
+
     def _free_cell_for(
         self,
         entity: Occupation,
@@ -1179,28 +1228,19 @@ class GameSession:
         goal: Tuple[int, int],
         lane_col: Optional[int],
     ) -> List[Tuple[int, int]]:
-        """I quattro vicini, ordinati da 'più sensato' a 'meno sensato'.
+        """I quattro vicini, dal passo più sensato al meno sensato.
 
-        Serve al BFS: fra tutti i cammini minimi ne esistono tantissimi, e
-        quale esce dipende SOLO da quale vicino si guarda per primo. Con
-        l'ordine fisso (su, giù, sinistra, destra) vinceva sempre il cammino
-        che va prima in verticale: ogni legione scendeva lungo la colonna del
-        castello e girava soltanto alla fine. Da fuori sembrava che il gioco
-        costringesse tutti a passare dal centro — ed era esattamente così.
+        Fra i tanti cammini minimi, quale esce dipende solo da quale vicino il
+        BFS guarda per primo: con l'ordine fisso vinceva sempre quello che va
+        prima in verticale, e ogni legione scendeva lungo la colonna del
+        castello. L'ordine qui è: chi avvicina all'obiettivo (garantisce il
+        cammino minimo), poi chi tiene la corsia, poi chi resta vicino alla
+        retta partenza-obiettivo — è il terzo criterio a raddrizzare la marcia
+        in diagonale, a parità di lunghezza.
 
-        L'ordine qui è:
-          1. passi che avvicinano all'obiettivo (garantisce il cammino minimo);
-          2. a parità, chi si tiene sulla corsia assegnata;
-          3. a parità, chi resta più vicino alla retta partenza-obiettivo.
-
-        Il terzo criterio è quello che raddrizza la marcia: invece di scendere
-        tutto e poi girare, si va in diagonale. La lunghezza non cambia — il
-        BFS resta ottimo — cambia quale dei cammini minimi viene scelto.
-
-        Nota sul secondo criterio: può solo scegliere fra cammini di pari
-        lunghezza. Se partenza e arrivo stanno sulla stessa colonna il cammino
-        minimo è uno solo e nessuna corsia può piegarlo: per aggirare davvero
-        serve un obiettivo intermedio, ed è quello che assegna la dottrina.
+        La corsia può solo scegliere fra cammini di pari lunghezza: se partenza
+        e arrivo stanno sulla stessa colonna non c'è niente da piegare, e per
+        aggirare davvero serve l'obiettivo intermedio che assegna la dottrina.
         """
         r, c = current
         goal_r, goal_c = goal
@@ -1302,20 +1342,15 @@ class GameSession:
     ) -> Tuple[Tuple[int, int], Dict[str, Any]]:
         """Passo verso il target, aggirando gli ostacoli e ripiegando se serve.
 
-        Sono ostacoli il castello nemico (a meno che sia la destinazione scelta,
-        cioè un assalto esplicito) e le legioni alleate, che fanno da muro:
-        una cella ne ospita una sola. Contro le legioni nemiche invece si va
-        addosso: quello è uno scontro, non un ostacolo.
-
-        Se l'obiettivo è occupato da un'alleata o non c'è un varco per arrivarci,
-        la legione non si pianta: punta alla cella libera più vicina possibile
-        all'obiettivo. Chi arriva primo prende la casella, gli altri si
-        sistemano intorno.
+        Sono ostacoli il castello nemico (a meno che sia la destinazione scelta)
+        e le legioni alleate, che fanno da muro: una cella ne ospita una sola.
+        Contro le nemiche invece si va addosso, quello è uno scontro. Se
+        l'obiettivo è occupato o irraggiungibile la legione non si pianta: punta
+        alla cella libera più vicina.
 
         Returns:
-            (prossima posizione, esito) dove l'esito riporta `blocked_by` — il
-            nome dell'alleata sull'obiettivo — e `fallback`, la destinazione di
-            ripiego scelta. Servono al log, per rendere visibile la decisione.
+            (prossima posizione, esito) con `blocked_by` e `fallback`, che
+            servono al log per rendere visibile la decisione.
         """
         current_pos = tuple(current_pos)
         target_pos = tuple(target_pos)
@@ -1594,13 +1629,10 @@ class GameSession:
     def _castle_defense(self, defender: Occupation, castle_pos: Tuple[int, int]) -> Dict[str, Any]:
         """Difesa del castello: presidi (max 4) e fortificazioni.
 
-        Le legioni ferme sulla cella non contano: erano accumulabili senza
-        limite e bastavano a rendere il castello imprendibile. Chi vuole
-        difendere il castello deve *distaccare* presidi, che sono contati e
-        limitati a `CASTLE_MAX_GARRISON_UNITS`.
-
-        Nemmeno la riserva conta: finché contava, formare una legione
-        *sottraeva* difesa al castello, cioè giocare puniva.
+        Contano solo i presidi distaccati, fino a `CASTLE_MAX_GARRISON_UNITS`:
+        le legioni ferme sulla cella erano accumulabili senza limite e rendevano
+        il castello imprendibile, e con la riserva nel conto formare una legione
+        *sottraeva* difesa, cioè giocare puniva.
 
         Returns:
             score              — punteggio difensivo da confrontare con l'attaccante
@@ -1991,6 +2023,28 @@ class GameSession:
             dfn["strength"],
             atk["strength"],
         )
+        # [DOCTRINE-LAYER] Accerchiamento: la morsa fa più morti, ma solo
+        # quando è lei ad attaccare. Il tetto anti-sterminio del motore resta,
+        # e non può abbassare le perdite che il motore aveva già deciso.
+        if doc is not None:
+            stato = self._doctrine_state(attacker, atk_legion)
+            if stato is not None:
+                morsa = doc.enemy_loss_multiplier(
+                    stato["strategy_id"], stato["units"],
+                    turn=stato["turn"], since_turn=stato["since_turn"],
+                    attacking=True,
+                )
+                if morsa != 1.0 and def_losses > 0:
+                    tetto = max(def_losses, dfn["units"] - 1) if dfn["units"] > 1 else dfn["units"]
+                    def_losses = min(tetto, doc.scaled_losses(def_losses, morsa))
+
+        # [DOCTRINE-LAYER] Fotografia delle due legioni PRIMA delle perdite:
+        # le porte vanno guardate sulla composizione con cui sono entrate in
+        # battaglia. Vedi il docstring di `_doctrine_state`.
+        units_before = {
+            atk_id: list(atk_legion.get("units") or []),
+            def_id: list(def_legion.get("units") or []),
+        }
 
         atk_n, atk_text, atk_alive = self._apply_legion_losses(attacker, atk_id, atk_legion, atk_losses)
         def_n, def_text, def_alive = self._apply_legion_losses(defender, def_id, def_legion, def_losses)
@@ -2013,7 +2067,26 @@ class GameSession:
             ):
                 if legione is None:
                     continue
-                tc.apply_battle(self._legion_condition(entita, legione), won=vinto)
+                condizione = self._legion_condition(entita, legione)
+                tc.apply_battle(condizione, won=vinto)
+                # [DOCTRINE-LAYER] Blitz: chi perde contro una carica pura
+                # lascia il doppio del morale. Si legge sulla dottrina di chi
+                # VINCE e si applica a chi perde, una volta sola.
+                if doc is not None and not vinto and vincitrice is not None:
+                    entita_vinc = attacker if vincitrice is atk_legion else defender
+                    id_vinc = atk_id if vincitrice is atk_legion else def_id
+                    stato = self._doctrine_state(
+                        entita_vinc, vincitrice, units_before.get(id_vinc)
+                    )
+                    if stato is not None:
+                        urto = doc.morale_loss_multiplier(
+                            stato["strategy_id"], stato["units"],
+                            turn=stato["turn"], since_turn=stato["since_turn"],
+                        )
+                        if urto > 1.0:
+                            tc.lose_morale(
+                                condizione, tc.BATTLE_MORALE_LOSS * (urto - 1.0)
+                            )
                 legione["acted_this_turn"] = True
                 self._log_condition_change(entita, legione, prima, logs)
 
@@ -2094,19 +2167,43 @@ class GameSession:
         if cell is not None:
             cell.occupation = winner
 
+        arretra_corto = False
         own_castle = self.game_map.castle_positions.get(loser_entity)
         if own_castle is not None:
             # Se il castello è già presidiato da un'altra legione ripiega di fianco:
             # il ripiegamento non deve ricreare la sovrapposizione.
             loser_id = def_id if loser_entity == defender else atk_id
+            meta = own_castle
+            # [DOCTRINE-LAYER] Difesa in Profondità: arretra di una cella verso
+            # casa invece di attraversare mezza mappa, e resta a contatto.
+            if doc is not None:
+                stato = self._doctrine_state(
+                    loser_entity, loser_legion, units_before.get(loser_id)
+                )
+                if stato is not None and doc.retreats_one_cell(
+                    stato["strategy_id"], stato["units"],
+                    turn=stato["turn"], since_turn=stato["since_turn"],
+                ):
+                    passo = self._one_step_retreat(loser_entity, pos, own_castle, loser_id)
+                    if passo is not None:
+                        meta = passo
+                        arretra_corto = True
             loser_legion["pos"] = (
-                self._free_cell_for(loser_entity, own_castle, exclude_id=loser_id) or own_castle
+                self._free_cell_for(loser_entity, meta, exclude_id=loser_id) or meta
             )
         loser_legion["target"] = None
 
+        # [DOCTRINE-LAYER] Con la Difesa in Profondità la legione non torna a
+        # casa: va detto nella stessa riga dell'esito, se no si contraddice.
+        if arretra_corto:
+            dove = (
+                f"cede una cella e tiene il fronte su "
+                f"{tuple(loser_legion.get('pos', ()))} (Difesa in Profondità)"
+            )
+        else:
+            dove = "ripiega al proprio castello"
         logs.append(
-            f"   Esito: vince {winner.value.upper()} — la legione '{loser_name}' "
-            f"ripiega al proprio castello."
+            f"   Esito: vince {winner.value.upper()} — la legione '{loser_name}' {dove}."
         )
         registra_esito(winner_legion, loser_legion)
 
@@ -2355,6 +2452,170 @@ class GameSession:
             f"{best['name']} (ti legge come '{profile}')"
         )
 
+    # [DOCTRINE-LAYER] ─────────────────────────────────────────────
+    def _ai_legion_situation(
+        self, legion: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Le quattro letture su cui l'IA decide la dottrina di una legione.
+
+        Volutamente grossolane — "sto per menare le mani", "sto attraversando
+        una palude" — il criterio con cui pesarle lo mette la difficoltà.
+        """
+        pos = tuple(legion.get("pos", ()))
+        bersaglio = legion.get("target")
+        castello_nemico = self.game_map.castle_positions.get(PLAYER)
+
+        contatto = False
+        if len(pos) == 2:
+            for altra in self.player_legions.values():
+                altra_pos = tuple(altra.get("pos", ()))
+                if len(altra_pos) != 2:
+                    continue
+                if abs(altra_pos[0] - pos[0]) + abs(altra_pos[1] - pos[1]) <= 1:
+                    contatto = True
+                    break
+
+        duro = False
+        if len(pos) == 2:
+            for candidata in (pos, tuple(bersaglio) if bersaglio else None):
+                if candidata is None or len(candidata) != 2:
+                    continue
+                cella = self.game_map.get_cell(*candidata)
+                if cella is not None and cella.terrain in TERRENI_FATICOSI:
+                    duro = True
+                    break
+
+        # I profili che leggono come gioca il player ne ricavano una postura:
+        # senza portarla fin qui resterebbe una riga di log, perché a combattere
+        # va la dottrina scelta legione per legione, non la strategia generale.
+        bias_getter = getattr(self.ai_policy, "strategy_bias", None)
+        postura = bias_getter() if callable(bias_getter) else None
+
+        stato = tc.resolve_status(self._legion_condition(AI, legion))
+        return {
+            "assalto": bool(bersaglio) and tuple(bersaglio) == castello_nemico,
+            "contatto": contatto,
+            "in_ritirata": stato == tc.STATUS_DEMORALIZED,
+            "terreno_duro": duro,
+            "postura": postura,
+        }
+
+    def _log_doctrine_gate_changes(self, logs: List[str]) -> None:
+        """Avvisa quando l'effetto di una dottrina si accende o si spegne da solo.
+
+        Basta perdere una cavalleria e la Manovra sui Fianchi smette di valere:
+        senza questa riga la legione marcia piano con il pannello che dice
+        ancora "Manovra sui Fianchi".
+        """
+        if doc is None:
+            return
+        for entity, legioni in ((PLAYER, self.player_legions), (AI, self.ai_legions)):
+            for legion in legioni.values():
+                unita = legion.get("units") or []
+                if not unita:
+                    continue
+                sid = self._legion_strategy_id(entity, legion)
+                if not doc.has_effect(sid):
+                    legion.pop("doctrine_gate_ok", None)
+                    continue
+                aperta = doc.gate_passed(sid, unita)
+                prima = legion.get("doctrine_gate_ok")
+                legion["doctrine_gate_ok"] = aperta
+                if prima is None or prima == aperta:
+                    continue
+                nome = self.strategies_map.get(sid, {}).get("name", sid)
+                if aperta:
+                    logs.append(
+                        f"[Turno {self.game_map.turn}] 🧭 {entity.value.upper()}: "
+                        f"'{legion.get('name')}' ha di nuovo la composizione per "
+                        f"{nome} — {doc.effect_text(sid)}."
+                    )
+                else:
+                    logs.append(
+                        f"[Turno {self.game_map.turn}] ⚠ {entity.value.upper()}: "
+                        f"'{legion.get('name')}' non ha più la composizione per "
+                        f"{nome}: l'effetto è spento, servono {doc.gate_text(sid)}."
+                    )
+
+    def _ai_doctrine_factors(
+        self, legion: Dict[str, Any], candidate: Sequence[str]
+    ) -> List[float]:
+        """Il fattore di forza che ogni dottrina candidata darebbe a questa legione.
+
+        La strategia moltiplica la forza fra 0.30 e 2.35: senza questo conto
+        l'IA sorteggiava anche quelle incompatibili e si dimezzava da sola.
+        """
+        pos = tuple(legion.get("pos", ()))
+        cella = self.game_map.get_cell(*pos) if len(pos) == 2 else None
+        terreno = cella.terrain if cella is not None else self.ai_home_terrain
+        modificato, _ = apply_modifiers(
+            army_vector=aggregate_army(legion.get("units") or [], self.data["units"]),
+            terrain_name=terreno,
+            weather_name=self.weather,
+            troop_status_name=self._legion_troop_status(AI, legion),
+            modifiers_data=self.data,
+        )
+        return [self._strategy_factor(AI, terreno, modificato, sid) for sid in candidate]
+
+    def _update_ai_legion_doctrines(self, logs: List[str]) -> None:
+        """Ogni legione IA sceglie la propria dottrina, con l'attrito di tutti.
+
+        `doctrine_sharpness()` dice quanto darle retta: a 0 è un sorteggio fra
+        le candidate praticabili, salendo si stringe su quella giusta per il
+        momento.
+        """
+        if doc is None:
+            return
+
+        rng = self.doctrine_rng
+        try:
+            getter = getattr(self.ai_policy, "doctrine_sharpness", None)
+            durezza = float(getter()) if callable(getter) else 0.0
+        except (TypeError, ValueError):
+            durezza = 0.0
+
+        for legion in self.ai_legions.values():
+            unita = legion.get("units") or []
+            if not unita:
+                continue
+            ultimo = legion.get("doctrine_changed_turn")
+            if not doc.can_change(self.game_map.turn, ultimo):
+                continue
+
+            candidate = [
+                sid for sid in doc.ai_candidates(unita) if sid in self.strategies_map
+            ]
+            if not candidate:
+                continue
+
+            # Le dottrine che indebolirebbero troppo la legione escono di lista
+            # prima del sorteggio, se no a difficoltà bassa — dove i punteggi
+            # non vengono nemmeno guardati — l'IA si dimezza da sola. Quanto
+            # stringe il filtro lo decide la stessa manopola della scelta.
+            fattori = self._ai_doctrine_factors(legion, candidate)
+            tenuti = doc.ai_viable(candidate, fattori, doc.ai_factor_floor(durezza))
+            candidate = [candidate[i] for i in tenuti]
+            fattori = [fattori[i] for i in tenuti]
+
+            punteggi = doc.ai_scores(
+                unita, candidate, self._ai_legion_situation(legion), fattori
+            )
+            scelta = candidate[self._indice_pesato(punteggi, durezza, rng)]
+            if scelta == self._legion_strategy_id(AI, legion):
+                # Fissa comunque la dottrina sulla legione: finché resta sul
+                # ripiego alla strategia generale, un cambio di quella gliela
+                # cambierebbe di colpo, senza attesa e senza ritardo.
+                legion.setdefault("strategy_id", scelta)
+                continue
+
+            legion["strategy_id"] = scelta
+            self._mark_doctrine_change(legion)
+            nome = self.strategies_map.get(scelta, {}).get("name", scelta)
+            logs.append(
+                f"[Turno {self.game_map.turn}] 🧭 La legione IA "
+                f"'{legion.get('name')}' adotta {nome}."
+            )
+
     def _auto_manage_ai_economy(self) -> List[str]:
         """L'IA piazza miniere disponibili e recluta automaticamente se può permetterselo."""
         logs: List[str] = []
@@ -2367,8 +2628,14 @@ class GameSession:
         if strategy_log:
             logs.append(strategy_log)
 
-        logs.extend(self._reinforce_ai_castle_ring())
-        logs.extend(self._garrison_ai_castle())
+        # I grux messi da parte per la ricerca non li tocca nessuna spesa
+        # difensiva. Prima li proteggeva solo il reclutamento: l'anello del
+        # castello se li mangiava prima che la ricerca partisse, e l'incubo —
+        # l'unico profilo che la vuole a ogni turno — era anche l'unico a
+        # sbloccare meno abilità del difficile.
+        risparmio_ricerca = self._ai_research_savings()
+        logs.extend(self._reinforce_ai_castle_ring(risparmio_ricerca))
+        logs.extend(self._garrison_ai_castle(risparmio_ricerca))
         if self.ai_policy.should_start_research(self.game_map.turn):
             # La riga di log la scrive già `_start_ability_research`: qui non
             # va rimessa nella lista, o comparirebbe due volte nel registro.
@@ -2571,6 +2838,17 @@ class GameSession:
             durezza = RECRUIT_SHARPNESS_DEFAULT
 
         rng = getattr(self.ai_policy, "rng", None) or random
+        return self._indice_pesato(punteggi, durezza, rng)
+
+    def _indice_pesato(self, punteggi: List[float], durezza: float, rng) -> int:
+        """Sorteggio pesato: a durezza 0 tutti uguali, salendo vince la migliore.
+
+        Lo usano il reclutamento e la scelta della dottrina, che hanno la
+        stessa forma: una lista di punteggi e un profilo di difficoltà che
+        decide quanto dargli retta.
+        """
+        if not punteggi:
+            return 0
         if durezza <= 0.0:
             return rng.randrange(len(punteggi))
 
@@ -2723,6 +3001,9 @@ class GameSession:
             # Rete di sicurezza: assorbe qualsiasi disallineamento legione/esercito IA
             # maturato fuori dai punti di mutazione noti (recluta, perdite).
             self._sync_ai_legion_units()
+            # [DOCTRINE-LAYER] Prima di muovere: ogni legione decide con
+            # che dottrina affronta questo turno.
+            self._update_ai_legion_doctrines(logs)
             if self.ai_policy.should_skip_turn(self.game_map.turn):
                 ai_skipped = True
                 logs.append(f"[Turno {self.game_map.turn}] IA esita e mantiene la posizione.")
@@ -2822,6 +3103,9 @@ class GameSession:
         #    ogni legione paga la marcia o incassa il riposo esattamente una volta.
         if self.state == SessionState.ACTIVE:
             self._advance_troop_conditions(logs)
+            # [DOCTRINE-LAYER] Le perdite del turno sono contate: se una
+            # legione è scesa sotto la composizione richiesta va detto.
+            self._log_doctrine_gate_changes(logs)
             self._advance_weather(logs)
 
         self._prune_legion_movement_states()
@@ -3265,8 +3549,33 @@ class GameSession:
                 ),
                 "troop_status": tc.resolve_status(condition),
                 "condition": tc.describe(condition),
+                # [DOCTRINE-LAYER] Perché l'effetto non si vede: o manca la
+                # composizione, o deve ancora scattare il turno.
+                "doctrine": self._doctrine_payload(entity, legion, strategy_id),
             }
         return out
+
+    # [DOCTRINE-LAYER] ─────────────────────────────────────────────
+    def _doctrine_payload(
+        self, entity: Occupation, legion: Dict[str, Any], strategy_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Stato della dottrina di una legione, per l'interfaccia."""
+        if doc is None:
+            return None
+        unita = legion.get("units") or []
+        turno = self.game_map.turn
+        da = legion.get("doctrine_since_turn")
+        return {
+            "has_effect": doc.has_effect(strategy_id),
+            "effect_text": doc.effect_text(strategy_id),
+            "requirement_text": doc.gate_text(strategy_id),
+            "gate_ok": doc.gate_passed(strategy_id, unita),
+            "active": doc.is_active(strategy_id, unita, turn=turno, since_turn=da),
+            "since_turn": da,
+            "turns_before_change": doc.turns_before_change(
+                turno, legion.get("doctrine_changed_turn")
+            ),
+        }
 
     def _legion_strategy_id(self, entity: Occupation, legion: Dict[str, Any]) -> str:
         """Strategia di una legione, con ripiego su quella generale dello schieramento.
@@ -3278,6 +3587,41 @@ class GameSession:
         strategy_id = legion.get("strategy_id") or default
         return strategy_id if strategy_id in self.strategies_map else default
 
+    # [DOCTRINE-LAYER] Punto unico da cui il motore chiede se una dottrina è
+    # accesa: porta e attrito si leggono in un posto solo.
+    def _doctrine_state(
+        self,
+        entity: Occupation,
+        legion: Optional[Dict[str, Any]],
+        units: Optional[List[str]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Dottrina attiva di una legione, o None se il layer non c'è.
+
+        `units` serve agli scontri: la porta va guardata sulla composizione con
+        cui la legione è ENTRATA in battaglia. Guardandola dopo, una dottrina
+        che serve a incassare le perdite si spegne proprio per via delle
+        perdite e non scatta mai.
+        """
+        if doc is None or not legion:
+            return None
+        return {
+            "strategy_id": self._legion_strategy_id(entity, legion),
+            "units": legion.get("units") or [] if units is None else units,
+            "turn": self.game_map.turn,
+            "since_turn": legion.get("doctrine_since_turn"),
+        }
+
+    def _mark_doctrine_change(self, legion: Dict[str, Any]) -> None:
+        """Registra il cambio di dottrina su due orologi distinti.
+
+        `doctrine_since_turn` fa partire l'effetto dal turno dopo;
+        `doctrine_changed_turn` fa scattare l'attesa prima del prossimo cambio.
+        Una legione appena formata ha solo il primo: darle una dottrina subito
+        dopo averla creata è il gesto normale, non un ripensamento.
+        """
+        legion["doctrine_since_turn"] = self.game_map.turn
+        legion["doctrine_changed_turn"] = self.game_map.turn
+
     def set_legion_strategy(self, legion_id: str, strategy_id: str) -> Dict[str, Any]:
         """Assegna una strategia a una singola legione player."""
         if self.state != SessionState.ACTIVE:
@@ -3287,6 +3631,23 @@ class GameSession:
         strategy = self.strategies_map.get(strategy_id)
         if strategy is None:
             raise ValueError("Strategia non valida.")
+
+        # [DOCTRINE-LAYER] Le strategie si cambiano in partita, ma non a ogni
+        # turno: senza attesa una legione sola le userebbe tutte a rotazione
+        # e ogni effetto sarebbe sempre acceso.
+        if doc is not None:
+            ultimo = legion.get("doctrine_changed_turn")
+            cambia = strategy_id != legion.get("strategy_id")
+            if cambia and not doc.can_change(self.game_map.turn, ultimo):
+                mancano = doc.turns_before_change(self.game_map.turn, ultimo)
+                raise ValueError(
+                    f"La legione '{legion['name']}' ha cambiato dottrina da poco: "
+                    f"può cambiare di nuovo fra {mancano} turn{'o' if mancano == 1 else 'i'}."
+                )
+            # Anche riconfermare la dottrina ereditata fa partire l'orologio,
+            # se no resta un cambio gratis in tasca da spendere quando serve.
+            if cambia or ultimo is None:
+                self._mark_doctrine_change(legion)
 
         legion["strategy_id"] = strategy_id
 
@@ -3298,9 +3659,19 @@ class GameSession:
             defending=False, cell=cell, enemy_strength=0.0, movement_key=None,
         )
 
+        # [DOCTRINE-LAYER] La porta è invisibile: senza questa coda il log dice
+        # "adotta Manovra sui Fianchi" anche a chi non ha un cavallo.
+        nota_dottrina = ""
+        if doc is not None:
+            unita = legion.get("units") or []
+            nota_dottrina = " — " + doc.status_text(strategy_id, unita)
+            if doc.gate_passed(strategy_id, unita) and doc.has_effect(strategy_id):
+                nota_dottrina += f" (dal turno {self.game_map.turn + doc.ACTIVATION_DELAY_TURNS})"
+
         log_entry = (
             f"[Turno {self.game_map.turn}] 🎯 PLAYER: legione '{legion['name']}' adotta "
             f"{strategy['name']} → forza {int(round(breakdown['strength']))} su {terrain}"
+            f"{nota_dottrina}"
         )
         self.battle_log.append(log_entry)
         return {
@@ -3577,6 +3948,9 @@ class GameSession:
             ),
             "pos": list(pos) if len(pos) == 2 else None,
             "units_count": len(unit_ids),
+            # [DOCTRINE-LAYER] Anche il pannello consigli deve poter dire
+            # se l'effetto della dottrina è acceso o cosa gli manca.
+            "doctrine": self._doctrine_payload(PLAYER, legion, strategy_id),
             "current_strategy_id": strategy_id,
             "current_strategy_name": self.strategies_map.get(strategy_id, {}).get(
                 "name", strategy_id
@@ -3871,18 +4245,12 @@ class GameSession:
     def _ai_research_savings(self) -> int:
         """Grux che l'IA tiene da parte per la prossima ricerca in programma.
 
-        Zero se sta già ricercando o se non c'è niente di avviabile: il
-        risparmio serve solo quando c'è un obiettivo concreto da raggiungere.
-
-        E zero finché l'esercito non arriva a due reparti pieni: prima vengono
-        le truppe. Misurato risparmiando fin dal primo turno, l'IA a incubo
-        restava a una legione sola per mezza partita (media 1.5 invece di 2.1) e
-        arrivava al castello 60 turni più tardi, pur finendo con il triplo delle
-        truppe. Il tempo perso all'inizio non si recupera comprando dopo.
-
-        La soglia esatta è un compromesso misurato su 5 partite per difficoltà:
-        a 4 unità l'IA a incubo sblocca 5.2 abilità ma impiega 155 turni, a 18
-        ne sblocca 3 in 122 turni. A 12 ne sblocca 4 in 125.
+        Zero mentre sta già ricercando, e zero finché l'esercito non arriva a
+        due reparti pieni: prima vengono le truppe. Risparmiando dal primo turno
+        l'incubo restava a una legione per mezza partita e arrivava al castello
+        60 turni più tardi, pur finendo col triplo delle truppe. La soglia è un
+        compromesso misurato: a 4 unità sblocca 5.2 abilità in 155 turni, a 18
+        ne sblocca 3 in 122, a 12 ne sblocca 4 in 125.
         """
         states = self.ability_states.get(AI, {})
         turn = self.game_map.turn
@@ -4340,7 +4708,17 @@ class GameSession:
             raise ValueError("La partita è terminata.")
 
         legion = self._get_player_legion_or_raise(legion_id)
-        self._require_legion_type(legion, LEGION_TYPE_CONSTRUCTION, "una Fortificazione")
+        # [DOCTRINE-LAYER] Schermo e Fuoco: la legione alza il muro da sé,
+        # senza genieri, e non paga i primi livelli. Resta un ordine del
+        # giocatore: da sola non costruisce niente.
+        stato = self._doctrine_state(PLAYER, legion) if doc is not None else None
+        cantiere = stato is not None and doc.fortification_relief(
+            stato["strategy_id"], stato["units"],
+            turn=stato["turn"], since_turn=stato["since_turn"],
+            current_level=0,
+        ) is not None
+        if not cantiere:
+            self._require_legion_type(legion, LEGION_TYPE_CONSTRUCTION, "una Fortificazione")
 
         row, col = self._resolve_build_cell(legion, target, "una fortificazione")
         cell = self.game_map.get_cell(row, col)
@@ -4363,6 +4741,18 @@ class GameSession:
 
         current_level = cell.fortification_level
         cost = self._fortification_cost(current_level)
+        # [DOCTRINE-LAYER] I primi livelli di Schermo e Fuoco sono gratis; dal
+        # terzo in poi, e sul proprio castello, si paga come tutti.
+        gratis = False
+        if cantiere:
+            sconto = doc.fortification_relief(
+                stato["strategy_id"], stato["units"],
+                turn=stato["turn"], since_turn=stato["since_turn"],
+                current_level=current_level, is_castle=is_own_castle,
+            )
+            gratis = bool(sconto and sconto.get("free"))
+        if gratis:
+            cost = 0
         if self.grux_balance[PLAYER] < cost:
             raise ValueError(f"Grux insufficienti per fortificare: servono {cost}, disponibili {self.grux_balance[PLAYER]}")
 
@@ -4380,9 +4770,10 @@ class GameSession:
             )
         else:
             remote = "" if (row, col) == tuple(legion.get("pos", ())) else " (cantiere a distanza)"
+            spesa = "gratis, posizioni preparate" if gratis else f"costo {cost} grux"
             log_entry = (
                 f"[Turno {self.game_map.turn}] 🧱 PLAYER fortifica ({row},{col}) con la legione "
-                f"'{legion['name']}' → livello {cell.fortification_level} (costo {cost} grux){remote}"
+                f"'{legion['name']}' → livello {cell.fortification_level} ({spesa}){remote}"
             )
         self.battle_log.append(log_entry)
         self._evento(                                         # [EVENT-CHANNEL]
@@ -4446,13 +4837,13 @@ class GameSession:
             ring.append(cell)
         return ring
 
-    def _garrison_ai_castle(self) -> List[str]:
+    def _garrison_ai_castle(self, reserve: int = 0) -> List[str]:
         """L'IA presidia il proprio castello, come può fare il giocatore.
 
         Le legioni non difendono più il castello: senza questo, solo il player
-        avrebbe potuto guarnirlo e il bilanciamento penderebbe da una parte.
-        Quante truppe schierare è una manopola per difficoltà
-        (`castle_garrison_target`): i profili che non la espongono non presidiano.
+        avrebbe potuto guarnirlo. Quante truppe schierare è una manopola per
+        difficoltà (`castle_garrison_target`); `reserve` è quanto non può
+        spendere perché destinato ad altro.
         """
         target = int(getattr(self.ai_policy, "castle_garrison_target", 0) or 0)
         if target <= 0:
@@ -4467,9 +4858,10 @@ class GameSession:
         if len(cell.garrison_unit_ids) >= target:
             return []
 
+        disponibili = self.grux_balance[AI] - max(0, int(reserve))
         affordable = [
             unit for unit in self.data["units"]
-            if self.unit_costs[unit["id"]] <= self.grux_balance[AI]
+            if self.unit_costs[unit["id"]] <= disponibili
         ]
         if not affordable:
             return []
@@ -4492,12 +4884,13 @@ class GameSession:
             f"del CASTELLO — {cost} grux ({len(cell.garrison_unit_ids)}/{target})"
         ]
 
-    def _reinforce_ai_castle_ring(self) -> List[str]:
+    def _reinforce_ai_castle_ring(self, extra_reserve: int = 0) -> List[str]:
         """Trincera l'IA sulle caselle adiacenti al proprio castello.
 
         Fortifica l'anello e vi compra truppe di presidio con il budget extra:
         sono unità acquistate apposta, quindi NON tolgono forza alla legione
-        in campo (`ai_units` resta intatto).
+        in campo (`ai_units` resta intatto). `extra_reserve` è quanto deve
+        restare in cassa per altro, oltre alla riserva del piano.
         """
         plan_getter = getattr(self.ai_policy, "castle_ring_plan", None)
         if not callable(plan_getter):
@@ -4507,7 +4900,7 @@ class GameSession:
         # Il piano dell'anello non può sfondare il tetto generale delle celle.
         max_fort = min(int(plan.get("max_fort_level", 0)), GameMap.MAX_FORTIFICATION_LEVEL)
         target_garrison = int(plan.get("target_garrison", 0))
-        reserve = int(plan.get("reserve_grux", 0))
+        reserve = int(plan.get("reserve_grux", 0)) + max(0, int(extra_reserve))
 
         logs: List[str] = []
         ring = self._ai_castle_ring_cells()
